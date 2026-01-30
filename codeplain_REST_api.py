@@ -14,6 +14,17 @@ RETRY_ERROR_CODES = [
     "LLMInternalError",
 ]
 
+# Mapping from API error codes to exception classes
+ERROR_CODE_EXCEPTIONS = {
+    "FunctionalRequirementTooComplex": plain2code_exceptions.FunctionalRequirementTooComplex,
+    "ConflictingRequirements": plain2code_exceptions.ConflictingRequirements,
+    "CreditBalanceTooLow": plain2code_exceptions.CreditBalanceTooLow,
+    "LLMInternalError": plain2code_exceptions.LLMInternalError,
+    "MissingResource": plain2code_exceptions.MissingResource,
+    "PlainSyntaxError": plain2code_exceptions.PlainSyntaxError,
+    "InternalServerError": plain2code_exceptions.InternalServerError,
+}
+
 
 class CodeplainAPI:
 
@@ -33,13 +44,31 @@ class CodeplainAPI:
         run_state.increment_call_count()
         payload["render_state"] = run_state.to_dict()
 
-    def post_request(self, endpoint_url, headers, payload, run_state: Optional[RunState]):  # noqa: C901
+    def _raise_for_error_code(self, response_json):
+        """Raise appropriate exception based on error code in response."""
+        error_code = response_json.get("error_code")
+        if error_code not in ERROR_CODE_EXCEPTIONS:
+            return
+
+        exception_class = ERROR_CODE_EXCEPTIONS[error_code]
+        message = response_json.get("message", "")
+
+        # FunctionalRequirementTooComplex has an extra parameter
+        if error_code == "FunctionalRequirementTooComplex":
+            raise exception_class(message, response_json.get("proposed_breakdown"))
+
+        raise exception_class(message)
+
+    def post_request(
+        self, endpoint_url, headers, payload, run_state: Optional[RunState], num_retries: int = MAX_RETRIES
+    ):
         if run_state is not None:
             self._extend_payload_with_run_state(payload, run_state)
 
         retry_delay = RETRY_DELAY
         response_json = None
-        for attempt in range(MAX_RETRIES + 1):
+
+        for attempt in range(num_retries + 1):
             try:
                 response = requests.post(endpoint_url, headers=headers, json=payload)
 
@@ -50,28 +79,7 @@ class CodeplainAPI:
                     raise
 
                 if response.status_code == requests.codes.bad_request and "error_code" in response_json:
-                    if response_json["error_code"] == "FunctionalRequirementTooComplex":
-                        raise plain2code_exceptions.FunctionalRequirementTooComplex(
-                            response_json["message"], response_json.get("proposed_breakdown")
-                        )
-
-                    if response_json["error_code"] == "ConflictingRequirements":
-                        raise plain2code_exceptions.ConflictingRequirements(response_json["message"])
-
-                    if response_json["error_code"] == "CreditBalanceTooLow":
-                        raise plain2code_exceptions.CreditBalanceTooLow(response_json["message"])
-
-                    if response_json["error_code"] == "LLMInternalError":
-                        raise plain2code_exceptions.LLMInternalError(response_json["message"])
-
-                    if response_json["error_code"] == "MissingResource":
-                        raise plain2code_exceptions.MissingResource(response_json["message"])
-
-                    if response_json["error_code"] == "PlainSyntaxError":
-                        raise plain2code_exceptions.PlainSyntaxError(response_json["message"])
-
-                    if response_json["error_code"] == "InternalServerError":
-                        raise plain2code_exceptions.InternalServerError(response_json["message"])
+                    self._raise_for_error_code(response_json)
 
                 response.raise_for_status()
                 return response_json
@@ -81,15 +89,23 @@ class CodeplainAPI:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:
                         raise e
 
-                if attempt < MAX_RETRIES:
-                    self.console.info(f"Error on attempt {attempt + 1}/{MAX_RETRIES + 1}: {e}")
+                if attempt < num_retries:
+                    self.console.info(f"Error on attempt {attempt + 1}/{num_retries + 1}: {e}")
                     self.console.info(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
-                    # Exponential backoff
-                    retry_delay *= 2
+                    retry_delay *= 2  # Exponential backoff
                 else:
-                    self.console.error(f"Max retries ({MAX_RETRIES}) exceeded. Last error: {e}")
+                    self.console.error(f"Max retries ({num_retries}) exceeded. Last error: {e}")
                     raise e
+
+    def connection_check(self, client_version):
+        endpoint_url = f"{self.api_url}/connection_check"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "api_key": self.api_key,
+            "client_version": client_version,
+        }
+        return self.post_request(endpoint_url, headers, payload, None, num_retries=0)
 
     def render_functional_requirement(
         self,

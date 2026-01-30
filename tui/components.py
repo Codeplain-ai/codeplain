@@ -41,11 +41,8 @@ class ScriptOutputType(str, Enum):
             return 0
         return max(len(script_type.value) for script_type in active_types)
 
-    def get_padded_label(self, active_types: list["ScriptOutputType"]) -> str:
+    def get_padded_label(self) -> str:
         """Get the label left-aligned (no padding).
-
-        Args:
-            active_types: List of ScriptOutputType enum members that are currently active
 
         Returns:
             Label without padding (left-aligned)

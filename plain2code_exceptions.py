@@ -33,6 +33,14 @@ class MissingAPIKey(Exception):
     pass
 
 
+class InvalidAPIKey(Exception):
+    pass
+
+
+class OutdatedClientVersion(Exception):
+    pass
+
+
 class InvalidFridArgument(Exception):
     pass
 
