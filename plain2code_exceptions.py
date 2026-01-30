@@ -67,3 +67,9 @@ class MissingPreviousFunctionalitiesError(Exception):
     """Raised when trying to render from a FRID but previous FRID commits are missing."""
 
     pass
+
+
+class NetworkConnectionError(Exception):
+    """Raised when there is a network connectivity issue with the API server."""
+
+    pass

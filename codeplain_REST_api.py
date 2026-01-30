@@ -2,6 +2,7 @@ import time
 from typing import Optional
 
 import requests
+from requests.exceptions import ConnectionError, Timeout
 
 import plain2code_exceptions
 from plain2code_state import RunState
@@ -9,7 +10,6 @@ from plain2code_state import RunState
 MAX_RETRIES = 4
 RETRY_DELAY = 3
 
-# TODO: Handle connection errors
 RETRY_ERROR_CODES = [
     "LLMInternalError",
 ]
@@ -84,7 +84,23 @@ class CodeplainAPI:
                 response.raise_for_status()
                 return response_json
 
+            except (ConnectionError, Timeout) as e:
+                # Network-related errors should always be retried
+                if attempt < MAX_RETRIES:
+                    self.console.info(f"Network error on attempt {attempt + 1}/{MAX_RETRIES + 1}: {e}")
+                    self.console.info(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    # Exponential backoff
+                    retry_delay *= 2
+                else:
+                    self.console.error(f"Max retries ({MAX_RETRIES}) exceeded. Network connection failed.")
+                    self.console.error(f"Last error: {str(e)}")
+                    raise plain2code_exceptions.NetworkConnectionError(
+                        f"Failed to connect to API server after {MAX_RETRIES + 1} attempts. "
+                    )
+
             except Exception as e:
+                # For other errors, check if they should be retried
                 if response_json is not None and "error_code" in response_json:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:
                         raise e
