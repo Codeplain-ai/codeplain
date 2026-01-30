@@ -44,6 +44,32 @@ class CodeplainAPI:
         run_state.increment_call_count()
         payload["render_state"] = run_state.to_dict()
 
+    def _handle_retry_logic(self, attempt: int, retry_delay: int, error: Exception, error_type: str = "Error") -> int:
+        """
+        Handles retry logic with exponential backoff.
+
+        Args:
+            attempt: Current attempt number
+            retry_delay: Current retry delay in seconds
+            error: The exception that occurred
+            error_type: Type of error for logging (e.g., "Network error", "Error")
+
+        Returns:
+            Updated retry_delay for next attempt
+
+        Raises:
+            The original exception if max retries exceeded
+        """
+        if attempt < MAX_RETRIES:
+            self.console.info(f"{error_type} on attempt {attempt + 1}/{MAX_RETRIES + 1}: {error}")
+            self.console.info(f"Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+            # Exponential backoff
+            return retry_delay * 2
+        else:
+            self.console.error(f"Max retries ({MAX_RETRIES}) exceeded. Last error: {error}")
+            raise error
+
     def _raise_for_error_code(self, response_json):
         """Raise appropriate exception based on error code in response."""
         error_code = response_json.get("error_code")
@@ -87,11 +113,7 @@ class CodeplainAPI:
             except (ConnectionError, Timeout) as e:
                 # Network-related errors should always be retried
                 if attempt < MAX_RETRIES:
-                    self.console.info(f"Network error on attempt {attempt + 1}/{MAX_RETRIES + 1}: {e}")
-                    self.console.info(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    # Exponential backoff
-                    retry_delay *= 2
+                    retry_delay = self._handle_retry_logic(attempt, retry_delay, e, "Network error")
                 else:
                     self.console.error(f"Max retries ({MAX_RETRIES}) exceeded. Network connection failed.")
                     self.console.error(f"Last error: {str(e)}")
@@ -105,14 +127,7 @@ class CodeplainAPI:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:
                         raise e
 
-                if attempt < num_retries:
-                    self.console.info(f"Error on attempt {attempt + 1}/{num_retries + 1}: {e}")
-                    self.console.info(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    self.console.error(f"Max retries ({num_retries}) exceeded. Last error: {e}")
-                    raise e
+                retry_delay = self._handle_retry_logic(attempt, retry_delay, e)
 
     def connection_check(self, client_version):
         endpoint_url = f"{self.api_url}/connection_check"
