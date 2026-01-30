@@ -81,9 +81,16 @@ ProgressItem {
     padding: 0;
 }
 
-.substate {
-    margin: 0;
-    padding: 0;
+.substate-row {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+}
+
+.substate-line-text {
+    width: 1fr;
+    color: #FFF;
+    content-align: left middle;
 }
 
 #frid-progress Vertical {
