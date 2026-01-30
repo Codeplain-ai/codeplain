@@ -12,11 +12,14 @@ class SystemConfig:
 
     def __init__(self):
         self.config = self._load_config()
+        if "client_version" not in self.config:
+            raise KeyError("Missing 'client_version' in system_config.yaml")
         if "system_requirements" not in self.config:
             raise KeyError("Missing 'system_requirements' section in system_config.yaml")
         if "error_messages" not in self.config:
             raise KeyError("Missing 'error_messages' section in system_config.yaml")
 
+        self.client_version = self.config["client_version"]
         self.requirements = self.config["system_requirements"]
         self.error_messages = self.config["error_messages"]
 

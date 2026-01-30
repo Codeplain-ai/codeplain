@@ -21,11 +21,13 @@ from plain2code_exceptions import (
     ConflictingRequirements,
     CreditBalanceTooLow,
     InternalServerError,
+    InvalidAPIKey,
     InvalidFridArgument,
     LLMInternalError,
     MissingAPIKey,
     MissingPreviousFunctionalitiesError,
     MissingResource,
+    OutdatedClientVersion,
     PlainSyntaxError,
     UnexpectedState,
 )
@@ -163,6 +165,25 @@ def setup_logging(
     root_logger.info(f"Render ID: {render_id}")  # Ensure render ID is logged in to codeplain.log file
 
 
+def _check_connection(codeplainAPI):
+    """Check API connectivity and validate API key and client version."""
+    response = codeplainAPI.connection_check(system_config.client_version)
+
+    if not response.get("api_key_valid", False):
+        raise InvalidAPIKey(
+            "Provided API key is invalid. Please provide a valid API key using the CODEPLAIN_API_KEY environment variable "
+            "or the --api-key argument."
+        )
+
+    if not response.get("client_version_valid", False):
+        min_version = response.get("min_client_version", "unknown")
+        raise OutdatedClientVersion(
+            f"Your client version ({system_config.client_version}) is outdated. Minimum required version is {min_version}. "
+            "Please update using:"
+            "  uv tool upgrade codeplain"
+        )
+
+
 def render(args, run_state: RunState, codeplain_api, event_bus: EventBus):  # noqa: C901
     # Check system requirements before proceeding
     system_config.verify_requirements()
@@ -186,6 +207,8 @@ def render(args, run_state: RunState, codeplain_api, event_bus: EventBus):  # no
     codeplainAPI.verbose = args.verbose
     assert args.api is not None and args.api != "", "API URL is required"
     codeplainAPI.api_url = args.api
+
+    _check_connection(codeplainAPI)
 
     module_renderer = ModuleRenderer(
         codeplainAPI,
@@ -266,6 +289,10 @@ def main():  # noqa: C901
         console.debug(f"Render ID: {run_state.render_id}")
     except MissingAPIKey as e:
         console.error(f"Missing API key: {str(e)}\n")
+    except InvalidAPIKey as e:
+        console.error(f"Invalid API key: {str(e)}\n")
+    except OutdatedClientVersion as e:
+        console.error(f"Outdated client version: {str(e)}\n")
     except (InternalServerError, UnexpectedState):
         exc_info = sys.exc_info()
         console.error(
