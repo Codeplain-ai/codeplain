@@ -19,7 +19,6 @@ from plain2code_events import (
     RenderModuleStarted,
     RenderStateUpdated,
 )
-from plain2code_exceptions import InternalServerError
 from render_machine.states import States
 from tui.widget_helpers import log_to_widget
 
@@ -138,14 +137,7 @@ class Plain2CodeTUI(App):
             # Extract the original exception from WorkerFailed wrapper
             error = event.worker.error
             original_error = error.__cause__ if isinstance(error, WorkerFailed) and error.__cause__ else error
-
-            # Every error in worker thread gets converted to InternalServerError so it's handled by the common call to
-            # action in plain2code.py
-            internal_error = InternalServerError(str(original_error))
-            internal_error.__cause__ = original_error
-
-            # Exit the TUI and return the wrapped exception
-            self.exit(result=internal_error)
+            self.exit(result=original_error)
 
     def _handle_exception(self, error: Exception) -> None:
         """Override Textual's exception handler to suppress console tracebacks for worker errors.

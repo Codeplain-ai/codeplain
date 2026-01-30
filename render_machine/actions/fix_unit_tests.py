@@ -3,7 +3,7 @@ from typing import Any
 import file_utils
 import render_machine.render_utils as render_utils
 from plain2code_console import console
-from plain2code_exceptions import UnexpectedState
+from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -16,7 +16,7 @@ class FixUnitTests(BaseAction):
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         if not previous_action_payload.get("previous_unittests_issue"):
-            raise UnexpectedState("Previous action payload does not contain previous unit tests issue.")
+            raise InternalClientError("Previous action payload does not contain previous unit tests issue.")
         previous_unittests_issue = previous_action_payload["previous_unittests_issue"]
 
         if previous_unittests_issue and len(previous_unittests_issue) > MAX_ISSUE_LENGTH:
