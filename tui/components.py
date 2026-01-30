@@ -1,3 +1,4 @@
+import time
 from enum import Enum
 from typing import Optional
 
@@ -78,6 +79,47 @@ class TUIComponents(str, Enum):
     LOG_VIEW = "log-view"
     LOG_WIDGET = "log-widget"
     LOG_FILTER = "log-filter"
+
+
+class SubstateLine(Horizontal):
+    """A single substate row with an attached timer."""
+
+    def __init__(self, text: str, indent: str, **kwargs):
+        super().__init__(**kwargs)
+        self.text = text
+        self.indent = indent
+        self.start_time = time.monotonic()
+        self._line_widget: Static | None = None
+
+    def compose(self):
+        self._line_widget = Static(self._format_line(), classes="substate-line-text")
+        yield self._line_widget
+
+    def on_mount(self) -> None:
+        self._refresh_timer()
+        self.set_interval(1, self._refresh_timer)
+
+    def _format_timer(self) -> str:
+        elapsed = int(time.monotonic() - self.start_time)
+        if elapsed < 60:
+            return f"{elapsed}s"
+        minutes = elapsed // 60
+        seconds = elapsed % 60
+        if minutes < 60:
+            return f"{minutes}m {seconds}s"
+        hours = minutes // 60
+        return f"{hours}h {minutes % 60}m"
+
+    def _format_line(self) -> str:
+        timer = self._format_timer()
+        return f"{self.indent}  └ {self.text} [#888888]({timer})[/#888888]"
+
+    def _refresh_timer(self) -> None:
+        try:
+            if self._line_widget:
+                self._line_widget.update(self._format_line())
+        except Exception:
+            pass
 
 
 class ProgressItem(Vertical):
@@ -176,7 +218,7 @@ class ProgressItem(Vertical):
 
         for substate in substates:
             # Render the current substate
-            substate_widget = Static(f"{indent}  └ {substate.text}", classes="substate")
+            substate_widget = SubstateLine(substate.text, indent, classes="substate-row")
             await container.mount(substate_widget)
 
             # Recursively render children if they exist
