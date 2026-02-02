@@ -10,7 +10,7 @@ Screen {
 /* Codeplain Header Box */
 #codeplain-header {
     dock: top;
-    margin: 1 2;
+    margin: 1 0;
     width: auto;
     height: auto;
 }
