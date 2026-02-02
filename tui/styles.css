@@ -37,7 +37,6 @@ We might need those at some point, so just commenting them out for now.
 }
 
 #render-status-widget {
-    margin: 0 3;
     height: auto;
 }
 
@@ -62,12 +61,17 @@ RenderingInfoBox {
 
 .rendering-info-box {
     height: auto;
-    border: solid #FFF;
+    border: solid #E0FF6E;
     padding: 0 1;
 }
 
 .rendering-info-row {
     color: #FFF;
+}
+
+.rendering-info-title {
+    color: #E0FF6E;
+    margin-bottom: 0;
 }
 
 ProgressItem {
@@ -121,8 +125,13 @@ TestScriptsContainer {
 .test-scripts-box {
     height: auto;
     color: #888;
-    border: solid #FFF;
+    border: solid #E0FF6E;
     padding: 0 1;
+}
+
+.test-scripts-title {
+    color: #E0FF6E;
+    margin-bottom: 0;
 }
 
 .test-script-row {

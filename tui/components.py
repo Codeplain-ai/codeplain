@@ -260,13 +260,14 @@ class RenderingInfoBox(Vertical):
 
     def on_mount(self) -> None:
         """Initialize default labels on mount."""
-        self.module_text = "Module: "
-        self.functionality_text = "Functionality:"
+        self.module_text = "module: "
+        self.functionality_text = "functionality:"
         self._refresh_content()
 
     def compose(self):
         self.module_widget = Static(self.module_text, classes="rendering-info-row")
         self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row")
+        yield Static("module status", classes="rendering-info-title")
         with Vertical(classes="rendering-info-box"):
             yield self.module_widget
             yield self.functionality_widget
@@ -325,6 +326,7 @@ class TestScriptsContainer(Vertical):
         self._refresh_content()
 
     def compose(self):
+        yield Static("latest test scripts", classes="test-scripts-title")
         with Vertical(classes="test-scripts-box"):
             self.unit_widget = Static(self.unit_test_text, classes="test-script-row")
             self.conformance_widget = Static(self.conformance_test_text, classes="test-script-row")

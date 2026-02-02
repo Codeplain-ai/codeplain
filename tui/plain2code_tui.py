@@ -175,7 +175,7 @@ class Plain2CodeTUI(App):
             with Vertical(id=TUIComponents.DASHBOARD_VIEW.value):
                 with VerticalScroll():
                     yield Static(
-                        "[#E0FF6E]*codeplain[/#E0FF6E] [#888888](v0.5.0)[/#888888]\n",
+                        "[#FFFFFF]*codeplain[/#FFFFFF] [#888888](v0.5.0)[/#888888]\n",
                         id="codeplain-header",
                         classes="codeplain-header",
                     )
