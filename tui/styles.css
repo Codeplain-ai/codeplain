@@ -34,13 +34,11 @@ We might need those at some point, so just commenting them out for now.
     margin-left: 2;
     margin-right: 2;
     height: auto;
-    color: grey;
 }
 
 #render-status-widget {
     margin: 0 3;
     height: auto;
-    color: #4D4D4D;
 }
 
 #render-status-widget.success {
@@ -64,7 +62,12 @@ RenderingInfoBox {
 
 .rendering-info-box {
     height: auto;
-    color: #888;
+    border: solid #FFF;
+    padding: 0 1;
+}
+
+.rendering-info-row {
+    color: #FFF;
 }
 
 ProgressItem {
@@ -101,13 +104,13 @@ ProgressItem {
     margin-bottom: 1;
     margin-left: 2;
     margin-right: 2;
-    color: #4D4D4D;
+    color: #FFF;
 }
 
 #render-module-name-widget {
     margin-left: 2;
     margin-right: 2;
-    color: #4D4D4D;
+    color: #FFF;
 }
 
 TestScriptsContainer {
@@ -118,8 +121,13 @@ TestScriptsContainer {
 .test-scripts-box {
     height: auto;
     color: #888;
+    border: solid #FFF;
+    padding: 0 1;
 }
 
+.test-script-row {
+    color: #FFF;
+}
 #unit-test-script-output-widget,
 #conformance-tests-script-output-widget,
 #testing-environment-script-output-widget {
