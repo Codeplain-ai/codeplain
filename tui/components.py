@@ -232,70 +232,44 @@ class ProgressItem(Vertical):
 
 
 class RenderingInfoBox(Vertical):
-    """Container with ASCII border for module and functionality information."""
+    """Responsive container for module and functionality information."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.module_text = ""
         self.functionality_text = ""
+        self.module_widget: Static | None = None
+        self.functionality_widget: Static | None = None
 
     def update_module(self, text: str) -> None:
-        """Update the module name and refresh the display."""
+        """Update the module name display."""
         self.module_text = text
         self._refresh_content()
 
     def update_functionality(self, text: str) -> None:
-        """Update the functionality text and refresh the display."""
+        """Update the functionality text display."""
         self.functionality_text = text
         self._refresh_content()
 
     def _refresh_content(self) -> None:
-        """Refresh the content of the box."""
-        try:
-            widget = self.query_one("#rendering-info-content", Static)
-            # Calculate the width needed for the border
-            lines = []
-            if self.module_text:
-                lines.append(f"  {self.module_text}")
-            if self.functionality_text:
-                lines.append(f"  {self.functionality_text}")
-
-            if not lines:
-                widget.update("")
-                return
-
-            # Find the longest line to determine border width
-            max_width = max(len(line) for line in lines) if lines else 40
-            border_width = max(max_width + 2, 42)  # At least 42 chars wide
-
-            # Build the bordered box with title
-            title = " Currently rendering "
-            top_border = "┌[#FFFFFF]" + title + "[/#FFFFFF]" + "─" * (border_width - len(title)) + "┐"
-            bottom_border = "└" + "─" * border_width + "┘"
-
-            content_lines = [top_border]
-            # Add top padding (empty line)
-            content_lines.append(f"│{' ' * border_width}│")
-            for line in lines:
-                padding = border_width - len(line)
-                content_lines.append(f"│{line}{' ' * padding}│")
-            # Add bottom padding (empty line)
-            content_lines.append(f"│{' ' * border_width}│")
-            content_lines.append(bottom_border)
-
-            widget.update("\n".join(content_lines))
-        except Exception:
-            pass
+        """Refresh text inside the box."""
+        if self.module_widget is not None:
+            self.module_widget.update(self.module_text or "")
+        if self.functionality_widget is not None:
+            self.functionality_widget.update(self.functionality_text or "")
 
     def on_mount(self) -> None:
-        """Initialize the box with empty state on mount."""
-        # Set default empty labels
+        """Initialize default labels on mount."""
         self.module_text = "Module: "
         self.functionality_text = "Functionality:"
         self._refresh_content()
 
     def compose(self):
-        yield Static("", id="rendering-info-content", classes="rendering-info-box")
+        self.module_widget = Static(self.module_text, classes="rendering-info-row")
+        self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row")
+        with Vertical(classes="rendering-info-box"):
+            yield self.module_widget
+            yield self.functionality_widget
 
 
 class TestScriptsContainer(Vertical):
@@ -315,6 +289,9 @@ class TestScriptsContainer(Vertical):
         self.unit_test_text = ScriptOutputType.UNIT_TEST_OUTPUT_TEXT.value
         self.conformance_test_text = ScriptOutputType.CONFORMANCE_TEST_OUTPUT_TEXT.value
         self.testing_env_text = ScriptOutputType.TESTING_ENVIRONMENT_OUTPUT_TEXT.value
+        self.unit_widget: Static | None = None
+        self.conformance_widget: Static | None = None
+        self.testing_widget: Static | None = None
 
     def update_unit_test(self, text: str) -> None:
         """Update unit test output and refresh."""
@@ -332,52 +309,29 @@ class TestScriptsContainer(Vertical):
         self._refresh_content()
 
     def _refresh_content(self) -> None:
-        """Refresh the bordered box content."""
-        try:
-            widget = self.query_one("#test-scripts-content", Static)
-
-            # Collect lines to display
-            lines = []
-            if self.show_unit_test:
-                lines.append(f"  {self.unit_test_text}")
-            if self.show_conformance_test:
-                lines.append(f"  {self.conformance_test_text}")
-            if self.show_testing_env:
-                lines.append(f"  {self.testing_env_text}")
-
-            if not lines:
-                widget.update("")
-                return
-
-            # Find the longest line to determine border width
-            max_width = max(len(line) for line in lines)
-            border_width = max(max_width + 2, 80)  # Minimum width of 80 chars
-
-            # Build the bordered box with title
-            title = " Latest test scripts "
-            top_border = "┌[#FFFFFF]" + title + "[/#FFFFFF]" + "─" * (border_width - len(title)) + "┐"
-            bottom_border = "└" + "─" * border_width + "┘"
-
-            content_lines = [top_border]
-            # Add top padding (empty line)
-            content_lines.append(f"│{' ' * border_width}│")
-            for line in lines:
-                padding = border_width - len(line)
-                content_lines.append(f"│{line}{' ' * padding}│")
-            # Add bottom padding (empty line)
-            content_lines.append(f"│{' ' * border_width}│")
-            content_lines.append(bottom_border)
-
-            widget.update("\n".join(content_lines))
-        except Exception:
-            pass
+        """Refresh the test script rows."""
+        if self.unit_widget is not None:
+            self.unit_widget.update(self.unit_test_text)
+            self.unit_widget.display = self.show_unit_test
+        if self.conformance_widget is not None:
+            self.conformance_widget.update(self.conformance_test_text)
+            self.conformance_widget.display = self.show_conformance_test
+        if self.testing_widget is not None:
+            self.testing_widget.update(self.testing_env_text)
+            self.testing_widget.display = self.show_testing_env
 
     def on_mount(self) -> None:
         """Initialize the box on mount."""
         self._refresh_content()
 
     def compose(self):
-        yield Static("", id="test-scripts-content", classes="test-scripts-box")
+        with Vertical(classes="test-scripts-box"):
+            self.unit_widget = Static(self.unit_test_text, classes="test-script-row")
+            self.conformance_widget = Static(self.conformance_test_text, classes="test-script-row")
+            self.testing_widget = Static(self.testing_env_text, classes="test-script-row")
+            yield self.unit_widget
+            yield self.conformance_widget
+            yield self.testing_widget
 
 
 class FRIDProgress(Vertical):
