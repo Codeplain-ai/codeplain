@@ -23,17 +23,17 @@ jobs:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          aws s3 cp install/install.sh s3://${R2_BUCKET}/install.sh \
+          aws s3 cp install/install.sh s3://${R2_BUCKET}/install/install.sh \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ install.sh uploaded to R2"
 
-          aws s3 cp install/walkthrough.sh s3://${R2_BUCKET}/walkthrough.sh \
+          aws s3 cp install/walkthrough.sh s3://${R2_BUCKET}/install/walkthrough.sh \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ walkthrough.sh uploaded to R2"
 
-          aws s3 cp install/examples.sh s3://${R2_BUCKET}/examples.sh \
+          aws s3 cp install/examples.sh s3://${R2_BUCKET}/install/examples.sh \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ examples.sh uploaded to R2"
