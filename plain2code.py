@@ -28,6 +28,7 @@ from plain2code_exceptions import (
     MissingAPIKey,
     MissingPreviousFunctionalitiesError,
     MissingResource,
+    ModuleDoesNotExistError,
     NetworkConnectionError,
     OutdatedClientVersion,
     PlainSyntaxError,
@@ -316,6 +317,10 @@ def main():  # noqa: C901
     except MissingResource as e:
         exc_info = sys.exc_info()
         console.error(f"Missing resource: {str(e)}\n")
+        console.debug(f"Render ID: {run_state.render_id}")
+    except ModuleDoesNotExistError as e:
+        exc_info = sys.exc_info()
+        console.error(f"Module does not exist: {str(e)}\n")
         console.debug(f"Render ID: {run_state.render_id}")
     except NetworkConnectionError as e:
         exc_info = sys.exc_info()

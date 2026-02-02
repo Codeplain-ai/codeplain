@@ -17,7 +17,7 @@ from mistletoe.utils import traverse
 import concept_utils
 import file_utils
 import plain_spec
-from plain2code_exceptions import PlainSyntaxError
+from plain2code_exceptions import ModuleDoesNotExistError, PlainSyntaxError
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
 
 RESOURCE_MARKER = "[resource]"
@@ -513,7 +513,7 @@ def parse_plain_source(  # noqa: C901
 def read_module_plain_source(module_name: str, template_dirs: list[str]) -> str:
     plain_source_text = file_utils.open_from(template_dirs, module_name + PLAIN_SOURCE_FILE_EXTENSION)
     if plain_source_text is None:
-        raise PlainSyntaxError(f"Module does not exist ({module_name}).")
+        raise ModuleDoesNotExistError(f"Module does not exist ({module_name}).")
     return plain_source_text
 
 
