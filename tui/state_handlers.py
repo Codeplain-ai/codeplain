@@ -165,7 +165,7 @@ class RefactoringHandler(StateHandler):
             elif segments[3] == States.UNIT_TESTS_FAILED.value:
                 update_progress_item_substates(
                     self.tui,
-                    TUIComponents.FRID_PROGRESS_UNIT_TEST.value,
+                    TUIComponents.FRID_PROGRESS_REFACTORING.value,
                     [Substate("Refactoring code", children=[Substate("Fixing unit tests")])],
                 )
 
