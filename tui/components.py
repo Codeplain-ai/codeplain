@@ -24,8 +24,8 @@ class CustomFooter(Horizontal):
 
 
 class ScriptOutputType(str, Enum):
-    UNIT_TEST_OUTPUT_TEXT = "Unit tests: "
-    CONFORMANCE_TEST_OUTPUT_TEXT = "Conformance tests: "
+    UNIT_TEST_OUTPUT_TEXT = "Unit tests output: "
+    CONFORMANCE_TEST_OUTPUT_TEXT = "Conformance tests output: "
     TESTING_ENVIRONMENT_OUTPUT_TEXT = "Testing environment preparation execution output: "
 
     @staticmethod
@@ -260,8 +260,8 @@ class RenderingInfoBox(Vertical):
 
     def on_mount(self) -> None:
         """Initialize default labels on mount."""
-        self.module_text = "module: "
-        self.functionality_text = "functionality:"
+        self.module_text = "Module: "
+        self.functionality_text = "Functionality:"
         self._refresh_content()
 
     def compose(self):
@@ -326,7 +326,7 @@ class TestScriptsContainer(Vertical):
         self._refresh_content()
 
     def compose(self):
-        yield Static("latest test scripts", classes="test-scripts-title")
+        yield Static("testing status", classes="test-scripts-title")
         with Vertical(classes="test-scripts-box"):
             self.unit_widget = Static(self.unit_test_text, classes="test-script-row")
             self.conformance_widget = Static(self.conformance_test_text, classes="test-script-row")
@@ -378,24 +378,26 @@ class FRIDProgress(Vertical):
 
     def compose(self):
         yield RenderingInfoBox()
-        yield ProgressItem(
-            self.IMPLEMENTING_FUNCTIONALITY_TEXT,
-            id=TUIComponents.FRID_PROGRESS_RENDER_FR.value,
-        )
-        if self.unittests_script is not None:
+        yield Static("rendering status", classes="frid-state-machine-title")
+        with Vertical(classes="frid-state-machine-box"):
             yield ProgressItem(
-                self.UNIT_TEST_VALIDATION_TEXT,
-                id=TUIComponents.FRID_PROGRESS_UNIT_TEST.value,
+                self.IMPLEMENTING_FUNCTIONALITY_TEXT,
+                id=TUIComponents.FRID_PROGRESS_RENDER_FR.value,
             )
-        yield ProgressItem(
-            self.REFACTORING_TEXT,
-            id=TUIComponents.FRID_PROGRESS_REFACTORING.value,
-        )
-        if self.conformance_tests_script is not None:
+            if self.unittests_script is not None:
+                yield ProgressItem(
+                    self.UNIT_TEST_VALIDATION_TEXT,
+                    id=TUIComponents.FRID_PROGRESS_UNIT_TEST.value,
+                )
             yield ProgressItem(
-                self.CONFORMANCE_TEST_VALIDATION_TEXT,
-                id=TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
+                self.REFACTORING_TEXT,
+                id=TUIComponents.FRID_PROGRESS_REFACTORING.value,
             )
+            if self.conformance_tests_script is not None:
+                yield ProgressItem(
+                    self.CONFORMANCE_TEST_VALIDATION_TEXT,
+                    id=TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
+                )
 
 
 class LogEntry(Vertical):
