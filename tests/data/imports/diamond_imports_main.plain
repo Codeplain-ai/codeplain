@@ -4,7 +4,7 @@ import:
   - diamond_import_2
 ---
 
-***technical specs***
+***implementation reqs***
 
 - :MainExecutableFile: of :App: should be called "hello_world.py".
 

@@ -7,14 +7,14 @@
 - :ConformanceTestsExecutableFile: is the main executable code file of :ConformanceTests:.
 
 
-***technical specs***
+***implementation reqs***
 
 - :Implementation: should be in Go lang.
 
 - :Implementation: should include unit tests using Go's built-in testing package.
 
 
-***test specs***
+***test reqs***
 
 - :ConformanceTests: should be implemented in Go lang.
 

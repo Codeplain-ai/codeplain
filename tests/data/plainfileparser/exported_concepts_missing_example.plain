@@ -6,7 +6,7 @@ requires:
 ***definitions***
 - :DependantConcept: depends on the :Concept: concept.
 
-***technical specs***
+***implementation reqs***
 - The :DependantConcept: concept must be implemented.
 
 ***functional specs***

@@ -3,7 +3,7 @@
 - :App: is a web application.
 
 
-***technical specs***
+***implementation reqs***
 
 - :App: should be implemented in TypeScript, using React as a web framework.
 
@@ -12,6 +12,6 @@
 - :App: should run on port 3000.
 
 
-***test specs***
+***test reqs***
 
 - :ConformanceTests: of :App: should be written in TypeScript, using Cypress as the framework for :ConformanceTests:.

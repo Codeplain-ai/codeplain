@@ -61,7 +61,7 @@ def test_get_specifications_simple(get_test_data_path):
 
     assert specifications == {
         "definitions": [],
-        "technical specs": ["- Simple non-functional requirement"],
-        "test specs": [],
+        "implementation reqs": ["- Simple non-functional requirement"],
+        "test reqs": [],
         "functional specs": ["- Simple functional requirement"],
     }

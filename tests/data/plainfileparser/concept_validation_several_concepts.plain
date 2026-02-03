@@ -2,7 +2,7 @@
 
 - :concept1:, :concept2:, :concept3: are all concepts.
 
-***technical specs***
+***implementation reqs***
 
 - :concept1: should connect to http://localhost:8080.
 

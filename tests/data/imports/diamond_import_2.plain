@@ -7,10 +7,10 @@ import:
 
 - :Import2Def: is a definition in diamond_import_2.
 
-***technical specs***
+***implementation reqs***
 
 - :Import2Def: is used in diamond_import_2.
 
-***test specs***
+***test reqs***
 
 - :Import2Def: is tested in diamond_import_2.

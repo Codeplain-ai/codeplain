@@ -10,7 +10,7 @@ requires:
 
 - :MainExecutableFile: is the main executable code file of :App:.
 
-***technical specs***
+***implementation reqs***
 
 - :MainExecutableFile: of :App: should be called "hello_world.py".
 

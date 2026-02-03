@@ -6,7 +6,7 @@ import:
 ***definitions***
 - :Concept2: is also a concept.
 
-***technical specs***
+***implementation reqs***
 - These are nested required concepts.
 
 ***functional specs***

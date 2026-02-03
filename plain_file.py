@@ -206,7 +206,7 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
             # Handle the case when the heading is not valid. This case includes cases such as:
             # - Writing `acceptance test` instead of `acceptance tests` (or any other syntax diffs).
             # - Instead of specifying `acceptance tests` below the functional requirement, creator of the plain file
-            #   might have specified some other building block (e.g. `technical specs`)
+            #   might have specified some other building block (e.g. `implementation reqs`)
             raise PlainSyntaxError(acceptance_test_heading_problem)
 
         if is_acceptance_test_heading:

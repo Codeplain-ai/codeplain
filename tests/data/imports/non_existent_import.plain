@@ -3,7 +3,7 @@ import:
   - non_existent_import
 ---
 
-***technical specs***
+***implementation reqs***
 
 - :MainExecutableFile: of :App: should be called "hello_world.py".
 

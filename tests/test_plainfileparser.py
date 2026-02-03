@@ -19,7 +19,7 @@ def test_regular_plain_source(get_test_data_path):
     )
     assert plain_sections == {
         "definitions": [],
-        "technical specs": [
+        "implementation reqs": [
             {"markdown": "- First non-functional requirement."},
             {"markdown": "- Second non-functional requirement."},
         ],
@@ -36,7 +36,7 @@ def test_unknown_section():
     with pytest.raises(
         Exception,
         match=re.escape(
-            "Syntax error at line 3: Invalid specification heading (`Unknown Section:`). Allowed headings: definitions, technical specs, test specs, functional specs, acceptance tests"
+            "Syntax error at line 3: Invalid specification heading (`Unknown Section:`). Allowed headings: definitions, implementation reqs, test reqs, functional specs, acceptance tests"
         ),
     ):
         plain_file.parse_plain_source(plain_source, {}, [], [], [])
@@ -76,7 +76,7 @@ def test_plain_file_parser_with_comments(get_test_data_path):
     )
     assert plain_sections == {
         "definitions": [],
-        "technical specs": [{"markdown": "- Second non-functional requirement."}],
+        "implementation reqs": [{"markdown": "- Second non-functional requirement."}],
         "functional specs": [{"markdown": '- Display "hello, world"'}],
     }
 
@@ -88,7 +88,7 @@ def test_plain_file_parser_with_comments_indented(get_test_data_path):
     )
     assert plain_sections == {
         "definitions": [],
-        "technical specs": [
+        "implementation reqs": [
             {"markdown": "- First non-functional requirement."},
             {"markdown": "- Second non-functional requirement."},
         ],
@@ -202,7 +202,7 @@ def test_indented_include_tags():
 
 - This is a definition.
 
-***technical specs***
+***implementation reqs***
 - First non-functional requirement.
 - Second non-functional requirement.
 
@@ -230,7 +230,7 @@ def test_indented_include_tags():
 
 - This is a definition.
 
-***technical specs***
+***implementation reqs***
 - First non-functional requirement.
 - Second non-functional requirement.
 
@@ -288,7 +288,7 @@ def test_code_variables(load_test_data, get_test_data_path):
 
 - :concept: is a concept.
 
-***technical specs***
+***implementation reqs***
 - First non-functional requirement.
 - Second non-functional requirement.
 
@@ -303,7 +303,7 @@ def test_code_variables(load_test_data, get_test_data_path):
     _, plain_source, _ = plain_file.plain_file_parser("code_variables.plain", [get_test_data_path("data/templates")])
     expected_plain_source = {
         "definitions": [{"markdown": "- :concept: is a concept."}],
-        "technical specs": [
+        "implementation reqs": [
             {"markdown": "- First non-functional requirement."},
             {"markdown": "- Second non-functional requirement."},
         ],
@@ -330,7 +330,7 @@ def test_code_variables(load_test_data, get_test_data_path):
 
 - :concept: is a concept.
 
-***technical specs***
+***implementation reqs***
 - First non-functional requirement {keys[0]}.
 - Second non-functional requirement {keys[1]}.
 
@@ -345,7 +345,7 @@ def test_code_variables(load_test_data, get_test_data_path):
     _, plain_source, _ = plain_file.plain_file_parser("template_include.plain", [get_test_data_path("data/templates")])
     expected_plain_source = {
         "definitions": [{"markdown": "- :concept: is a concept."}],
-        "technical specs": [
+        "implementation reqs": [
             {
                 "markdown": "- First non-functional requirement {{ variable_name_1 }}.",
                 "code_variables": [{"name": "variable_name_1", "value": "nice_1"}],

@@ -8,8 +8,8 @@ from liquid2.filter import with_context
 from plain2code_exceptions import InvalidLiquidVariableName
 
 DEFINITIONS = "definitions"
-NON_FUNCTIONAL_REQUIREMENTS = "technical specs"
-TEST_REQUIREMENTS = "test specs"
+NON_FUNCTIONAL_REQUIREMENTS = "implementation reqs"
+TEST_REQUIREMENTS = "test reqs"
 FUNCTIONAL_REQUIREMENTS = "functional specs"
 ACCEPTANCE_TESTS = "acceptance_tests"
 ACCEPTANCE_TEST_HEADING = "acceptance tests"

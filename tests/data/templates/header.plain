@@ -2,6 +2,6 @@
 
 - :concept: is a concept.
 
-***technical specs***
+***implementation reqs***
 - First non-functional requirement {{variable_name_1 | code_variable}}.
 - Second non-functional requirement {{variable_name_2 | code_variable}}.
