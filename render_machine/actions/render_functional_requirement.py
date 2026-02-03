@@ -27,7 +27,7 @@ class RenderFunctionalRequirement(BaseAction):
         if render_context.verbose:
             msg = "-------------------------------------\n"
             msg += f"Module: {render_context.module_name}\n"
-            msg += f"Rendering functional requirement {render_context.frid_context.frid}"
+            msg += f"Rendering functionality {render_context.frid_context.frid}"
             if render_context.frid_context.functional_requirement_render_attempts > 1:
                 msg += f", attempt number {render_context.frid_context.functional_requirement_render_attempts}/{MAX_CODE_GENERATION_RETRIES}."
             msg += f"\n{render_context.frid_context.functional_requirement_text}\n"
