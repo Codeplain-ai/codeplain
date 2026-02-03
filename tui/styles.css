@@ -7,7 +7,7 @@ Screen {
     margin: 0 2;
 }
 
-/* Codeplain Header Box */
+/* Codeplain Header Box - *codeplain (version)*/
 #codeplain-header {
     dock: top;
     margin: 1 0;
@@ -53,15 +53,16 @@ We might need those at some point, so just commenting them out for now.
     height: auto;
 }
 
-/* Rendering Info Box */
+/* Module Status */
 RenderingInfoBox {
     height: auto;
     margin: 1 0;
 }
 
+/* Module Status box border */
 .rendering-info-box {
     height: auto;
-    border: solid #E0FF6E;
+    border: solid #888;
     padding: 0 1;
 }
 
@@ -70,7 +71,12 @@ RenderingInfoBox {
 }
 
 .rendering-info-title {
-    color: #E0FF6E;
+    color: #888;
+    margin-bottom: 0;
+}
+
+.frid-state-machine-title {
+    color: #888;
     margin-bottom: 0;
 }
 
@@ -105,7 +111,6 @@ ProgressItem {
 }
 
 #frid-progress-header {
-    margin-bottom: 1;
     margin-left: 2;
     margin-right: 2;
     color: #FFF;
@@ -122,20 +127,27 @@ TestScriptsContainer {
     height: auto;
 }
 
+/* Latest script output container */
 .test-scripts-box {
     height: auto;
     color: #888;
-    border: solid #E0FF6E;
+    border: solid #888;
     padding: 0 1;
 }
 
 .test-scripts-title {
-    color: #E0FF6E;
+    color: #888;
     margin-bottom: 0;
 }
 
 .test-script-row {
     color: #FFF;
+}
+
+/* State machine container border */
+.frid-state-machine-box {
+    border: solid #888;
+    padding: 0 1;
 }
 #unit-test-script-output-widget,
 #conformance-tests-script-output-widget,
