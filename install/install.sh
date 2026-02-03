@@ -19,11 +19,52 @@ GRAY_LIGHT='\033[38;2;211;211;211m' # #D3D3D3
 BOLD='\033[1m'
 NC='\033[0m' # No Color / Reset
 
+# Detect if terminal has a light background
+detect_light_background() {
+    # Allow explicit override via environment variable
+    if [ "${CODEPLAIN_LIGHT_THEME:-}" = "1" ] || [ "${CODEPLAIN_LIGHT_THEME:-}" = "true" ]; then
+        return 0  # Light theme
+    fi
+    if [ "${CODEPLAIN_DARK_THEME:-}" = "1" ] || [ "${CODEPLAIN_DARK_THEME:-}" = "true" ]; then
+        return 1  # Dark theme
+    fi
+
+    # Check COLORFGBG environment variable (format: "fg;bg")
+    # Set by some terminals like xterm, rxvt, etc.
+    if [ -n "${COLORFGBG:-}" ]; then
+        local bg="${COLORFGBG##*;}"
+        case "$bg" in
+            7|15) return 0 ;;  # White/bright white background = light
+            0|8) return 1 ;;   # Black/dark gray background = dark
+        esac
+    fi
+
+    # Default to dark background (most common for terminals)
+    # Use CODEPLAIN_LIGHT_THEME=1 to override for light terminals
+    return 1
+}
+
+# Set accent colors based on terminal background
+# Light background: use BLUE+BOLD for success messages and links, BLACK+BOLD for highlights
+# Dark background: use GREEN for checkmarks, YELLOW for links and highlights
+if detect_light_background; then
+    TERM_BACKGROUND="light"
+    CHECK_COLOR="${BLUE}${BOLD}"  # #0A1FD4 Bold for success messages
+    LINK_COLOR="$BLUE"            # #0A1FD4
+    HIGHLIGHT_COLOR="${BLACK}${BOLD}"  # Black + Bold for highlights (instead of yellow)
+else
+    TERM_BACKGROUND="dark"
+    CHECK_COLOR="$GREEN"    # #79FC96
+    LINK_COLOR="$YELLOW"    # #E0FF6E
+    HIGHLIGHT_COLOR="$YELLOW"  # Yellow for highlights
+fi
+
 # Export colors for child scripts
 export YELLOW GREEN GREEN_LIGHT GREEN_DARK BLUE BLACK WHITE RED GRAY GRAY_LIGHT BOLD NC
+export TERM_BACKGROUND CHECK_COLOR LINK_COLOR HIGHLIGHT_COLOR
 
 clear
-echo -e "started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
+echo -e "started ${HIGHLIGHT_COLOR}*codeplain CLI${NC} installation..."
 
 # Install uv if not present
 install_uv() {
@@ -37,11 +78,11 @@ install_uv() {
 if ! command -v uv &> /dev/null; then
     echo -e "${GRAY}uv is not installed.${NC}"
     install_uv
-    echo -e "${GREEN}✓${NC} uv installed successfully"
+    echo -e "${CHECK_COLOR}✓ uv installed successfully${NC}"
     echo -e ""
 fi
 
-echo -e "${GREEN}✓${NC} uv detected"
+echo -e "${CHECK_COLOR}✓ uv detected${NC}"
 echo -e ""
 
 # Install or upgrade codeplain using uv tool
@@ -53,16 +94,16 @@ if uv tool list 2>/dev/null | grep -q "^codeplain"; then
     uv tool upgrade codeplain &> /dev/null
     NEW_VERSION=$(uv tool list 2>/dev/null | grep "^codeplain" | sed 's/codeplain v//')
     if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
-        echo -e "${GREEN}✓${NC} codeplain is already up to date (${NEW_VERSION})"
+        echo -e "${CHECK_COLOR}✓ codeplain is already up to date (${NEW_VERSION})${NC}"
     else
-        echo -e "${GREEN}✓${NC} codeplain upgraded from ${CURRENT_VERSION} to ${NEW_VERSION}!"
+        echo -e "${CHECK_COLOR}✓ codeplain upgraded from ${CURRENT_VERSION} to ${NEW_VERSION}!${NC}"
     fi
 else
     echo -e "installing codeplain...${NC}"
     echo -e ""
     uv tool install codeplain
     clear
-    echo -e "${GREEN}✓ codeplain installed successfully!${NC}"
+    echo -e "${CHECK_COLOR}✓ codeplain installed successfully!${NC}"
 fi
 
 # Check if API key already exists
@@ -76,13 +117,13 @@ if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
     echo ""
 
     if [[ ! "$GET_NEW_KEY" =~ ^[Yy]$ ]]; then
-        echo -e "${GREEN}✓${NC} using existing API key."
+        echo -e "${CHECK_COLOR}✓ using existing API key.${NC}"
         SKIP_API_KEY_SETUP=true
     fi
 fi
 
 if [ "$SKIP_API_KEY_SETUP" = false ]; then
-    echo -e "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
+    echo -e "go to ${LINK_COLOR}https://platform.codeplain.ai${NC} and sign up to get your API key."
     echo ""
     read -r -p "paste your API key here: " API_KEY < /dev/tty
     echo ""
@@ -118,7 +159,7 @@ else
         echo "" >> "$SHELL_RC"
         echo "# codeplain API Key" >> "$SHELL_RC"
         echo "export CODEPLAIN_API_KEY=\"$API_KEY\"" >> "$SHELL_RC"
-        echo -e "${GREEN}✓ API key saved to ${SHELL_RC}${NC}"
+        echo -e "${CHECK_COLOR}✓ API key saved to ${SHELL_RC}${NC}"
     else
         # Update existing key (different sed syntax for macOS vs Linux)
         if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -144,9 +185,9 @@ cat << 'EOF'
                       |_|
 EOF
 echo ""
-echo -e "${GREEN}✓${NC} Sign in successful."
+echo -e "${CHECK_COLOR}✓ Sign in successful.${NC}"
 echo ""
-echo -e "  ${YELLOW}welcome to *codeplain!${NC}"
+echo -e "  ${HIGHLIGHT_COLOR}welcome to *codeplain!${NC}"
 echo ""
 echo -e "  spec-driven, production-ready code generation"
 echo ""
@@ -196,7 +237,7 @@ fi
 clear
 echo ""
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
-echo -e "  ${YELLOW}${BOLD}Example Projects${NC}"
+echo -e "  ${HIGHLIGHT_COLOR}Example Projects${NC}"
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
 echo ""
 echo -e "  we've prepared some example Plain projects for you"
@@ -216,14 +257,14 @@ fi
 clear
 echo ""
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
-echo -e "  ${YELLOW}${BOLD}You're all set!${NC}"
+echo -e "  ${HIGHLIGHT_COLOR}You're all set!${NC}"
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
 echo ""
 echo -e "  thank you for using *codeplain!"
 echo ""
-echo -e "  learn more at ${YELLOW}https://plainlang.org/${NC}"
+echo -e "  learn more at ${LINK_COLOR}https://plainlang.org/${NC}"
 echo ""
-echo -e "  ${GREEN}happy development!${NC} 🚀"
+echo -e "  ${CHECK_COLOR}happy development!${NC} 🚀"
 echo ""
 
 # Replace this subshell with a fresh shell that has the new environment

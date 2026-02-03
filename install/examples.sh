@@ -5,10 +5,56 @@ set -euo pipefail
 # Brand Colors (use exported colors if available, otherwise define them)
 YELLOW="${YELLOW:-\033[38;2;224;255;110m}"
 GREEN="${GREEN:-\033[38;2;121;252;150m}"
+BLUE="${BLUE:-\033[38;2;10;31;212m}"
+BLACK="${BLACK:-\033[38;2;26;26;26m}"
 RED="${RED:-\033[38;2;239;68;68m}"
 GRAY="${GRAY:-\033[38;2;128;128;128m}"
 BOLD="${BOLD:-\033[1m}"
 NC="${NC:-\033[0m}"
+
+# Detect if terminal has a light background (if not already detected by parent script)
+if [ -z "${TERM_BACKGROUND:-}" ]; then
+    detect_light_background() {
+        # Allow explicit override via environment variable
+        if [ "${CODEPLAIN_LIGHT_THEME:-}" = "1" ] || [ "${CODEPLAIN_LIGHT_THEME:-}" = "true" ]; then
+            return 0  # Light theme
+        fi
+        if [ "${CODEPLAIN_DARK_THEME:-}" = "1" ] || [ "${CODEPLAIN_DARK_THEME:-}" = "true" ]; then
+            return 1  # Dark theme
+        fi
+
+        # Check COLORFGBG environment variable (format: "fg;bg")
+        if [ -n "${COLORFGBG:-}" ]; then
+            local bg="${COLORFGBG##*;}"
+            case "$bg" in
+                7|15) return 0 ;;  # White/bright white background = light
+                0|8) return 1 ;;   # Black/dark gray background = dark
+            esac
+        fi
+
+        # Default to dark background
+        return 1
+    }
+
+    if detect_light_background; then
+        TERM_BACKGROUND="light"
+    else
+        TERM_BACKGROUND="dark"
+    fi
+fi
+
+# Set accent colors based on terminal background
+# Light background: use BLUE+BOLD for success messages and links, BLACK+BOLD for highlights
+# Dark background: use GREEN for checkmarks, YELLOW for links and highlights
+if [ "$TERM_BACKGROUND" = "light" ]; then
+    CHECK_COLOR="${CHECK_COLOR:-${BLUE}${BOLD}}"  # #0A1FD4 Bold for success messages
+    LINK_COLOR="${LINK_COLOR:-$BLUE}"
+    HIGHLIGHT_COLOR="${HIGHLIGHT_COLOR:-${BLACK:-\033[38;2;26;26;26m}${BOLD}}"  # Black + Bold
+else
+    CHECK_COLOR="${CHECK_COLOR:-$GREEN}"
+    LINK_COLOR="${LINK_COLOR:-$YELLOW}"
+    HIGHLIGHT_COLOR="${HIGHLIGHT_COLOR:-$YELLOW}"
+fi
 
 # Examples configuration
 EXAMPLES_FOLDER_NAME="plainlang-examples"
@@ -16,7 +62,7 @@ EXAMPLES_DOWNLOAD_URL="https://github.com/Codeplain-ai/plainlang-examples/archiv
 
 # Show current directory and ask for extraction path
 CURRENT_DIR=$(pwd)
-echo -e "  current folder: ${YELLOW}${CURRENT_DIR}${NC}"
+echo -e "  current folder: ${LINK_COLOR}${CURRENT_DIR}${NC}"
 echo ""
 echo -e "  extract examples here, or enter a different path:"
 echo ""
@@ -72,9 +118,9 @@ if [ "$SKIP_DOWNLOAD" = false ]; then
             fi
 
             echo ""
-            echo -e "  ${GREEN}✓${NC} examples downloaded successfully!"
+            echo -e "  ${CHECK_COLOR}✓ examples downloaded successfully!${NC}"
             echo ""
-            echo -e "  examples are in: ${YELLOW}${EXTRACTED_DIR}${NC}"
+            echo -e "  examples are in: ${LINK_COLOR}${EXTRACTED_DIR}${NC}"
             echo ""
         else
             echo -e "  ${RED}✗${NC} failed to extract examples."
