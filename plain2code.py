@@ -166,7 +166,7 @@ def setup_logging(
     root_logger.info(f"Render ID: {render_id}")  # Ensure render ID is logged in to codeplain.log file
 
 
-def _check_connection(codeplainAPI):
+def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
     """Check API connectivity and validate API key and client version."""
     response = codeplainAPI.connection_check(system_config.client_version)
 
@@ -185,7 +185,7 @@ def _check_connection(codeplainAPI):
         )
 
 
-def render(args, run_state: RunState, codeplain_api, event_bus: EventBus):  # noqa: C901
+def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
     console.info(f"Rendering {args.filename} to target code.")
@@ -259,7 +259,7 @@ def main():  # noqa: C901
             )
 
         console.debug(f"Render ID: {run_state.render_id}")  # Ensure render ID is logged to the console
-        render(args, run_state, codeplain_api, event_bus)
+        render(args, run_state, event_bus)
     except InvalidFridArgument as e:
         exc_info = sys.exc_info()
         console.error(f"Invalid FRID argument: {str(e)}.\n")
