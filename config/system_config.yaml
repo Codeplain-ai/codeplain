@@ -1,22 +1,5 @@
 client_version: "0.17.0"
 
-system_requirements:
-  timeout:
-    command: timeout
-    error_message: |
-      Error: Required system command 'timeout' is not available.
-      This command is needed to enforce time limits on test execution.
-
-      To install the timeout command:
-      - On Linux: Install coreutils package
-        - Debian/Ubuntu: sudo apt-get install coreutils
-        - CentOS/RHEL: sudo yum install coreutils
-        - Fedora: sudo dnf install coreutils
-      - On macOS:
-        - Using Homebrew: brew install coreutils
-        - Using MacPorts: port install coreutils
-      - On Windows: Use Windows Subsystem for Linux (WSL), Cygwin, or Git Bash
-
 error_messages:
   template_not_found:
     message: |
