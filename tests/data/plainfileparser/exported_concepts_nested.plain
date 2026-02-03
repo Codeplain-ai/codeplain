@@ -8,7 +8,7 @@ exported_concepts:
 ***definitions***
 - :NestedConcept: depends on the :Concept: concept.
 
-***technical specs***
+***implementation reqs***
 - The :NestedConcept: concept must be implemented.
 
 ***functional specs***

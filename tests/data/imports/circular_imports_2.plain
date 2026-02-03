@@ -3,6 +3,6 @@ import:
   - circular_imports_1
 ---
 
-***technical specs***
+***implementation reqs***
 
 - :Implementation: should include :Unittests: using Unittest framework!

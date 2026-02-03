@@ -7,13 +7,13 @@
 - :MainExecutableFile: is the main executable code file of :App:.
 
 
-***technical specs***
+***implementation reqs***
 
 - :Implementation: should be in Python.
 
 - :Implementation: should include :Unittests: using Unittest framework! If :Unittests: are put in the subfolder, make sure to include __init__.py to make them discoverable.
 
-***test specs***
+***test reqs***
 
 - :ConformanceTests: of :App: should be implemented in Python using Unittest framework. :ConformanceTests: will be run using "python -m unittest discover" command. Therefore, if :ConformanceTests: are put in the subfolder, make sure to include __init__.py to make them discoverable. 
 

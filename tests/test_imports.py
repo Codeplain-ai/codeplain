@@ -27,13 +27,13 @@ def test_diamond_imports(load_test_data, get_test_data_path):
             {"markdown": "- :Import1Def: is a definition in diamond_import_1."},
             {"markdown": "- :Import2Def: is a definition in diamond_import_2."},
         ],
-        "technical specs": [
+        "implementation reqs": [
             {"markdown": "- :CommonImportDef: is used in diamond_import_common."},
             {"markdown": "- :Import1Def: is used in diamond_import_1."},
             {"markdown": "- :Import2Def: is used in diamond_import_2."},
             {"markdown": '- :MainExecutableFile: of :App: should be called "hello_world.py".'},
         ],
-        "test specs": [
+        "test reqs": [
             {"markdown": "- :CommonImportDef: is tested in diamond_import_common."},
             {"markdown": "- :Import1Def: is tested in diamond_import_1."},
             {"markdown": "- :Import2Def: is tested in diamond_import_2."},

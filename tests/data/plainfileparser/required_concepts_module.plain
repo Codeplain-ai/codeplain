@@ -4,7 +4,7 @@ import:
     - required_concepts_defs
 ---
 
-***technical specs***
+***implementation reqs***
 - The :Concept: concept must be implemented.
 
 ***functional specs***

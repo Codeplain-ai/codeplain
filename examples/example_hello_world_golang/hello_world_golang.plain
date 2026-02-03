@@ -4,7 +4,7 @@ import:
   - golang-console-app-template
 ---
 
-***technical specs***
+***implementation reqs***
 
 - :MainExecutableFile: of :App: should be called "hello_world.go".
 

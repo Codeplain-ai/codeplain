@@ -2,11 +2,11 @@
 
 - :concept: is a concept.
 
-***test specs***
+***test reqs***
 
 - You can test the :concept:.
 
-***technical specs***
+***implementation reqs***
 
 - :concept: should connect to http://localhost:8080.
 

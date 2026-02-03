@@ -2,10 +2,10 @@
 
 - :CommonImportDef: is a definition in diamond_import_common.
 
-***technical specs***
+***implementation reqs***
 
 - :CommonImportDef: is used in diamond_import_common.
 
-***test specs***
+***test reqs***
 
 - :CommonImportDef: is tested in diamond_import_common.

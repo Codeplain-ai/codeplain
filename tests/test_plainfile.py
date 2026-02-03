@@ -107,7 +107,7 @@ def test_process_acceptance_tests_no_sections_direct_frs(mock_process_single):
     plain_source_tree = {
         plain_spec.FUNCTIONAL_REQUIREMENTS: mock_frs_top_level,
         "definitions": MagicMock(name="TopLevelDefs"),
-        "technical specs": MagicMock(name="TopLevelNFRs"),
+        "implementation reqs": MagicMock(name="TopLevelNFRs"),
     }
 
     process_acceptance_tests(plain_source_tree)

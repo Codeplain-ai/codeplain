@@ -13,14 +13,14 @@
   - Initially :TaskList: should be empty.
 
 
-***technical specs***
+***implementation reqs***
 
 - Implementation should be written in TypeScript, using React as a web framework.
 
 - Please note that :App: will be executed using npm.
 
 
-***test specs***
+***test reqs***
 
 - End-to-end tests should be written in TypeScript, using Cypress as the end-to-end testing framework.
 

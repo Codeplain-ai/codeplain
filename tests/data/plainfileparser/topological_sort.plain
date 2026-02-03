@@ -3,7 +3,7 @@
 - :Concept2: is a concept that depends on the :Concept1: concept.
 - :Concept1: is a concept.
 
-***technical specs***
+***implementation reqs***
 - The :Concept1: concept must be implemented.
 - The :Concept2: concept must be implemented.
 - The :Concept3: concept must be implemented.
