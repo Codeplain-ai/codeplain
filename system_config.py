@@ -17,7 +17,6 @@ class SystemConfig:
             raise KeyError("Missing 'error_messages' section in system_config.yaml")
 
         self.client_version = self.config["client_version"]
-        self.requirements = self.config["system_requirements"]
         self.error_messages = self.config["error_messages"]
 
     def _load_config(self):
