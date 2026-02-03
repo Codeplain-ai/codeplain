@@ -1,5 +1,4 @@
 import importlib.resources
-import shutil
 import sys
 
 import yaml
@@ -14,8 +13,6 @@ class SystemConfig:
         self.config = self._load_config()
         if "client_version" not in self.config:
             raise KeyError("Missing 'client_version' in system_config.yaml")
-        if "system_requirements" not in self.config:
-            raise KeyError("Missing 'system_requirements' section in system_config.yaml")
         if "error_messages" not in self.config:
             raise KeyError("Missing 'error_messages' section in system_config.yaml")
 
@@ -33,13 +30,6 @@ class SystemConfig:
         except Exception as e:
             console.error(f"Failed to load system configuration: {e}")
             sys.exit(69)
-
-    def verify_requirements(self):
-        """Verify all system requirements are met."""
-        for req_data in self.requirements.values():
-            if not shutil.which(req_data["command"]):
-                console.error(req_data["error_message"])
-                sys.exit(69)
 
     def get_error_message(self, message_key, **kwargs):
         """Get a formatted error message by its key."""
