@@ -28,6 +28,7 @@ from plain2code_exceptions import (
     MissingAPIKey,
     MissingPreviousFunctionalitiesError,
     MissingResource,
+    ModuleDoesNotExistError,
     NetworkConnectionError,
     OutdatedClientVersion,
     PlainSyntaxError,
@@ -318,6 +319,9 @@ def main():  # noqa: C901
         exc_info = sys.exc_info()
         console.error(f"Connection error: {str(e)}\n")
         console.error("Please check that your internet connection is working.")
+    except ModuleDoesNotExistError as e:
+        exc_info = sys.exc_info()
+        console.error(f"Module does not exist: {str(e)}\n")
         console.debug(f"Render ID: {run_state.render_id}")
     except Exception as e:
         exc_info = sys.exc_info()
