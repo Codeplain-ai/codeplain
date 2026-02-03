@@ -18,7 +18,7 @@ class ExitWithError(BaseAction):
 
         if render_context.frid_context is not None:
             console.info(
-                f"To continue rendering from the last successfully rendered functional requirement, provide the [red]--render-from {render_context.frid_context.frid}[/b][/red] flag."
+                f"To continue rendering from the last successfully rendered functional requirement, provide the [red]--render-from {render_context.frid_context.frid}[/red] flag."
             )
 
         if render_context.run_state.render_id is not None:
