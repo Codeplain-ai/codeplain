@@ -227,6 +227,7 @@ def render(args, run_state: RunState, codeplain_api, event_bus: EventBus):  # no
         unittests_script=args.unittests_script,
         conformance_tests_script=args.conformance_tests_script,
         prepare_environment_script=args.prepare_environment_script,
+        state_machine_version=system_config.client_version,
         css_path="styles.css",
     )
     result = app.run()
