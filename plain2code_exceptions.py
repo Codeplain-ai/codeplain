@@ -25,7 +25,7 @@ class PlainSyntaxError(Exception):
     pass
 
 
-class UnexpectedState(Exception):
+class InternalClientError(Exception):
     pass
 
 

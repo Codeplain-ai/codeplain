@@ -5,7 +5,7 @@ import file_utils
 import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import console
-from plain2code_exceptions import UnexpectedState
+from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -21,7 +21,7 @@ class FixConformanceTest(BaseAction):
         )
 
         if not previous_action_payload.get("previous_conformance_tests_issue"):
-            raise UnexpectedState("Previous action payload does not contain previous conformance tests issue.")
+            raise InternalClientError("Previous action payload does not contain previous conformance tests issue.")
         previous_conformance_tests_issue = previous_action_payload["previous_conformance_tests_issue"]
 
         render_context.conformance_tests_running_context.previous_conformance_tests_issue_old = (

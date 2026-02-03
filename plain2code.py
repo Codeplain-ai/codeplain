@@ -20,6 +20,7 @@ from plain2code_console import console
 from plain2code_exceptions import (
     ConflictingRequirements,
     CreditBalanceTooLow,
+    InternalClientError,
     InternalServerError,
     InvalidAPIKey,
     InvalidFridArgument,
@@ -30,7 +31,6 @@ from plain2code_exceptions import (
     NetworkConnectionError,
     OutdatedClientVersion,
     PlainSyntaxError,
-    UnexpectedState,
 )
 from plain2code_logger import (
     CrashLogHandler,
@@ -295,7 +295,7 @@ def main():  # noqa: C901
         console.error(f"Invalid API key: {str(e)}\n")
     except OutdatedClientVersion as e:
         console.error(f"Outdated client version: {str(e)}\n")
-    except (InternalServerError, UnexpectedState):
+    except (InternalServerError, InternalClientError):
         exc_info = sys.exc_info()
         console.error(
             f"Internal server error.\n\nPlease report the error to support@codeplain.ai with the attached {args.log_file_name} file."

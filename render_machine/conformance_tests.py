@@ -3,6 +3,7 @@ import os
 
 import file_utils
 from plain2code_console import console
+from plain2code_exceptions import InternalClientError
 from plain_modules import PlainModule
 
 CONFORMANCE_TESTS_DEFINITION_FILE_NAME = "conformance_tests.json"
@@ -69,7 +70,7 @@ class ConformanceTests:
     ) -> tuple[str, str]:
         original_prefix = self.get_module_conformance_tests_folder(current_testing_module_name)
         if not original_conformance_test_folder_name.startswith(original_prefix):
-            raise Exception(
+            raise InternalClientError(
                 f"Unexpected conformance test folder name prefix {original_prefix} for {original_conformance_test_folder_name}!"
             )
 

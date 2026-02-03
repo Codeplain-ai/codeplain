@@ -4,6 +4,7 @@ import file_utils
 import git_utils
 import plain_spec
 from plain2code_console import console
+from plain2code_exceptions import InternalClientError
 from plain2code_utils import AMBIGUITY_CAUSES
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
@@ -17,7 +18,7 @@ class AnalyzeSpecificationAmbiguity(BaseAction):
             render_context.build_folder, render_context.frid_context.frid
         )
         if fixed_implementation_code_diff is None:
-            raise Exception(
+            raise InternalClientError(
                 "Fixes to the implementation code found during conformance testing are not committed to git."
             )
         previous_frid = plain_spec.get_previous_frid(render_context.plain_source_tree, render_context.frid_context.frid)
