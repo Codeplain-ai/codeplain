@@ -113,6 +113,7 @@ def set_frid_progress_to_stopped(tui):
 
     for widget_id in progress_ids:
         update_progress_item_status(tui, widget_id, ProgressItem.STOPPED)
+        clear_progress_item_substates(tui, widget_id)
 
 
 def display_error_message(tui, error_message: str):
