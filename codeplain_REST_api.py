@@ -44,7 +44,9 @@ class CodeplainAPI:
         run_state.increment_call_count()
         payload["render_state"] = run_state.to_dict()
 
-    def _handle_retry_logic(self, attempt: int, retry_delay: int, error: Exception) -> int:
+    def _handle_retry_logic(
+        self, attempt: int, retry_delay: int, num_retries: int, error: Exception, silent: bool
+    ) -> int:
         """
         Handles retry logic with exponential backoff.
 
@@ -52,6 +54,7 @@ class CodeplainAPI:
             attempt: Current attempt number
             retry_delay: Current retry delay in seconds
             error: The exception that occurred
+            num_retries: Number of retries allowed
             error_type: Type of error for logging (e.g., "Network error", "Error")
 
         Returns:
@@ -62,14 +65,16 @@ class CodeplainAPI:
         """
         is_connection_error = isinstance(error, ConnectionError) or isinstance(error, Timeout)
         connection_error_type = "Network error" if is_connection_error else "Error"
-        if attempt < MAX_RETRIES:
-            self.console.info(f"{connection_error_type} on attempt {attempt + 1}/{MAX_RETRIES + 1}: {error}")
-            self.console.info(f"Retrying in {retry_delay} seconds...")
+        if attempt < num_retries:
+            if not silent:
+                self.console.info(f"{connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}")
+                self.console.info(f"Retrying in {retry_delay} seconds...")
             time.sleep(retry_delay)
             # Exponential backoff
             return retry_delay * 2
         else:
-            self.console.error(f"Max retries ({MAX_RETRIES}) exceeded. Last error: {error}")
+            if not silent:
+                self.console.error(f"Max retries ({num_retries}) exceeded. Last error: {error}")
             if is_connection_error:
                 raise plain2code_exceptions.NetworkConnectionError("Failed to connect to API server.")
             else:
@@ -91,7 +96,13 @@ class CodeplainAPI:
         raise exception_class(message)
 
     def post_request(
-        self, endpoint_url, headers, payload, run_state: Optional[RunState], num_retries: int = MAX_RETRIES
+        self,
+        endpoint_url,
+        headers,
+        payload,
+        run_state: Optional[RunState],
+        num_retries: int = MAX_RETRIES,
+        silent: bool = False,
     ):
         if run_state is not None:
             self._extend_payload_with_run_state(payload, run_state)
@@ -121,7 +132,7 @@ class CodeplainAPI:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:
                         raise e
 
-                retry_delay = self._handle_retry_logic(attempt, retry_delay, e)
+                retry_delay = self._handle_retry_logic(attempt, retry_delay, num_retries, e, silent)
 
     def connection_check(self, client_version):
         endpoint_url = f"{self.api_url}/connection_check"
@@ -130,7 +141,7 @@ class CodeplainAPI:
             "api_key": self.api_key,
             "client_version": client_version,
         }
-        return self.post_request(endpoint_url, headers, payload, None, num_retries=0)
+        return self.post_request(endpoint_url, headers, payload, None, num_retries=0, silent=True)
 
     def render_functional_requirement(
         self,
