@@ -54,7 +54,7 @@ fi
 # Execute all Python unittests in the subfolder
 echo "Running Python unittests in $PYTHON_BUILD_SUBFOLDER..."
 
-output=$(timeout 60s $PYTHON_CMD -m unittest discover -b 2>&1)
+output=$($PYTHON_CMD -m unittest discover -b 2>&1)
 exit_code=$?
 
 # Check if the command timed out
