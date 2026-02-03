@@ -66,6 +66,7 @@ class Plain2CodeTUI(App):
         unittests_script: str,
         conformance_tests_script: str,
         prepare_environment_script: str,
+        state_machine_version: str,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -76,6 +77,7 @@ class Plain2CodeTUI(App):
         self.unittests_script: Optional[str] = unittests_script
         self.conformance_tests_script: Optional[str] = conformance_tests_script
         self.prepare_environment_script: Optional[str] = prepare_environment_script
+        self.state_machine_version = state_machine_version
 
         # Initialize state handlers
         self._state_handlers: dict[str, StateHandler] = {
@@ -175,7 +177,7 @@ class Plain2CodeTUI(App):
             with Vertical(id=TUIComponents.DASHBOARD_VIEW.value):
                 with VerticalScroll():
                     yield Static(
-                        "[#FFFFFF]*codeplain[/#FFFFFF] [#888888](v0.5.0)[/#888888]\n",
+                        f"[#FFFFFF]*codeplain[/#FFFFFF] [#888888](v{self.state_machine_version})[/#888888]\n",
                         id="codeplain-header",
                         classes="codeplain-header",
                     )
