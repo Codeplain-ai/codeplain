@@ -289,7 +289,7 @@ class FridFullyImplementedHandler(StateHandler):
 
 
 class RenderSuccessHandler:
-    """Handler for ERROR state."""
+    """Handler for successful render completion."""
 
     def __init__(self, tui):
         """Initialize handler with TUI instance.
@@ -299,9 +299,14 @@ class RenderSuccessHandler:
         """
         self.tui = tui
 
-    def handle(self) -> None:
-        """Handle ERROR state."""
-        display_success_message(self.tui)
+    def handle(self, module_name: str, build_folder: str) -> None:
+        """Handle successful render completion.
+
+        Args:
+            module_name: Name of the last module that completed rendering
+            build_folder: The build folder path
+        """
+        display_success_message(self.tui, module_name, build_folder)
 
 
 class RenderErrorHandler:

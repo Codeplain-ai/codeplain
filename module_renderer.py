@@ -260,4 +260,6 @@ class ModuleRenderer:
         self.loaded_modules = list[PlainModule]()
         _, _, rendering_failed = self._render_module(self.filename, self.render_range, True)
         if not rendering_failed:
-            self.event_bus.publish(RenderCompleted())
+            # Get the last module that completed rendering
+            last_module_name = self.loaded_modules[-1].name if self.loaded_modules else ""
+            self.event_bus.publish(RenderCompleted(module_name=last_module_name, build_folder=self.args.build_folder))

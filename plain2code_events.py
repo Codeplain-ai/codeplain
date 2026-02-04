@@ -24,10 +24,12 @@ class RenderContextSnapshot:
     module_name: str
 
 
+@dataclass
 class RenderCompleted(BaseEvent):
     """Event emitted when rendering completes successfully."""
 
-    pass
+    module_name: str
+    build_folder: str
 
 
 @dataclass
