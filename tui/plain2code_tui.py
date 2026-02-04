@@ -173,10 +173,6 @@ class Plain2CodeTUI(App):
                         id="codeplain-header",
                         classes="codeplain-header",
                     )
-                    yield Static(
-                        "[#FFFFFF]Rendering in progress...[/#FFFFFF]",
-                        id=TUIComponents.RENDER_STATUS_WIDGET.value,
-                    )
                     yield FRIDProgress(
                         id=TUIComponents.FRID_PROGRESS.value,
                         unittests_script=self.unittests_script,
@@ -189,6 +185,10 @@ class Plain2CodeTUI(App):
                         show_unit_test=self.unittests_script is not None,
                         show_conformance_test=self.conformance_tests_script is not None,
                         show_testing_env=self.prepare_environment_script is not None,
+                    )
+                    yield Static(
+                        "[#FFFFFF]Rendering in progress...[/#FFFFFF]",
+                        id=TUIComponents.RENDER_STATUS_WIDGET.value,
                     )
             with Vertical(id=TUIComponents.LOG_VIEW.value):
                 yield LogLevelFilter(id=TUIComponents.LOG_FILTER.value)
