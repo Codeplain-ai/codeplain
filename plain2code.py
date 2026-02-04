@@ -75,11 +75,11 @@ def get_render_range_from(start, plain_source):
 
 def compute_render_range(args, plain_source_tree):
     """Compute render range from --render-range or --render-from arguments.
-    
+
     Args:
         args: Parsed command line arguments
         plain_source_tree: Parsed plain source tree
-        
+
     Returns:
         List of FRIDs to render, or None to render all
     """
@@ -263,14 +263,14 @@ def main():  # noqa: C901
         try:
             if args.full_plain:
                 # Read the raw plain source file
-                with open(args.filename, 'r') as f:
+                with open(args.filename, "r") as f:
                     plain_source = f.read()
-                
+
                 [full_plain_source, _] = file_utils.get_loaded_templates(template_dirs, plain_source)
-                
+
                 if args.verbose:
                     console.info("Full plain text:\n")
-                
+
                 console.info(full_plain_source)
                 return
 
