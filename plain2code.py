@@ -42,6 +42,7 @@ from plain2code_logger import (
     get_log_file_path,
 )
 from plain2code_state import RunState
+from plain2code_utils import print_dry_run_output
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 
@@ -70,6 +71,23 @@ def get_render_range(render_range, plain_source):
 
 def get_render_range_from(start, plain_source):
     return _get_frids_range(plain_source, start)
+
+
+def compute_render_range(args, plain_source_tree):
+    """Compute render range from --render-range or --render-from arguments.
+    
+    Args:
+        args: Parsed command line arguments
+        plain_source_tree: Parsed plain source tree
+        
+    Returns:
+        List of FRIDs to render, or None to render all
+    """
+    if args.render_range:
+        return get_render_range(args.render_range, plain_source_tree)
+    elif args.render_from:
+        return get_render_range_from(args.render_from, plain_source_tree)
+    return None
 
 
 def _get_frids_range(plain_source, start, end=None):
@@ -196,11 +214,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     if args.render_range or args.render_from:
         # Parse the plain file to get the plain_source for FRID extraction
         _, plain_source, _ = plain_file.plain_file_parser(args.filename, template_dirs)
-
-        if args.render_range:
-            render_range = get_render_range(args.render_range, plain_source)
-        elif args.render_from:
-            render_range = get_render_range_from(args.render_from, plain_source)
+        render_range = compute_render_range(args, plain_source)
 
     codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
     codeplainAPI.verbose = args.verbose
@@ -241,6 +255,34 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
 
 def main():  # noqa: C901
     args = parse_arguments()
+
+    # Handle early-exit flags before heavy initialization
+    if args.dry_run or args.full_plain:
+        template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
+
+        try:
+            if args.full_plain:
+                # Read the raw plain source file
+                with open(args.filename, 'r') as f:
+                    plain_source = f.read()
+                
+                [full_plain_source, _] = file_utils.get_loaded_templates(template_dirs, plain_source)
+                
+                if args.verbose:
+                    console.info("Full plain text:\n")
+                
+                console.info(full_plain_source)
+                return
+
+            if args.dry_run:
+                console.info("Printing dry run output...\n")
+                _, plain_source_tree, _ = plain_file.plain_file_parser(args.filename, template_dirs)
+                render_range = compute_render_range(args, plain_source_tree)
+                print_dry_run_output(plain_source_tree, render_range)
+                return
+        except Exception as e:
+            console.error(f"Error: {str(e)}")
+            return
 
     event_bus = EventBus()
 
