@@ -1,4 +1,5 @@
 import os
+from configparser import NoOptionError, NoSectionError
 from typing import Optional, Union
 
 from git import Repo
@@ -42,6 +43,24 @@ def _get_full_commit_message(message, module_name, frid, render_id) -> str:
     return full_message
 
 
+def _ensure_git_config(repo: Repo) -> None:
+    config = repo.config_reader()
+
+    try:
+        config.get_value("user", "name")
+    except (NoSectionError, NoOptionError):
+        # user.name not configured, set a default at repo level
+        with repo.config_writer(config_level="repository") as writer:
+            writer.set_value("user", "name", "Codeplain")
+
+    try:
+        config.get_value("user", "email")
+    except (NoSectionError, NoOptionError):
+        # user.email not configured, set a default at repo level
+        with repo.config_writer(config_level="repository") as writer:
+            writer.set_value("user", "email", "codeplain@localhost")
+
+
 def init_git_repo(
     path_to_repo: Union[str, os.PathLike], module_name: Optional[str] = None, render_id: Optional[str] = None
 ) -> Repo:
@@ -56,6 +75,7 @@ def init_git_repo(
         os.makedirs(path_to_repo)
 
     repo = Repo.init(path_to_repo)
+    _ensure_git_config(repo)
     repo.git.commit(
         "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
     )
