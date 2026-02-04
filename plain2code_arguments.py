@@ -301,6 +301,9 @@ def parse_arguments():
     if not args.log_to_file and args.log_file_name != DEFAULT_LOG_FILE_NAME:
         parser.error("--log-file-name cannot be used when --log-to-file is False.")
 
+    if args.full_plain and args.dry_run:
+        parser.error("--full-plain and --dry-run are mutually exclusive")
+
     script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME]
     for script_name in script_arg_names:
         args = process_test_script_path(script_name, args)
