@@ -272,9 +272,9 @@ class Plain2CodeTUI(App):
 
         self._state_completion_handler.handle(segments, snapshot, previous_state_segments)
 
-    def on_render_completed(self, _event: RenderCompleted):
+    def on_render_completed(self, event: RenderCompleted):
         """Handle successful render completion."""
-        self._render_success_handler.handle()
+        self._render_success_handler.handle(event.module_name, event.build_folder)
 
     def on_render_failed(self, event: RenderFailed):
         """Handle render failure."""
