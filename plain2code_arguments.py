@@ -134,7 +134,7 @@ def create_parser():
         "--log-to-file",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Enable logging to a file. Defaults to True. Use --no-log-to-file to disable.",
+        help="Enable logging to a file. Defaults to True. Set to False to disable.",
     )
     parser.add_argument(
         "--log-file-name",
@@ -142,7 +142,7 @@ def create_parser():
         default=DEFAULT_LOG_FILE_NAME,
         help=f"Name of the log file. Defaults to '{DEFAULT_LOG_FILE_NAME}'."
         "Always resolved relative to the plain file directory."
-        "If file on this path already exists, it will be overwritten by the current logs.",
+        "If file on this path already exists, the already existing log file will be overwritten by the current logs.",
     )
 
     # Add config file arguments
@@ -158,14 +158,14 @@ def create_parser():
     render_range_group.add_argument(
         "--render-range",
         type=frid_range_string,
-        help="Specify a range of functional requirements to render (e.g. '1.1,2.3'). "
+        help="Specify a range of functional requirements to render (e.g. `1` , `2`, `3`). "
         "Use comma to separate start and end IDs. If only one ID is provided, only that requirement is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
     render_range_group.add_argument(
         "--render-from",
         type=frid_string,
-        help="Continue generation starting from this specific functional requirement (e.g. '2.1'). "
+        help="Continue generation starting from this specific functional requirement (e.g. `2`). "
         "The requirement with this ID will be included in the output. The ID must match one of the functional requirements in your plain file.",
     )
 
@@ -190,15 +190,15 @@ def create_parser():
     parser.add_argument(
         "--conformance-tests-script",
         type=str,
-        help="Path to conformance tests shell script. The script should accept two arguments: "
-        "1) First argument: path to a folder (e.g. 'plain_modules/module_name') containing generated source code, "
-        "2) Second argument: path to a subfolder of the conformance tests folder (e.g. 'conformance_tests/subfoldername') containing test files.",
+        help="Path to conformance tests shell script. Every conformance test script should accept two arguments: "
+        "1) Path to a folder (e.g. `plain_modules/module_name`) containing generated source code, "
+        "2) Path to a subfolder of the conformance tests folder (e.g. `conformance_tests/subfoldername`) containing test files.",
     )
 
     parser.add_argument(
         "--prepare-environment-script",
         type=str,
-        help="Path to a shell script that prepares the testing environment. The script should accept the build folder path as its first argument (default: 'plain_modules').",
+        help="Path to a shell script that prepares the testing environment. The script should accept the source code folder path as its first argument.",
     )
 
     parser.add_argument(
@@ -212,17 +212,18 @@ def create_parser():
         "--api-key",
         type=str,
         default=CODEPLAIN_API_KEY,
-        help="API key used to access the API. If not provided, the CODEPLAIN_API_KEY environment variable is used.",
+        help="API key used to access the API. If not provided, the `CODEPLAIN_API_KEY` environment variable is used.",
     )
     parser.add_argument(
         "--full-plain",
         action="store_true",
-        help="Display the complete plain specification before code generation. "
-        "This shows your plain file with "
-        "any included template content expanded. Useful for understanding what content is being processed.",
+        help="Full preview ***plain specification before code generation."
+        "Use when you want to preview context of all ***plain primitives that are going to be included in order to render the given module.",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Preview of what Codeplain would do without actually making any changes."
+        "--dry-run",
+        action="store_true",
+        help="Dry run preview of the code generation (without actually making any changes).",
     )
     parser.add_argument(
         "--replay-with",
@@ -236,33 +237,33 @@ def create_parser():
         type=str,
         default=None,
         help="Path to a custom template directory. Templates are searched in the following order: "
-        "1) directory containing the plain file, "
-        "2) this custom template directory (if provided), "
-        "3) built-in standard_template_library directory",
+        "1) Directory containing the plain file, "
+        "2) Custom template directory (if provided through this argument), "
+        "3) Built-in standard_template_library directory",
     )
     parser.add_argument(
         "--copy-build",
         action="store_true",
         default=False,
-        help="If set, copy the build folder to `--build-dest` after every successful rendering.",
+        help="If set, copy the rendered contents of code in `--base-folder` folder to `--build-dest` folder after successful rendering.",
     )
     parser.add_argument(
         "--build-dest",
         type=non_empty_string,
         default=DEFAULT_BUILD_DEST,
-        help="Target folder to copy build output to (used only if --copy-build is set).",
+        help="Target folder to copy rendered contents of code to (used only if --copy-build is set).",
     )
     parser.add_argument(
         "--copy-conformance-tests",
         action="store_true",
         default=False,
-        help="If set, copy the conformance tests folder to `--conformance-tests-dest` after every successful rendering. Requires --conformance-tests-script.",
+        help="If set, copy the conformance tests of code in `--conformance-tests-folder` folder to `--conformance-tests-dest` folder successful rendering. Requires --conformance-tests-script.",
     )
     parser.add_argument(
         "--conformance-tests-dest",
         type=non_empty_string,
         default=DEFAULT_CONFORMANCE_TESTS_DEST,
-        help="Target folder to copy conformance tests output to (used only if --copy-conformance-tests is set).",
+        help="Target folder to copy conformance tests of code to (used only if --copy-conformance-tests is set).",
     )
 
     parser.add_argument(
