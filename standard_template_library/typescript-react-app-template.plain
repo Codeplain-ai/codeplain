@@ -11,7 +11,13 @@
 
 - :App: should run on port 3000.
 
+- The start script should be added to the package.json file.
 
 ***test reqs***
 
 - :ConformanceTests: of :App: should be written in TypeScript, using Cypress as the framework for :ConformanceTests:.
+
+- The following configuration should be added:
+  - The appropriate include section should be added to tsconfig.json file.
+  - The cypress.config.mjs file should use the 'cypress' package.
+  - The typescript package should be added to the devDependencies in package.json
