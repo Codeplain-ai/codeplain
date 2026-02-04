@@ -3,6 +3,7 @@ import logging
 import logging.config
 import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -262,15 +263,10 @@ def main():  # noqa: C901
 
         try:
             if args.full_plain:
-                # Read the raw plain source file
-                with open(args.filename, "r") as f:
-                    plain_source = f.read()
-
+                module_name = Path(args.filename).stem
+                plain_source = plain_file.read_module_plain_source(module_name, template_dirs)
                 [full_plain_source, _] = file_utils.get_loaded_templates(template_dirs, plain_source)
-
-                if args.verbose:
-                    console.info("Full plain text:\n")
-
+                console.info("Full plain text:\n")
                 console.info(full_plain_source)
                 return
 
