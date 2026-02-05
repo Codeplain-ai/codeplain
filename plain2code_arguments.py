@@ -15,6 +15,7 @@ DEFAULT_CONFORMANCE_TESTS_DEST = "dist_conformance_tests"
 UNIT_TESTS_SCRIPT_NAME = "unittests_script"
 CONFORMANCE_TESTS_SCRIPT_NAME = "conformance_tests_script"
 DEFAULT_LOG_FILE_NAME = "codeplain.log"
+PREPARE_ENVIRONMENT_SCRIPT_NAME = "prepare_environment_script"
 
 
 def process_test_script_path(script_arg_name, config):
@@ -305,7 +306,7 @@ def parse_arguments():
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")
 
-    script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME]
+    script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME, PREPARE_ENVIRONMENT_SCRIPT_NAME]
     for script_name in script_arg_names:
         args = process_test_script_path(script_name, args)
 
