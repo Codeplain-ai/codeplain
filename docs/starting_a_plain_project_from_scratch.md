@@ -1,28 +1,26 @@
-# How to Start a New ***plain Project from Scratch
+# Starting a New ***plain Project from Scratch
 
-This guide will walk you through creating your first ***plain project from scratch.
-It assumes you have already:
+This guide will walk you through creating your first ***plain project from scratch. It assumes you have already:
 
-✅ Met all [prerequisites](../README.md#prerequisites),
-✅ Completed the [installation steps](../README.md/#installation-steps),
-✅ Successfully rendered your [first example](../README.md#quick-start).
-
-If you haven't done so yet, please refer to [README](../README.md).
+✅ Installed `codeplain` CLI by following the installation guide on [*codeplain website](https://www.codeplain.ai/),
+✅ Successfully rendered hello world example by following walkthrough guide while installing the `codeplain` CLI.
 
 After following this guide, you'll be equipped to turn your ideas into working code with ***plain.
 
 ## Project Structure Overview
 
+Let's say you're building a CLI app where you want to sort an array of integers in Python. We'll call this project `array_sorter`.
+
 Every ***plain project follows this basic structure:
 
 ```
-my-new-project/
-├── my_app.plain                        # Your application specification
+array_sorter/
+├── array_sorter.plain                  # Your application specification
 ├── config.yaml                         # CLI configuration
-├── run_unittests_[language].sh         # Unit test script
-├── run_conformance_tests_[language].sh # Conformance test script
-├── build/                              # Generated
-└── conformance_tests/                  # Generated
+├── run_unittests_python.sh             # Python unit test script
+├── run_conformance_tests_python.sh     # Python conformance test script
+├── plain_modules/                      # Rendered plain modules
+└── conformance_tests/                  # Rendered conformance tests
 ```
 
 In this guide we will cover how to create each of these step by step.
@@ -31,29 +29,42 @@ In this guide we will cover how to create each of these step by step.
 
 Create a `.plain` file. The following example shows how to specify the array sorting problem. For more details, see [***plain language specifications](plain_language_specification.md).
 
-**Example: `array_sorting.plain`**
+`array_sorting.plain`
+
 ```plain
-{% include "python-console-app-template.plain", main_executable_file_name: "array_sorting.py" %}
+---
+description: 'Sort an array of integers in Python'
+import:
+  - python-console-app-template
+---
 
-***Definitions:***
-- The Array is an array of integers received as input.
+***definitions***
 
-***Functional Requirements:***
-- The App should be extended to receive The Array
-- Sort The Array.
-- Display The Array.
+- :Array: is an array of integers received as input.
+
+***implementation reqs***
+
+- :App: should use merge sort algorithm to sort :Array:.
+
+- :App: should receive :Array: as input as positional argument.
+
+***functional specs***
+
+- Sort :Array: in ascending order and display it through stdout.
 
     ***Acceptance Tests:***
-    - When given input "5 2 8 1 9", The App should output "1 2 5 8 9"
-    - When given input "1 2 3 4 5", The App should output "1 2 3 4 5"
 
+    - When given input "5 2 8 1 9", The App should output "1 2 5 8 9"
+
+    - When given input "1 2 3 4 5", The App should output "1 2 3 4 5"
 ```
 
-- When including templates, use `--full-plain` flag to preview the complete specification including all template content before rendering. You can find predefined templates in [standard template library](../standard_template_library/). (This flag can be configured in your config file.)
+In the example above, we started off from the module `python-console-app-template`. You can find predefined modules in the [standard template library](https://github.com/Codeplain-ai/codeplain/tree/main/standard_template_library).
+
 
 ## 2. Add Test Scripts
 
-Include the appropriate test scripts to your project:
+Include the appropriate test scripts to your project. If scripts are not needed to be customized, you can use the [predefined ones](https://github.com/Codeplain-ai/codeplain/tree/main/standard_template_library).
 
 ```bash
 cp /path/to/plain2code_client/test_scripts/run_unittests_python.sh ./
