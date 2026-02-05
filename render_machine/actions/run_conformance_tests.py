@@ -2,6 +2,7 @@ from typing import Any
 
 import render_machine.render_utils as render_utils
 from plain2code_console import console
+from plain2code_events import RenderStateUpdated
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
@@ -52,6 +53,14 @@ class RunConformanceTests(BaseAction):
             render_context, exit_code, conformance_tests_issue
         )
 
+        render_context.event_bus.publish(
+            RenderStateUpdated(
+                state=render_context.state,
+                previous_state=render_context.previous_state,
+                snapshot=render_context.create_snapshot(),
+            )
+        )
+
         if exit_code == 0:
             conformance_tests_issue = "All conformance tests passed successfully!"
 
@@ -59,11 +68,11 @@ class RunConformanceTests(BaseAction):
             return self.SUCCESSFUL_OUTCOME, None
 
         if exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
-            console.error(conformance_tests_issue)
+            console.error(f"[red]{conformance_tests_issue}[/red]")
             return (
                 self.UNRECOVERABLE_ERROR_OUTCOME,
                 RenderError.encode(
-                    message=conformance_tests_issue,
+                    message="Conformance tests script failed with an unrecoverable error.\nPlease check your conformance test script output for more details.",
                     error_type="ENVIRONMENT_ERROR",
                     exit_code=exit_code,
                     script=render_context.conformance_tests_script,
