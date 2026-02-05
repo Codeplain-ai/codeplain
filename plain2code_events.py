@@ -28,8 +28,7 @@ class RenderContextSnapshot:
 class RenderCompleted(BaseEvent):
     """Event emitted when rendering completes successfully."""
 
-    module_name: str
-    build_folder: str
+    rendered_code_path: str
 
 
 @dataclass

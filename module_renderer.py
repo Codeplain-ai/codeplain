@@ -261,5 +261,10 @@ class ModuleRenderer:
         _, _, rendering_failed = self._render_module(self.filename, self.render_range, True)
         if not rendering_failed:
             # Get the last module that completed rendering
-            last_module_name = self.loaded_modules[-1].name if self.loaded_modules else ""
-            self.event_bus.publish(RenderCompleted(module_name=last_module_name, build_folder=self.args.build_folder))
+            if self.args.copy_build:
+                rendered_code_path = f"{self.args.build_dest}/"
+            else:
+                last_module_name = self.filename.replace(plain_file.PLAIN_SOURCE_FILE_EXTENSION, "")
+                rendered_code_path = f"{os.path.join(self.args.build_folder, last_module_name)}/"
+
+            self.event_bus.publish(RenderCompleted(rendered_code_path=rendered_code_path))

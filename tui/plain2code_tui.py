@@ -274,7 +274,7 @@ class Plain2CodeTUI(App):
 
     def on_render_completed(self, event: RenderCompleted):
         """Handle successful render completion."""
-        self._render_success_handler.handle(event.module_name, event.build_folder)
+        self._render_success_handler.handle(event.rendered_code_path)
 
     def on_render_failed(self, event: RenderFailed):
         """Handle render failure."""

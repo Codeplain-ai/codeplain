@@ -1,6 +1,5 @@
 """Widget update helper utilities for Plain2Code TUI."""
 
-import os
 from datetime import datetime
 
 from textual.css.query import NoMatches
@@ -98,17 +97,15 @@ def get_frid_progress(tui) -> FRIDProgress:
     return tui.query_one(f"#{TUIComponents.FRID_PROGRESS.value}", FRIDProgress)
 
 
-def display_success_message(tui, module_name: str, build_folder: str):
+def display_success_message(tui, rendered_code_path: str):
     """Display success message with code location and exit instructions.
 
     Args:
         tui: The Plain2CodeTUI instance
-        module_name: Name of the module that was rendered
-        build_folder: The build folder path
+        rendered_code_path: The path to the rendered code
     """
 
-    code_location = os.path.join(build_folder, module_name)
-    message = f"[#79FC96]✓ Rendering finished![/#79FC96] [#888888](ctrl+c to exit)[/#888888]\n[#888888]Generated code: {code_location}[/#888888] "
+    message = f"[#79FC96]✓ Rendering finished![/#79FC96] [#888888](ctrl+c to exit)[/#888888]\n[#888888]Generated code: {rendered_code_path}[/#888888] "
 
     widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
     widget.update(message)
