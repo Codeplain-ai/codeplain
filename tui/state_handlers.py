@@ -299,14 +299,13 @@ class RenderSuccessHandler:
         """
         self.tui = tui
 
-    def handle(self, module_name: str, build_folder: str) -> None:
+    def handle(self, rendered_code_path: str) -> None:
         """Handle successful render completion.
 
         Args:
-            module_name: Name of the last module that completed rendering
-            build_folder: The build folder path
+            rendered_code_path: The path to the rendered code
         """
-        display_success_message(self.tui, module_name, build_folder)
+        display_success_message(self.tui, rendered_code_path)
 
 
 class RenderErrorHandler:
