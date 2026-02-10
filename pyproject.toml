@@ -22,10 +22,10 @@ dependencies = [
     "PyYAML==6.0.2",
     "gitpython==3.1.42",
     "transitions==0.9.3",
-    "textual==1.0.0",
+    "textual>=1.0.0",
     "rich==14.2.0",
     "python-frontmatter==1.1.0",
-    "networkx==3.6.1"
+    "networkx==3.6.1",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +46,7 @@ include = [
     "config/**/*",
     "render_machine/**/*",
     "standard_template_library/**/*",
-    "tui/**/*"
+    "tui/**/*",
 ]
 
 [tool.black]
