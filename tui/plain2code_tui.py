@@ -4,7 +4,9 @@ import time
 from typing import Callable, Optional
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import ContentSwitcher, Static
 from textual.worker import Worker, WorkerFailed, WorkerState
 
@@ -53,7 +55,8 @@ class Plain2CodeTUI(App):
     """A Textual TUI for plain2code."""
 
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+c", "smart_quit", "Copy/Quit", show=False),
+        Binding("escape", "cancel_quit", "Cancel Quit", show=False),
         ("ctrl+l", "toggle_logs", "Toggle Logs"),
     ]
 
@@ -77,6 +80,7 @@ class Plain2CodeTUI(App):
         self.conformance_tests_script: Optional[str] = conformance_tests_script
         self.prepare_environment_script: Optional[str] = prepare_environment_script
         self.state_machine_version = state_machine_version
+        self._quit_pending = False
 
         # Initialize state handlers
         self._state_handlers: dict[str, StateHandler] = {
@@ -298,12 +302,53 @@ class Plain2CodeTUI(App):
         # daemon=True ensures this thread dies with the process if it exits before the timer fires
         threading.Thread(target=ensure_exit, daemon=True).start()
 
+    @property
+    def quit_pending(self) -> bool:
+        """Whether a quit confirmation is pending."""
+        return self._quit_pending
+
+    async def action_smart_quit(self) -> None:
+        """Handle ctrl+c: copy selected text if any, otherwise quit.
+
+        Copy-first, quit-second design:
+        - If text is selected -> copy it to clipboard
+        - If no text is selected -> enter quit-pending state
+        - If already in quit-pending state -> actually quit
+        - ESC cancels the quit confirmation
+        """
+        selected_text = self.screen.get_selected_text()
+        if selected_text:
+            self.copy_to_clipboard(selected_text)
+            self.screen.clear_selection()
+            self.notify("Copied to clipboard", timeout=2)
+            return
+
+        if self._quit_pending:
+            self.action_quit()
+            return
+
+        self._quit_pending = True
+        self._refresh_footer()
+
+    def action_cancel_quit(self) -> None:
+        """Cancel the quit confirmation when ESC is pressed."""
+        if self._quit_pending:
+            self._quit_pending = False
+            self._refresh_footer()
+
+    def _refresh_footer(self) -> None:
+        """Refresh the CustomFooter widget to reflect current quit-pending state."""
+        try:
+            footer = self.screen.query_one(CustomFooter)
+            footer.update_quit_state(self._quit_pending)
+        except NoMatches:
+            pass
+
     def action_quit(self) -> None:
-        """An action to quit the application immediately when user presses 'q'.
+        """Quit the application immediately.
 
         Note: Force exit may leave files partially written if interrupted during file I/O operations.
         This is acceptable since the folders in which we are writing are git versioned and are reset in the next render.
         """
-        # Show stopping message to user
         self.render_worker.cancel()
         self.exit()
