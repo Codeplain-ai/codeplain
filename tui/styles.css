@@ -394,6 +394,11 @@ CustomFooter {
     color: #888;
 }
 
+.custom-footer-quit-pending {
+    width: 1fr;
+    color: #e5c07b;
+}
+
 .custom-footer-render-id {
     width: auto;
     color: #888;
