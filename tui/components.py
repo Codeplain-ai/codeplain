@@ -469,7 +469,9 @@ class LogEntry(Vertical):
             pass
 
     def on_click(self) -> None:
-        """Toggle details visibility on click."""
+        """Toggle details visibility on click, unless text is selected."""
+        if self.screen.get_selected_text():
+            return
         try:
             details = self.query_one(f"#log-details-{id(self)}")
             indicator = self.query_one(".log-expand-indicator", Static)
