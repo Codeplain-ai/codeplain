@@ -1,9 +1,10 @@
 Screen {
-  layout: vertical;
+    layout: vertical;
 }
 
 .screen--selection {
-  background: #79fc96 13%;
+  background: #FFFFFF;
+  color: #000000;
 }
 
 /* Dashboard View - main container */
