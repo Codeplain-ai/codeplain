@@ -1,18 +1,22 @@
 Screen {
-    layout: vertical;
+  layout: vertical;
+}
+
+.screen--selection {
+  background: #79fc96 13%;
 }
 
 /* Dashboard View - main container */
 #dashboard-view {
-    margin: 0 2;
+  margin: 0 2;
 }
 
 /* Codeplain Header Box - *codeplain (version)*/
 #codeplain-header {
-    dock: top;
-    margin: 1 0;
-    width: auto;
-    height: auto;
+  dock: top;
+  margin: 1 0;
+  width: auto;
+  height: auto;
 }
 
 /*
@@ -30,377 +34,378 @@ We might need those at some point, so just commenting them out for now.
 } */
 
 #render-id-widget {
-    dock: top;
-    margin-left: 2;
-    margin-right: 2;
-    height: auto;
+  dock: top;
+  margin-left: 2;
+  margin-right: 2;
+  height: auto;
 }
 
 #render-status-widget {
-    height: auto;
+  height: auto;
 }
 
 #render-status-widget.success {
-    color: #79FC96;
+  color: #79fc96;
 }
 
 #render-status-widget.error {
-    color: #FF6B6B;
+  color: #ff6b6b;
 }
 
 #frid-progress {
-    margin: 0;
-    height: auto;
+  margin: 0;
+  height: auto;
 }
 
 /* Module Status */
 RenderingInfoBox {
-    height: auto;
-    margin: 1 0;
+  height: auto;
+  margin: 1 0;
 }
 
 /* Module Status box border */
 .rendering-info-box {
-    height: auto;
-    border: solid #888;
-    padding: 0 1;
+  height: auto;
+  border: solid #888;
+  padding: 0 1;
 }
 
 .rendering-info-row {
-    color: #FFF;
+  color: #fff;
 }
 
 .rendering-info-title {
-    color: #888;
-    margin-bottom: 0;
+  color: #888;
+  margin-bottom: 0;
 }
 
 .frid-state-machine-title {
-    color: #888;
-    margin-bottom: 0;
+  color: #888;
+  margin-bottom: 0;
 }
 
 ProgressItem {
-    height: auto;
+  height: auto;
 }
 
 .progress-main-row {
-    height: auto;
+  height: auto;
 }
 
 .substates-container {
-    height: auto;
-    margin-left: 1;
-    padding: 0;
+  height: auto;
+  margin-left: 1;
+  padding: 0;
 }
 
 .substate-row {
-    height: auto;
-    width: 100%;
-    padding: 0 1;
+  height: auto;
+  width: 100%;
+  padding: 0 1;
 }
 
 .substate-line-text {
-    width: 1fr;
-    color: #FFF;
-    content-align: left middle;
+  width: 1fr;
+  color: #fff;
+  content-align: left middle;
 }
 
 #frid-progress Vertical {
-    height: auto;
+  height: auto;
 }
 
 #frid-progress-header {
-    margin-left: 2;
-    margin-right: 2;
-    color: #FFF;
+  margin-left: 2;
+  margin-right: 2;
+  color: #fff;
 }
 
 #render-module-name-widget {
-    margin-left: 2;
-    margin-right: 2;
-    color: #FFF;
+  margin-left: 2;
+  margin-right: 2;
+  color: #fff;
 }
 
 TestScriptsContainer {
-    margin: 1 0;
-    height: auto;
+  margin: 1 0;
+  height: auto;
 }
 
 /* Latest script output container */
 .test-scripts-box {
-    height: auto;
-    color: #888;
-    border: solid #888;
-    padding: 0 1;
+  height: auto;
+  color: #888;
+  border: solid #888;
+  padding: 0 1;
 }
 
 .test-scripts-title {
-    color: #888;
-    margin-bottom: 0;
+  color: #888;
+  margin-bottom: 0;
 }
 
 .test-script-row {
-    color: #FFF;
+  color: #fff;
 }
 
 /* State machine container border */
 .frid-state-machine-box {
-    border: solid #888;
-    padding: 0 1;
+  border: solid #888;
+  padding: 0 1;
 }
 #unit-test-script-output-widget,
 #conformance-tests-script-output-widget,
 #testing-environment-script-output-widget {
-    height: auto;
-    color: #888;
+  height: auto;
+  color: #888;
 }
 
 #acceptance-tests-container {
-    height: auto;
+  height: auto;
 }
 
 .status {
-    width: 14;
-    padding: 0 1;
+  width: 14;
+  padding: 0 1;
 }
 
 .status.PENDING {
-    color: #000;
-    background: #C5DCD9;
+  color: #000;
+  background: #c5dcd9;
 }
 
 .status.PROCESSING {
-    color: #000;
-    background: #E0FF6E;
+  color: #000;
+  background: #e0ff6e;
 }
 
 .status.PROCESSING .spinner-text {
-    color: #000;
+  color: #000;
 }
 
 .status.COMPLETED {
-    color: #000;
-    background: #79FC96;
+  color: #000;
+  background: #79fc96;
 }
 
 .status.STOPPED {
-    color: #FFF;
-    background: #C77777;
+  color: #fff;
+  background: #c77777;
 }
 
 .description {
-    margin-left: 1;
+  margin-left: 1;
 }
 
 .substate-separator {
-    height: 1;
+  height: 1;
 }
 
 /* Log Filter Styles - Segmented Control Design */
 #log-filter {
-    dock: top;
-    height: auto;
-    padding: 1;
+  dock: top;
+  height: auto;
+  padding: 1;
 }
 
 /* Spacer after filter */
 .filter-spacer {
-    height: 1;
-    width: 100%;
+  height: 1;
+  width: 100%;
 }
 
 /* Label style */
 .filter-label {
-    width: auto;
-    text-style: bold;
-    color: #FFFFFF;
-    padding: 0 1 0 0;
+  width: auto;
+  text-style: bold;
+  color: #ffffff;
+  padding: 0 1 0 0;
 }
 
 /* Container for the buttons */
 .filter-buttons-container {
-    width: auto;
-    height: auto;
+  width: auto;
+  height: auto;
 }
 
 /* Base button - flat style with minimal decoration */
 Button.filter-button {
-    width: auto;
-    height: 1;
-    min-width: 0;
-    padding: 0 1;
-    margin: 0 1;
-    background: transparent;
-    border: none;
-    color: #FFF;
-    content-align: center middle;
+  width: auto;
+  height: 1;
+  min-width: 0;
+  padding: 0 1;
+  margin: 0 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  content-align: center middle;
 }
 
 /* Hover state for inactive buttons */
 Button.filter-button:hover {
-    background: #2A2A2A;
-    color: #DDD;
+  background: #2a2a2a;
+  color: #ddd;
 }
 
 /* Focus state for inactive buttons - no visual change */
 Button.filter-button:focus {
-    background: transparent;
-    color: #FFF;
+  background: transparent;
+  color: #fff;
 }
 
 /* Focus-within state for inactive buttons */
 Button.filter-button:focus-within {
-    background: transparent;
-    color: #FFF;
+  background: transparent;
+  color: #fff;
 }
 
 /* Primary variant - active/selected button */
 Button.filter-button.-primary {
-    background: #FFF;
-    color: #000;
-    text-style: bold;
+  background: #fff;
+  color: #000;
+  text-style: bold;
 }
 
 /* Primary focus - maintain appearance */
 Button.filter-button.-primary:focus {
-    background: #FFF;
-    color: #000;
-    text-style: bold;
+  background: #fff;
+  color: #000;
+  text-style: bold;
 }
 
 /* Primary focus-within - maintain appearance */
 Button.filter-button.-primary:focus-within {
-    background: #E0FF6E;
-    color: #000;
-    text-style: bold;
+  background: #e0ff6e;
+  color: #000;
+  text-style: bold;
 }
 
 /* Disabled state - should be dim and non-interactive */
 Button.filter-button:disabled,
 Button.filter-button.-disabled {
-    opacity: 0.4;
-    color: #555;
-    background: transparent;
+  opacity: 0.4;
+  color: #555;
+  background: transparent;
 }
 
 /* Disabled buttons should not show hover effects */
 Button.filter-button:disabled:hover,
 Button.filter-button.-disabled:hover {
-    background: transparent;
-    color: #555;
+  background: transparent;
+  color: #555;
 }
 
 /* Log Entry Rows */
 .log-entry {
-    height: auto;
-    width: 100%;
-    padding: 0;
-    margin: 0;
+  height: auto;
+  width: 100%;
+  padding: 0;
+  margin: 0;
 }
 
 .log-entry:hover {
-    background: #1A1A1A;
+  background: #1a1a1a;
 }
 
 .log-main-row {
-    height: auto;
-    width: 100%;
-    padding: 0 1;
+  height: auto;
+  width: 100%;
+  padding: 0 1;
 }
 
 .log-expand-indicator {
-    width: 3;
-    color: #888;
+  width: 3;
+  color: #888;
 }
 
 .log-col-message {
-    width: 1fr;
-    color: #FFF;
+  width: 1fr;
+  color: #fff;
 }
 
 .log-details-row {
-    height: auto;
-    width: 100%;
-    padding: 0 0 0 13;
-    margin: 0;
+  height: auto;
+  width: 100%;
+  padding: 0 0 0 13;
+  margin: 0;
 }
 
 .log-details-text {
-    width: 1fr;
-    color: #888;
-    margin: 0;
-    padding: 0;
+  width: 1fr;
+  color: #888;
+  margin: 0;
+  padding: 0;
 }
 
 /* Legacy columns (keeping for compatibility) */
 .log-col-time {
-    width: 14;
-    color: #888;
+  width: 14;
+  color: #888;
 }
 
 .log-col-level {
-    width: 10;
+  width: 10;
 }
 
 .log-col-location {
-    width: 12;
-    color: #888;
+  width: 12;
+  color: #888;
 }
 
 /* Log spacer for visual separation */
 .log-spacer {
-    height: 1;
-    width: 100%;
+  height: 1;
+  width: 100%;
 }
 
 /* Level-specific styling for the level column */
 .log-debug .log-col-level {
-    color: #fff;
+  color: #fff;
 }
 
 .log-info .log-col-level {
-    color: #888;
+  color: #888;
 }
 
 .log-warning .log-col-level {
-    color: #C5DCD9;
+  color: #c5dcd9;
 }
 
 .log-error .log-col-level {
-    color: #DD5353;
+  color: #dd5353;
 }
 
 /* Footer Styling */
 Footer {
-    background: transparent;
-    height: 2;
-    padding: 0 1;
-    color: #888;
-    align: left bottom;
+  background: transparent;
+  height: 2;
+  padding: 0 1;
+  color: #888;
+  align: left bottom;
 }
 
 /* Custom Footer */
 CustomFooter {
-    dock: bottom;
-    height: 2;
-    background: transparent;
-    padding: 0 1;
-    align: left bottom;
+  dock: bottom;
+  height: 2;
+  background: transparent;
+  padding: 0 1;
+  align: left bottom;
 }
 
 .custom-footer-text {
-    width: 1fr;
-    color: #888;
+  width: 1fr;
+  color: #888;
 }
 
 .custom-footer-quit-pending {
-    width: 1fr;
-    color: #e5c07b;
+  width: 1fr;
+  color: #e5c07b;
 }
 
 .custom-footer-render-id {
-    width: auto;
-    color: #888;
-    text-align: right;
+  width: auto;
+  color: #888;
+  text-align: right;
 }
+
