@@ -13,8 +13,8 @@ from .spinner import Spinner
 class CustomFooter(Horizontal):
     """A custom footer with keyboard shortcuts and render ID."""
 
-    NORMAL_TEXT = "ctrl+c: copy/quit  *  ctrl+l: toggle logs"
-    QUIT_PENDING_TEXT = "Press ctrl+c again to quit  *  esc: cancel"
+    NORMAL_TEXT = "ctrl+c: quit/copy/  *  ctrl+l: toggle logs"
+    QUIT_PENDING_TEXT = "press ctrl+c again to quit  *  esc: cancel"
 
     def __init__(self, render_id: str = "", **kwargs):
         super().__init__(**kwargs)
