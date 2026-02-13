@@ -14,15 +14,23 @@ class CustomFooter(Horizontal):
     """A custom footer with keyboard shortcuts and render ID."""
 
     FOOTER_TEXT = "ctrl+c: copy  *  ctrl+d: quit  *  ctrl+l: toggle logs"
+    RENDER_FINISHED_TEXT = "enter: exit  *  ctrl+c: copy  *  ctrl+l: toggle logs"
 
     def __init__(self, render_id: str = "", **kwargs):
         super().__init__(**kwargs)
         self.render_id = render_id
+        self._footer_text_widget: Optional[Static] = None
 
     def compose(self):
-        yield Static(self.FOOTER_TEXT, classes="custom-footer-text")
+        self._footer_text_widget = Static(self.FOOTER_TEXT, classes="custom-footer-text")
+        yield self._footer_text_widget
         if self.render_id:
             yield Static(f"render id: {self.render_id}", classes="custom-footer-render-id")
+
+    def show_render_finished(self) -> None:
+        """Update footer text to show render-finished keybindings."""
+        if self._footer_text_widget is not None:
+            self._footer_text_widget.update(self.RENDER_FINISHED_TEXT)
 
 
 class ScriptOutputType(str, Enum):

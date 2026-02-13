@@ -57,6 +57,7 @@ class Plain2CodeTUI(App):
     BINDINGS = [
         Binding("ctrl+c", "copy_selection", "Copy", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
+        Binding("enter", "enter_exit", "Exit", show=False),
         ("ctrl+l", "toggle_logs", "Toggle Logs"),
     ]
 
@@ -80,6 +81,7 @@ class Plain2CodeTUI(App):
         self.conformance_tests_script: Optional[str] = conformance_tests_script
         self.prepare_environment_script: Optional[str] = prepare_environment_script
         self.state_machine_version = state_machine_version
+        self._render_finished = False
 
         # Initialize state handlers
         self._state_handlers: dict[str, StateHandler] = {
@@ -278,6 +280,12 @@ class Plain2CodeTUI(App):
     def on_render_completed(self, event: RenderCompleted):
         """Handle successful render completion."""
         self._render_success_handler.handle(event.rendered_code_path)
+        self._render_finished = True
+        try:
+            footer = self.screen.query_one(CustomFooter)
+            footer.show_render_finished()
+        except NoMatches:
+            pass
 
     def on_render_failed(self, event: RenderFailed):
         """Handle render failure."""
@@ -312,6 +320,11 @@ class Plain2CodeTUI(App):
             self.copy_to_clipboard(selected_text)
             self.screen.clear_selection()
             self.notify("Copied to clipboard", timeout=2)
+
+    def action_enter_exit(self) -> None:
+        """Handle enter: exit the TUI only after rendering has finished."""
+        if self._render_finished:
+            self.action_quit()
 
     def action_quit(self) -> None:
         """Quit the application immediately.

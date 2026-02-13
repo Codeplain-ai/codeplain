@@ -105,7 +105,7 @@ def display_success_message(tui, rendered_code_path: str):
         rendered_code_path: The path to the rendered code
     """
 
-    message = f"[#79FC96]✓ Rendering finished![/#79FC96] [#888888](ctrl+d to exit)[/#888888]\n[#888888]Generated code: {rendered_code_path}[/#888888] "
+    message = f"[#79FC96]✓ Rendering finished![/#79FC96] [#888888](enter to exit)[/#888888]\n[#888888]Generated code: {rendered_code_path}[/#888888] "
 
     widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
     widget.update(message)
