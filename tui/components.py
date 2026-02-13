@@ -13,32 +13,16 @@ from .spinner import Spinner
 class CustomFooter(Horizontal):
     """A custom footer with keyboard shortcuts and render ID."""
 
-    NORMAL_TEXT = "ctrl+c: quit/copy/  *  ctrl+l: toggle logs"
-    QUIT_PENDING_TEXT = "press ctrl+c again to quit  *  esc: cancel"
+    FOOTER_TEXT = "ctrl+c: copy  *  ctrl+d: quit  *  ctrl+l: toggle logs"
 
     def __init__(self, render_id: str = "", **kwargs):
         super().__init__(**kwargs)
         self.render_id = render_id
-        self._footer_text_widget: Optional[Static] = None
 
     def compose(self):
-        self._footer_text_widget = Static(self.NORMAL_TEXT, classes="custom-footer-text")
-        yield self._footer_text_widget
+        yield Static(self.FOOTER_TEXT, classes="custom-footer-text")
         if self.render_id:
             yield Static(f"render id: {self.render_id}", classes="custom-footer-render-id")
-
-    def update_quit_state(self, quit_pending: bool) -> None:
-        """Update footer text based on quit-pending state."""
-        if self._footer_text_widget is None:
-            return
-        if quit_pending:
-            self._footer_text_widget.update(self.QUIT_PENDING_TEXT)
-            self._footer_text_widget.remove_class("custom-footer-text")
-            self._footer_text_widget.add_class("custom-footer-quit-pending")
-        else:
-            self._footer_text_widget.update(self.NORMAL_TEXT)
-            self._footer_text_widget.remove_class("custom-footer-quit-pending")
-            self._footer_text_widget.add_class("custom-footer-text")
 
 
 class ScriptOutputType(str, Enum):
