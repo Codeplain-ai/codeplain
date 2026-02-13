@@ -24,7 +24,7 @@ class CustomFooter(Horizontal):
         self._footer_text_widget = Static(self.FOOTER_TEXT, classes="custom-footer-text")
         yield self._footer_text_widget
         if self.render_id:
-            yield Static(f"render id: {self.render_id}", classes="custom-footer-render-id")
+            yield Static(f"render id: {self.render_id} ", classes="custom-footer-render-id")
 
     def show_render_finished(self) -> None:
         """Update footer text to show render-finished keybindings."""
