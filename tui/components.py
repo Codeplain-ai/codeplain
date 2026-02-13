@@ -19,7 +19,6 @@ class CustomFooter(Horizontal):
     def __init__(self, render_id: str = "", **kwargs):
         super().__init__(**kwargs)
         self.render_id = render_id
-        self._footer_text_widget: Optional[Static] = None
 
     def compose(self):
         self._footer_text_widget = Static(self.FOOTER_TEXT, classes="custom-footer-text")
