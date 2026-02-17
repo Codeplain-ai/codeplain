@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codeplain"
-version = "0.2.10"
+dynamic = ["version"]
 description = "Transform plain language specifications into working code"
 readme = "README.md"
 requires-python = "==3.11"
@@ -39,6 +39,9 @@ dev = [
 
 [project.scripts]
 codeplain = "plain2code:main"
+
+[tool.hatch.version]
+path = "_version.py"
 
 [tool.hatch.build.targets.wheel]
 include = [
