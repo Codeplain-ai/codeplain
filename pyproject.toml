@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codeplain"
-version = "0.2.10"
+version = "0.2.9"
 description = "Transform plain language specifications into working code"
 readme = "README.md"
 requires-python = "==3.11"
