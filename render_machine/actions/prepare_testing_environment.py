@@ -21,6 +21,7 @@ class PrepareTestingEnvironment(BaseAction):
             [render_context.build_folder],
             render_context.verbose,
             "Testing Environment Preparation",
+            timeout=render_context.test_script_timeout,
         )
 
         render_context.conformance_tests_running_context.should_prepare_testing_environment = False

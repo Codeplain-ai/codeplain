@@ -42,9 +42,15 @@ def print_inputs(render_context, existing_files_content, message):
 
 
 def execute_script(
-    script: str, scripts_args: list[str], verbose: bool, script_type: str, frid: Optional[str] = None
+    script: str,
+    scripts_args: list[str],
+    verbose: bool,
+    script_type: str,
+    frid: Optional[str] = None,
+    timeout: Optional[int] = None,
 ) -> tuple[int, str, Optional[str]]:
     temp_file_path = None
+    script_timeout = timeout if timeout is not None else SCRIPT_EXECUTION_TIMEOUT
     try:
         start_time = time.time()
         result = subprocess.run(
@@ -52,7 +58,7 @@ def execute_script(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=SCRIPT_EXECUTION_TIMEOUT,
+            timeout=script_timeout,
         )
         elapsed_time = time.time() - start_time
         # Log the info about the script execution
@@ -90,7 +96,7 @@ def execute_script(
         # Store timeout output in a temporary file
         if verbose:
             with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".script_timeout") as temp_file:
-                temp_file.write(f"{script_type} script {script} timed out after {SCRIPT_EXECUTION_TIMEOUT} seconds.")
+                temp_file.write(f"{script_type} script {script} timed out after {script_timeout} seconds.")
                 if e.stdout:
                     decoded_output = e.stdout.decode("utf-8") if isinstance(e.stdout, bytes) else e.stdout
                     temp_file.write(f"{script_type} script partial output before the timeout:\n{decoded_output}")
@@ -98,11 +104,11 @@ def execute_script(
                     temp_file.write(f"{script_type} script did not produce any output before the timeout.")
                 temp_file_path = temp_file.name
             console.warning(
-                f"The {script_type} script timed out after {SCRIPT_EXECUTION_TIMEOUT} seconds. {script_type} script output stored in: {temp_file_path}"
+                f"The {script_type} script timed out after {script_timeout} seconds. {script_type} script output stored in: {temp_file_path}"
             )
 
         return (
             TIMEOUT_ERROR_EXIT_CODE,
-            f"{script_type} script did not finish in {SCRIPT_EXECUTION_TIMEOUT} seconds.",
+            f"{script_type} script did not finish in {script_timeout} seconds.",
             temp_file_path,
         )
