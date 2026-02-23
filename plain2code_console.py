@@ -97,7 +97,7 @@ class Plain2CodeConsole(Console):
 
     def print_resources(self, resources_list, linked_resources):
         if len(resources_list) == 0:
-            self.input("No linked resources found.")
+            self.input("Linked resources: None")
             return
 
         self.input("Linked resources:")
