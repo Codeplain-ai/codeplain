@@ -13,68 +13,31 @@
 Here's an example of a "hello, world" program in ***plain.
 
 ```plain
-***Non-Functional Requirements:***
+***implementation reqs***
 
 - :Implementation: should be in Python.
 
-***Functional Requirements:***
+***functional specs***
 
 - Display "hello, world"
 ```
-
-# Source structure
-
-## Source organization
-
-***plain source can be organized in sections and subsection using markdown headers.
-
-```plain
-# Section 1
-
-# Section 2
-
-***Non-Functional Requirements:***
-
-- First simple non-functional requirement
-
-***Functional Requirements:***
-
-- First simple functional requirement
-
-## Section 2.1
-
-***Non-Functional Requirements:***
-
-- Second simple non-functional requirement
-
-***Functional Requirements:***
-
-- Second simple functional requirement
-```
-
-This enables hierarchical organization of the specification. 
-
-In example above:
-
-- While rendering the "First simple functional requirement", the renderer will not have access to the "Second simple non-functional requirement".
-- While rendering the "Second simple functional requirement", the renderer will not have access to the "First simple non-functional requirement".
 
 ### Specifications
 
 There are four types of specifications:
 
-- `***Definitions:***`
-- `***Non-Functional Requirements:***`
-- `***Functional Requirements:***`
-- `***Test Requirements:***`
+- `***definitions***`
+- `***implementation reqs***`
+- `***functional specs***`
+- `***test reqs***`
 
-Every plain source file requires at least one functional requirement and an associated non-functional requirement.
+Every plain source file requires at least one functional spec and an associated implementation req.
 
-Functional requirements must reside in leaf sections while other specifications can be placed also in non-leaf sections. Specifications in non-leaf sections apply not just to the section itself but to all of its subsections.
+Functional specs must reside in leaf sections while other specifications can be placed also in non-leaf sections. Specifications in non-leaf sections apply not just to the section itself but to all of its subsections.
 
 ## Definitions
 
-The `***Definitions:***` specification is a list of definitions of new concepts.
+The `***definitions***` specification is a list of definitions of new concepts.
 
 Here's an example of a simple definiton.
 
@@ -89,9 +52,9 @@ While providing definitions, you should adhere to the following 4 rules:
 - Every definition must start with the name of the concept you are defining.
 - Each concept name must be enclosed in colons (`:`) at both the beginning and end.
   - Valid characters for concept name include: Plus sign (`+`), Minus sign (`-`), Dot sign (`.`), Digits (`0`-`9`), Uppercase letters (`A`-`Z`), Underscore (`_`), Lowercase letters (`a`-`z`)
-  - Examples: `:App:`, `:Tasks:`, `:ListOfUsers:`, `:CLI:`. 
+  - Examples: `:App:`, `:Tasks:`, `:ListOfUsers:`, `:CLI:`.
 - Concept names must be globally unique (meaning, you cannot provide two definitions with the same concept name).
-- When referencing concepts in ***Test Requirements:***, ***Functional Requirements:***, ***Non-Functional Requirements:*** and ***Acceptance Tests:***, the concept name must exist in the ***Definitions:*** section.
+- When referencing concepts in ***test reqs***, ***functional specs***, ***implementation reqs*** and ***acceptance tests***, the concept name must exist in the ***definitions*** section.
 
 Furthermore, there are special concepts that are already defined and are ready to use. They should not be redefined:
 
@@ -111,9 +74,9 @@ Definitions are the mechanism for definining data structures in ***plain. Here's
   - Due Date - optional date by which :User: is supposed to complete :Task:.
 ```
 
-## Non-Functional Requirements
+## Implementation Reqs
 
-The `***Non-Functional Requirements:***` specification is a list of instructions that steer software code implementation and provide details of execution environment.
+The `***implementation reqs***` specification is a list of instructions that steer software code implementation and provide details of execution environment.
 
 Here's an example of a simple instruction specifying only that the ***plain specification should be rendered to Python software code.
 
@@ -133,9 +96,9 @@ Here's an example of more complex instructions.
 - The main executable file of :App: should be called hello_world.py
 ```
 
-## Functional Requirements
+## Functional Specs
 
-The `***Functional Requirements:***` specification provides a description of functionality that should be rendered to software code. The descriptions should be provided in natural language as a markdown list.
+The `***functional specs***` specification provides a description of functionality that should be rendered to software code. The descriptions should be provided in natural language as a markdown list.
 
 Here's an example of a simple description of the functionality of the "hello, world" application.
 
@@ -143,7 +106,7 @@ Here's an example of a simple description of the functionality of the "hello, wo
 - Display "hello, world"
 ```
 
-Each functional requirement must be limited in complexity. For example, for the functional requirement
+Each functional spec must be limited in complexity. For example, for the functional spec
 
 ```plain
 - :App: should implement a task manager application.
@@ -152,10 +115,10 @@ Each functional requirement must be limited in complexity. For example, for the 
 the renderer of ***plain source to software code should respond with
 
 ```
-Functional requirement too complex!
+Functional spec too complex!
 ```
 
-In such case you need to break down the functioanlity into smaller, less-complex functional requirements.
+In such case you need to break down the functioanlity into smaller, less-complex functional specs.
 
 Here's an example how to do such a break down in the case of a task manager application.
 
@@ -173,38 +136,38 @@ Here's an example how to do such a break down in the case of a task manager appl
 - :User: should be able to mark :Task: as completed.
 ```
 
-Functional requirements are rendered incrementally one by one. Consequently earlier functional requirements cannot reference later functional requirements.
+Functional specs are rendered incrementally one by one. Consequently earlier functional specs cannot reference later functional specs.
 
 ### Acceptance Tests
 
-Acceptance tests can be used to further refine the functional requirement and especially to incorporate constraints on the implementation.
+Acceptance tests can be used to further refine the functional spec and especially to incorporate constraints on the implementation.
 
-Acceptance tests are specified with a keyword `***Acceptance Tests:***` as a subsection within `***Functional Requirements:***` section. Each acceptance tests must be an item in a list.
+Acceptance tests are specified with a keyword `***acceptance tests***` as a subsection within `***functional specs***` section. Each acceptance tests must be an item in a list.
 
 Here's an example of a "Hello, World" application with one acceptance test.
 
 ```plain
-***Functional Requirements:***
+***functional specs***
 
 - Display "hello, world"
 
-  ***Acceptance Tests:***
-    
+  ***acceptance tests***
+
   - :App: shouldn't show logging output in the console output (neither in stdout nor stderr).
 ```
 
-Acceptance tests extend **conformance tests**. The acceptance tests are implemented according to the ***Test Requirements:*** specification (see next section).
+Acceptance tests extend **conformance tests**. The acceptance tests are implemented according to the ***test reqs*** specification (see below).
 
-## Test Requirements
+## Test Reqs
 
-The `***Test Requirements:***` specification is a list of instructions that steer implementation of conformance tests and provide details of testing environment.
+The `***test reqs***` specification is a list of instructions that steer implementation of conformance tests and provide details of testing environment.
 
-**Conformance tests** is the generated code used to verify that the functional requirement is implemented according to the specification.
+**Conformance tests** is the generated code used to verify that the functional spec is implemented according to the specification.
 
-Here's an example specification of test requirements.
+Here's an example specification of test reqs.
 
 ```plain
-- :ConformanceTests: of :App: should be implemented in Python using Unittest framework. 
+- :ConformanceTests: of :App: should be implemented in Python using Unittest framework.
 ```
 
 # Extended Syntax
