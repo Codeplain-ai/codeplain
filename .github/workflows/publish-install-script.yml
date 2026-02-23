@@ -5,7 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'install/*.sh'
+      - 'install/bash/*.sh'
+      - 'install/powershell/*.ps1'
   workflow_dispatch:
 
 jobs:
@@ -23,17 +24,33 @@ jobs:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          aws s3 cp install/install.sh s3://${R2_BUCKET}/install/install.sh \
+          aws s3 cp install/bash/install.sh s3://${R2_BUCKET}/install/install.sh \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ install.sh uploaded to R2"
 
-          aws s3 cp install/walkthrough.sh s3://${R2_BUCKET}/install/walkthrough.sh \
+          aws s3 cp install/bash/walkthrough.sh s3://${R2_BUCKET}/install/walkthrough.sh \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ walkthrough.sh uploaded to R2"
 
-          aws s3 cp install/examples.sh s3://${R2_BUCKET}/install/examples.sh \
+          aws s3 cp install/bash/examples.sh s3://${R2_BUCKET}/install/examples.sh \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ examples.sh uploaded to R2"
+
+          aws s3 cp install/powershell/install.ps1 s3://${R2_BUCKET}/install/install.ps1 \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "text/plain"
+          echo "✓ install.ps1 uploaded to R2"
+
+          aws s3 cp install/powershell/walkthrough.ps1 s3://${R2_BUCKET}/install/walkthrough.ps1 \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "text/plain"
+          echo "✓ walkthrough.ps1 uploaded to R2"
+
+          aws s3 cp install/powershell/examples.ps1 s3://${R2_BUCKET}/install/examples.ps1 \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "text/plain"
+          echo "✓ examples.ps1 uploaded to R2"
+
