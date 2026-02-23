@@ -43,7 +43,8 @@ class RunConformanceTests(BaseAction):
             [render_context.build_folder, conformance_tests_folder_name],
             render_context.verbose,
             "Conformance Tests",
-            render_context.conformance_tests_running_context.current_testing_frid,
+            frid=render_context.conformance_tests_running_context.current_testing_frid,
+            timeout=render_context.test_script_timeout,
         )
         render_context.script_execution_history.latest_conformance_test_output_path = conformance_tests_temp_file_path
         render_context.script_execution_history.should_update_script_outputs = True

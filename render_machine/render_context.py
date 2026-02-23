@@ -51,6 +51,7 @@ class RenderContext:
         verbose: bool,
         run_state: RunState,
         event_bus: EventBus,
+        test_script_timeout: Optional[int] = None,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -75,6 +76,7 @@ class RenderContext:
         self.event_bus = event_bus
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
+        self.test_script_timeout = test_script_timeout
 
         resources_list = []
         plain_spec.collect_linked_resources(plain_source_tree, resources_list, None, True)

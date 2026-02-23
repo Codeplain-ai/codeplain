@@ -203,6 +203,13 @@ def create_parser():
     )
 
     parser.add_argument(
+        "--test-script-timeout",
+        type=int,
+        default=None,
+        help="Timeout for test scripts in seconds. If not provided, the default timeout of 120 seconds is used.",
+    )
+
+    parser.add_argument(
         "--api",
         type=str,
         nargs="?",

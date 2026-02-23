@@ -47,8 +47,6 @@ from plain2code_utils import print_dry_run_output
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 
-TEST_SCRIPT_EXECUTION_TIMEOUT = 120  # 120 seconds
-
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 
 MAX_UNITTEST_FIX_ATTEMPTS = 20

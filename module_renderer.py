@@ -176,6 +176,7 @@ class ModuleRenderer:
             verbose=self.args.verbose,
             run_state=self.run_state,
             event_bus=self.event_bus,
+            test_script_timeout=self.args.test_script_timeout,
         )
 
     def _render_module(
