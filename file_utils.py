@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 from pathlib import Path
 
 from liquid2 import Environment, FileSystemLoader, StrictUndefined
@@ -94,7 +95,22 @@ def list_folders_in_directory(directory):
 # delete a folder and all its subfolders and files
 def delete_folder(folder_name):
     if os.path.exists(folder_name):
-        shutil.rmtree(folder_name)
+        # Use writable-aware deletion so read-only files (e.g. .git objects on Windows) don't cause PermissionError
+        delete_files_and_subfolders(folder_name)
+        _make_writable(folder_name)
+        os.rmdir(folder_name)
+
+
+def _make_writable(path: str) -> None:
+    """On Windows, clear read-only so deletion can succeed."""
+    # TODO - Check if this can be done in a cleaner way.
+    is_windows = os.name == "nt"
+    if is_windows:
+        try:
+            mode = os.stat(path).st_mode
+            os.chmod(path, mode | stat.S_IWRITE)
+        except OSError:
+            pass
 
 
 def delete_files_and_subfolders(directory):
@@ -106,12 +122,14 @@ def delete_files_and_subfolders(directory):
         # Delete files
         for file in files:
             file_path = os.path.join(root, file)
+            _make_writable(file_path)
             os.remove(file_path)
             total_files_deleted += 1
 
         # Delete directories
         for dir_ in dirs:
             dir_path = os.path.join(root, dir_)
+            _make_writable(dir_path)
             os.rmdir(dir_path)
             total_folders_deleted += 1
 
