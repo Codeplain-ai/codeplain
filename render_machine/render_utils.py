@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Optional
@@ -51,19 +52,30 @@ def execute_script(
 ) -> tuple[int, str, Optional[str]]:
     temp_file_path = None
     script_timeout = timeout if timeout is not None else SCRIPT_EXECUTION_TIMEOUT
+
+    script_path = file_utils.add_current_path_if_no_path(script)
+    # On Windows, .ps1 files must be run via PowerShell, not as the executable
+    if sys.platform == "win32" and script_path.lower().endswith(".ps1"):
+        cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path] + scripts_args
+    else:
+        cmd = [script_path] + scripts_args
     try:
         start_time = time.time()
         result = subprocess.run(
-            [file_utils.add_current_path_if_no_path(script)] + scripts_args,
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=script_timeout,
         )
         elapsed_time = time.time() - start_time
         # Log the info about the script execution
         if verbose:
-            with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".script_output") as temp_file:
+            with tempfile.NamedTemporaryFile(
+                mode="w+", encoding="utf-8", delete=False, suffix=".script_output"
+            ) as temp_file:
                 temp_file.write(f"\n═════════════════════════ {script_type} Script Output ═════════════════════════\n")
                 temp_file.write(result.stdout)
                 temp_file.write("\n══════════════════════════════════════════════════════════════════════\n")
@@ -95,7 +107,9 @@ def execute_script(
     except subprocess.TimeoutExpired as e:
         # Store timeout output in a temporary file
         if verbose:
-            with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".script_timeout") as temp_file:
+            with tempfile.NamedTemporaryFile(
+                mode="w+", encoding="utf-8", delete=False, suffix=".script_timeout"
+            ) as temp_file:
                 temp_file.write(f"{script_type} script {script} timed out after {script_timeout} seconds.")
                 if e.stdout:
                     decoded_output = e.stdout.decode("utf-8") if isinstance(e.stdout, bytes) else e.stdout

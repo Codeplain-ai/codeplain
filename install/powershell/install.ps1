@@ -60,14 +60,29 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 Write-Host "${GREEN}✓${NC} uv detected"
 Write-Host ""
 
+try {
+    $uvOutput = uv tool list 2>$null
+} catch {
+    $uvOutput = @()
+}
+
 # Install or upgrade codeplain using uv tool
-$codeplainLine = @(uv tool list 2>$null) | Where-Object { $_ -match '^codeplain' } | Select-Object -First 1
+$codeplainLine = $uvOutput | Where-Object { $_ -match '^codeplain' } | Select-Object -First 1
 if ($codeplainLine) {
     $currentVersion = ($codeplainLine -replace 'codeplain v', '').Trim()
     Write-Host "${GRAY}codeplain ${currentVersion} is already installed.${NC}"
     Write-Host "upgrading to latest version..."
     Write-Host ""
-    uv tool upgrade codeplain 2>&1 | Out-Null
+
+    try {
+    $upgradeOutput = & uv tool upgrade codeplain 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "uv exited with code $LASTEXITCODE"
+    }
+    } catch {
+        Write-Host "${RED}Failed to upgrade codeplain.${NC}"
+        Write-Host $_
+    }
     $newLine = @(uv tool list 2>$null) | Where-Object { $_ -match '^codeplain' } | Select-Object -First 1
     $newVersion = ($newLine -replace 'codeplain v', '').Trim()
     if ($currentVersion -eq $newVersion) {
@@ -82,6 +97,24 @@ if ($codeplainLine) {
     Clear-Host
     Write-Host "${GREEN}✓ codeplain installed successfully!${NC}"
 }
+
+# Ensure uv tool bin directory is on user PATH permanently (so codeplain is available)
+$uvBinDir = Join-Path $env:USERPROFILE '.local\bin'
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($userPath) {
+    $pathEntries = $userPath -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    if ($uvBinDir -notin $pathEntries) {
+        $newPath = ($userPath.TrimEnd(';') + ';' + $uvBinDir)
+        [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+        $env:Path = $uvBinDir + ';' + $env:Path
+        Write-Host "${GREEN}✓${NC} added $uvBinDir to your user PATH"
+    }
+} else {
+    [Environment]::SetEnvironmentVariable('Path', $uvBinDir, 'User')
+    $env:Path = $uvBinDir + ';' + $env:Path
+    Write-Host "${GREEN}✓${NC} added $uvBinDir to your user PATH"
+}
+Write-Host ""
 
 # Check if API key already exists
 $skipApiKeySetup = $false
