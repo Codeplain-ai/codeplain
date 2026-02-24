@@ -1,4 +1,4 @@
-client_version: "0.2.10"
+client_version: "0.2.11"
 
 error_messages:
   template_not_found:
