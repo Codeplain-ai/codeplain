@@ -1,6 +1,5 @@
 import logging
 
-import tiktoken
 from rich.console import Console
 from rich.style import Style
 from rich.tree import Tree
@@ -16,7 +15,13 @@ class Plain2CodeConsole(Console):
 
     def __init__(self):
         super().__init__()
-        self.llm_encoding = tiktoken.get_encoding("cl100k_base")
+        try:
+            import tiktoken
+
+            self.llm_encoding = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            logging.warning(f"Failed to import tiktoken: {e}. Using character count / 4 instead.")
+            self.llm_encoding = None
 
     def info(self, *args, **kwargs):
         logging.info(" ".join(map(str, args)))
@@ -86,7 +91,7 @@ class Plain2CodeConsole(Console):
                             current_level = current_level.add(f"{part} [red]deleted[/red]")
                         else:
                             file_lines = len(content.splitlines())
-                            file_tokens = len(self.llm_encoding.encode(content))
+                            file_tokens = self._count_tokens(content)
                             current_level = current_level.add(f"{part} ({file_lines} lines, {file_tokens} tokens)")
                     else:
                         current_level = current_level.add(part)
@@ -94,6 +99,15 @@ class Plain2CodeConsole(Console):
                     current_level = existing_level
 
         return tree
+
+    def _count_tokens(self, text):
+        """Count tokens using tiktoken if available, otherwise estimate from character count."""
+        if self.llm_encoding is not None:
+            try:
+                return len(self.llm_encoding.encode(text))
+            except Exception:
+                pass
+        return len(text) // 4
 
     def print_resources(self, resources_list, linked_resources):
         if len(resources_list) == 0:
@@ -103,7 +117,7 @@ class Plain2CodeConsole(Console):
         self.input("Linked resources:")
         for resource_name in resources_list:
             if resource_name["target"] in linked_resources:
-                file_tokens = len(self.llm_encoding.encode(linked_resources[resource_name["target"]]))
+                file_tokens = self._count_tokens(linked_resources[resource_name["target"]])
                 self.input(
                     f"- {resource_name['text']} [#4169E1]({resource_name['target']}, {file_tokens} tokens)[/#4169E1]"
                 )
