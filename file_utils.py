@@ -47,6 +47,11 @@ FILE_EXTENSION_MAPPING = {
 SYSTEM_FOLDERS = [".git", CODEPLAIN_METADATA_FOLDER, CODEPLAIN_MEMORY_SUBFOLDER]
 
 
+def is_system_folder_path(file_path: str) -> bool:
+    parts = Path(file_path).parts
+    return bool(parts) and parts[0] in SYSTEM_FOLDERS
+
+
 def get_file_type(file_name):
 
     # Extract the file extension
