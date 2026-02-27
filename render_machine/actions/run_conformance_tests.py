@@ -54,9 +54,7 @@ class RunConformanceTests(BaseAction):
         )
 
         if exit_code == 0:
-            conformance_tests_issue = "All conformance tests passed successfully!"
-
-        if exit_code == 0:
+            render_context.memory_manager.delete_unresolved_memory_files()
             return self.SUCCESSFUL_OUTCOME, None
 
         if exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
