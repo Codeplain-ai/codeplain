@@ -113,6 +113,7 @@ class MemoryManager:
                 if content.get("resolution_status") == "RESOLVED":
                     continue
             except (json.JSONDecodeError, OSError):
-                pass
+                # Not a valid JSON file, unlikely to be a valid memory file, delete it
+                os.remove(file_path)
             os.remove(file_path)
             console.info(f"Deleted unresolved memory file: {file_name}")
