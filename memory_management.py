@@ -1,3 +1,4 @@
+import json
 import os
 
 import file_utils
@@ -20,6 +21,7 @@ class MemoryManager:
             return {}, {}
         memory_files = file_utils.list_all_text_files(memory_path)
         memory_files_content = file_utils.get_existing_files_content(memory_path, memory_files)
+        console.info(f"Loaded {len(memory_files_content)} memory files from {memory_path}.")
         return memory_files, memory_files_content
 
     def __init__(self, codeplain_api, module_build_folder: str):
@@ -95,3 +97,22 @@ class MemoryManager:
         if len(response_files) > 0:
             memory_folder_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
             file_utils.store_response_files(memory_folder_path, response_files, existing_files)
+
+    def delete_unresolved_memory_files(self):
+        """Delete memory files whose resolution_status is not 'RESOLVED'."""
+        memory_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
+        if not os.path.exists(memory_path):
+            return
+
+        memory_files = file_utils.list_all_text_files(memory_path)
+        for file_name in memory_files:
+            file_path = os.path.join(memory_path, file_name)
+            try:
+                with open(file_path, "r") as f:
+                    content = json.load(f)
+                if content.get("resolution_status") == "RESOLVED":
+                    continue
+            except (json.JSONDecodeError, OSError):
+                pass
+            os.remove(file_path)
+            console.info(f"Deleted unresolved memory file: {file_name}")
