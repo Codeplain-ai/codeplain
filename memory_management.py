@@ -21,7 +21,7 @@ class MemoryManager:
             return {}, {}
         memory_files = file_utils.list_all_text_files(memory_path)
         memory_files_content = file_utils.get_existing_files_content(memory_path, memory_files)
-        console.info(f"Loaded {len(memory_files_content)} memory files from {memory_path}.")
+        console.info(f"Loaded {len(memory_files_content)} memory files.")
         return memory_files, memory_files_content
 
     def __init__(self, codeplain_api, module_build_folder: str):
@@ -114,6 +114,7 @@ class MemoryManager:
                     continue
             except (json.JSONDecodeError, OSError):
                 # Not a valid JSON file, unlikely to be a valid memory file, delete it
+                console.error(f"Memory file is not a valid JSON file: {file_name}. Deleting it.")
                 os.remove(file_path)
             os.remove(file_path)
-            console.info(f"Deleted unresolved memory file: {file_name}")
+            console.debug(f"Deleted temporary memory file: {file_name}")
