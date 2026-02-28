@@ -112,9 +112,11 @@ class MemoryManager:
                     content = json.load(f)
                 if content.get("resolution_status") == "RESOLVED":
                     continue
+                else:
+                    os.remove(file_path)
             except (json.JSONDecodeError, OSError):
                 # Not a valid JSON file, unlikely to be a valid memory file, delete it
                 console.error(f"Memory file is not a valid JSON file: {file_name}. Deleting it.")
                 os.remove(file_path)
-            os.remove(file_path)
+
             console.debug(f"Deleted temporary memory file: {file_name}")
