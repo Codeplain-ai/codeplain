@@ -122,6 +122,7 @@ def setup_logging(
     log_file_name: str,
     plain_file_path: Optional[str],
     render_id: str,
+    headless: bool = False,
 ):
     # Set default level to INFO for everything not explicitly configured
     logging.getLogger().setLevel(logging.INFO)
@@ -162,10 +163,12 @@ def setup_logging(
     for h in root_logger.handlers[:]:
         root_logger.removeHandler(h)
 
-    handler = TuiLoggingHandler(event_bus)
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
+
+    if not headless:
+        handler = TuiLoggingHandler(event_bus)
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
 
     if log_to_file and log_file_path:
         try:
@@ -232,6 +235,14 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         event_bus,
     )
 
+    if args.headless:
+        # Dispatch events synchronously without a TUI.
+        event_bus.register_main_thread_callback(lambda fn: fn())
+        # In headless mode, this will be the only output
+        print(f"Render started. Render ID: {run_state.render_id}")
+        module_renderer.render_module()
+        return
+
     app = Plain2CodeTUI(
         event_bus=event_bus,
         worker_fun=module_renderer.render_module,
@@ -285,7 +296,11 @@ def main():  # noqa: C901
 
     run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
 
-    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id)
+    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id, args.headless)
+
+    if args.headless:
+        # Suppress Rich console output
+        console._quiet = True
 
     exc_info = None
     try:
