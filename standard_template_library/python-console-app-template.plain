@@ -2,8 +2,6 @@
 
 - :App: is a console application.
 
-- :Unittests: are the unit tests of :App: and are part of :Implementation:.
-
 - :MainExecutableFile: is the main executable code file of :App:.
 
 
@@ -11,7 +9,7 @@
 
 - :Implementation: should be in Python.
 
-- :Implementation: should include :Unittests: using Unittest framework! If :Unittests: are put in the subfolder, make sure to include __init__.py to make them discoverable.
+- :Implementation: should include :UnitTests: using Unittest framework! If :UnitTests: are put in the subfolder, make sure to include __init__.py to make them discoverable.
 
 ***test reqs***
 
