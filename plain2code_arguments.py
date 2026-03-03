@@ -288,6 +288,14 @@ def create_parser():
         help="Path to the logging configuration file.",
     )
 
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run in headless mode: no TUI, no terminal output except a single render-started message. "
+        "All logs are written to the log file.",
+    )
+
     return parser
 
 
