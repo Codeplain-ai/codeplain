@@ -29,7 +29,7 @@ In this guide we will cover how to create each of these step by step.
 
 ## 1. Define Your .plain File
 
-Create a `.plain` file. The following example shows how to specify the array sorting problem. For more details, see [***plain language specifications](plain_language_specification.md).
+Create a `.plain` file. The following example shows how to specify the array sorting problem. For more details, see [***plain language specifications](https://www.plainlang.org/docs/intro/).
 
 **Example: `array_sorting.plain`**
 ```plain

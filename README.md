@@ -86,7 +86,7 @@ After completing the installation steps above, you can immediately test the syst
 
 ### Documentation
 
-- For more details on the ***plain format, see the [***plain language specification](docs/plain_language_specification.md).
+- For more details on the ***plain format, see the [***plain language specification](https://www.plainlang.org/docs/intro/).
 - For step-by-step instructions for creating your first ***plain project see the [Kickstart your ***plain project](docs/starting_a_plain_project_from_scratch.md).
 - For complete CLI documentation and usage examples, see [plain2code CLI documentation](docs/plain2code_cli.md).
 
