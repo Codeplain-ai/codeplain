@@ -296,11 +296,13 @@ def main():  # noqa: C901
 
     run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
 
-    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id, args.headless)
-
     if args.headless:
-        # Suppress Rich console output
-        console._quiet = True
+        # Suppress Rich console output.
+        console.quiet = True
+
+    setup_logging(
+        args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id, args.headless
+    )
 
     exc_info = None
     try:
