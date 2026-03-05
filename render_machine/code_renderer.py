@@ -44,6 +44,7 @@ class CodeRenderer:
                 )
             )
             previous_state = deepcopy(self.render_context.state)
+            self.render_context.previous_state = previous_state
             self.render_context.script_execution_history.should_update_script_outputs = False
             # Reset error message at start of each iteration to prevent stale data
             self.render_context.last_error_message = None

@@ -78,6 +78,8 @@ class RenderContext:
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
 
+        self.previous_state = None
+
         resources_list = []
         plain_spec.collect_linked_resources(plain_source_tree, resources_list, None, True)
         self.all_linked_resources = file_utils.load_linked_resources(template_dirs, resources_list)
