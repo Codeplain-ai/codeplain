@@ -40,15 +40,10 @@ class TuiLoggingHandler(logging.Handler):
     def __init__(self, event_bus: EventBus):
         super().__init__()
         self.event_bus = event_bus
-        self._buffer = []
-        self.start_time = time.time()  # Record start time for offset calculation
-
-        # Register to be notified when event bus is ready
-        self.event_bus.on_ready(self._flush_buffer)
+        self.start_time = time.time()
 
     def emit(self, record):
         try:
-            # Extract structured data from the log record
             offset_seconds = record.created - self.start_time
             minutes = int(offset_seconds // 60)
             seconds = int(offset_seconds % 60)
@@ -60,27 +55,13 @@ class TuiLoggingHandler(logging.Handler):
                 message=record.getMessage(),
                 timestamp=timestamp,
             )
-
-            # Try to publish, fall back to buffering if not ready
-            if self.event_bus._main_thread_callback:
-                self.event_bus.publish(event)
-            else:
-                self._buffer.append(event)
+            self.event_bus.publish(event)
         except RuntimeError:
             # We're going to get this crash after the TUI app is closed (forcefully).
             # NOTE: This should be more thought out.
             pass
         except Exception:
             self.handleError(record)
-
-    def _flush_buffer(self):
-        """Flush buffered log messages to the event bus."""
-        for event in self._buffer:
-            try:
-                self.event_bus.publish(event)
-            except Exception:
-                pass
-        self._buffer.clear()
 
 
 class CrashLogHandler(logging.Handler):
