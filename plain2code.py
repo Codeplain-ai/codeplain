@@ -236,8 +236,6 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     )
 
     if args.headless:
-        # Dispatch events synchronously without a TUI.
-        event_bus.register_main_thread_callback(lambda fn: fn())
         # In headless mode, this will be the only output
         print(f"Render started. Render ID: {run_state.render_id}")
         module_renderer.render_module()

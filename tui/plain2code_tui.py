@@ -125,7 +125,7 @@ class Plain2CodeTUI(App):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
-        self.event_bus.register_main_thread_callback(self.call_from_thread)
+        self.event_bus.register_dispatch_wrapper(self.call_from_thread)
 
         self.event_bus.subscribe(RenderStateUpdated, self.on_render_state_updated)
         self.event_bus.subscribe(RenderCompleted, self.on_render_completed)
