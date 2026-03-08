@@ -3,6 +3,7 @@ import logging
 import logging.config
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,7 @@ from event_bus import EventBus
 from module_renderer import ModuleRenderer
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
+from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
     CreditBalanceTooLow,
@@ -235,30 +237,37 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         event_bus,
     )
 
+    render_error: list[Exception] = []
+
+    def run_render():
+        try:
+            module_renderer.render_module()
+        except Exception as e:
+            render_error.append(e)
+            event_bus.publish(RenderFailed(error_message=str(e)))
+
+    render_thread = threading.Thread(target=run_render, daemon=True)
+
     if args.headless:
-        # In headless mode, this will be the only output
         print(f"Render started. Render ID: {run_state.render_id}")
-        module_renderer.render_module()
-        return
+        render_thread.start()
+        render_thread.join()
+    else:
+        app = Plain2CodeTUI(
+            event_bus=event_bus,
+            on_ready=render_thread.start,
+            render_id=run_state.render_id,
+            unittests_script=args.unittests_script,
+            conformance_tests_script=args.conformance_tests_script,
+            prepare_environment_script=args.prepare_environment_script,
+            state_machine_version=system_config.client_version,
+            css_path="styles.css",
+        )
+        app.run()
+        render_thread.join(timeout=1)
 
-    app = Plain2CodeTUI(
-        event_bus=event_bus,
-        worker_fun=module_renderer.render_module,
-        render_id=run_state.render_id,
-        unittests_script=args.unittests_script,
-        conformance_tests_script=args.conformance_tests_script,
-        prepare_environment_script=args.prepare_environment_script,
-        state_machine_version=system_config.client_version,
-        css_path="styles.css",
-    )
-    result = app.run()
-
-    # If the app exited due to a worker error, re-raise it here
-    # so it hits the exception handlers in main()
-    if isinstance(result, Exception):
-        raise result
-
-    return
+    if render_error:
+        raise render_error[0]
 
 
 def main():  # noqa: C901

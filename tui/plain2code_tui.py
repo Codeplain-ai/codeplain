@@ -1,6 +1,3 @@
-import os
-import threading
-import time
 from typing import Callable, Optional
 
 from textual.app import App, ComposeResult
@@ -8,10 +5,8 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import ContentSwitcher, Static
-from textual.worker import Worker, WorkerFailed, WorkerState
 
 from event_bus import EventBus
-from plain2code_console import console
 from plain2code_events import (
     LogMessageEmitted,
     RenderCompleted,
@@ -48,8 +43,6 @@ from .state_handlers import (
     UnitTestsHandler,
 )
 
-FORCE_EXIT_DELAY = 0.5  # seconds
-
 
 class Plain2CodeTUI(App):
     """A Textual TUI for plain2code."""
@@ -64,7 +57,7 @@ class Plain2CodeTUI(App):
     def __init__(
         self,
         event_bus: EventBus,
-        worker_fun: Callable[[], None],
+        on_ready: Callable[[], None],
         render_id: str,
         unittests_script: str,
         conformance_tests_script: str,
@@ -75,7 +68,7 @@ class Plain2CodeTUI(App):
         super().__init__(**kwargs)
         self.dark = True  # Set dark mode as default
         self.event_bus = event_bus
-        self.worker_fun = worker_fun
+        self._on_ready = on_ready
         self.render_id = render_id
         self.unittests_script: Optional[str] = unittests_script
         self.conformance_tests_script: Optional[str] = conformance_tests_script
@@ -134,39 +127,7 @@ class Plain2CodeTUI(App):
         self.event_bus.subscribe(RenderModuleCompleted, self.on_render_module_completed)
         self.event_bus.subscribe(LogMessageEmitted, self.on_log_message_emitted)
 
-        self.render_worker = self.run_worker(self.worker_fun, thread=True)
-
-    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Handle worker state changes."""
-        if event.worker.state == WorkerState.ERROR:
-            # Extract the original exception from WorkerFailed wrapper
-            error = event.worker.error
-            original_error = error.__cause__ if isinstance(error, WorkerFailed) and error.__cause__ else error
-            self.exit(result=original_error)
-
-    def _handle_exception(self, error: Exception) -> None:
-        """Override Textual's exception handler to suppress console tracebacks for worker errors.
-
-        Worker exceptions are logged to file via the logging system (configured in file handler in plain2code.py),
-        but the verbose Textual/Rich traceback is suppressed from the terminal. The clean error message
-        is displayed via the exception handlers in main().
-        """
-        # Because TUI is running in main thread and code renderer is running in a worker thread, textual models this
-        # by raising a WorkerFailed exception in this case
-        if isinstance(error, WorkerFailed):
-            # Here, we still print the error to get some additional information to the file, but it's probably
-            # not necessary because we either way print the entire traceback to the console. Here, we could in the future
-            # print more information if we would want to.
-            original_error = error.__cause__ if error.__cause__ else error
-            console.error(
-                f"Worker failed with exception: {type(original_error).__name__}: {original_error}",
-                exc_info=(type(original_error), original_error, original_error.__traceback__),
-                stack_info=False,
-            )
-            return
-
-        # For non-worker exceptions, use the default Textual behavior
-        super()._handle_exception(error)
+        self._on_ready()
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -290,24 +251,12 @@ class Plain2CodeTUI(App):
     def on_render_failed(self, event: RenderFailed):
         """Handle render failure."""
         self._render_error_handler.handle(event.error_message)
-
-    def _ensure_exit(self) -> None:
-        """Ensure exit the application immediately."""
-
-        def ensure_exit():
-            time.sleep(FORCE_EXIT_DELAY)
-            try:
-                if hasattr(self, "_driver") and self._driver is not None:
-                    # suspend_application_mode() calls stop_application_mode() and close()
-                    # It ensures terminal reset sequences are flushed before exiting.
-                    self._driver.suspend_application_mode()
-            except Exception as e:
-                log_to_widget(self, "WARNING", f"Error suspending application mode: {type(e).__name__}: {e}")
-            finally:
-                os._exit(0)  # Kill process immediately, no cleanup - terminates all threads
-
-        # daemon=True ensures this thread dies with the process if it exits before the timer fires
-        threading.Thread(target=ensure_exit, daemon=True).start()
+        self._render_finished = True
+        try:
+            footer = self.screen.query_one(CustomFooter)
+            footer.show_render_finished()
+        except NoMatches:
+            pass
 
     async def action_copy_selection(self) -> None:
         """Handle ctrl+c: copy selected text if any.
@@ -332,5 +281,4 @@ class Plain2CodeTUI(App):
         Note: Force exit may leave files partially written if interrupted during file I/O operations.
         This is acceptable since the folders in which we are writing are git versioned and are reset in the next render.
         """
-        self.render_worker.cancel()
         self.exit()
