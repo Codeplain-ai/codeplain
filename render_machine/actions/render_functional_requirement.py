@@ -51,6 +51,7 @@ class RenderFunctionalRequirement(BaseAction):
                     memory_files_content,
                     render_context.module_name,
                     render_context.get_required_modules_functionalities(),
+                    render_context.should_run_unit_tests(),
                     render_context.run_state,
                 )
         except FunctionalRequirementTooComplex as e:

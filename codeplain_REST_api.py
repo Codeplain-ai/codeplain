@@ -152,6 +152,7 @@ class CodeplainAPI:
         memory_files_content: dict,
         module_name: str,
         required_modules: dict,
+        using_unittests: bool,
         run_state: RunState,
     ) -> dict[str, str]:
         """
@@ -191,6 +192,7 @@ class CodeplainAPI:
             "memory_files_content": memory_files_content,
             "module_name": module_name,
             "required_modules": required_modules,
+            "using_unittests": using_unittests,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
