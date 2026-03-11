@@ -4,6 +4,8 @@ from rich.console import Console
 from rich.style import Style
 from rich.tree import Tree
 
+CHARACTERS_TO_TOKENS_RULE_OF_THUMB_RATIO = 4
+
 
 class Plain2CodeConsole(Console):
     INFO_STYLE = Style()
@@ -20,7 +22,10 @@ class Plain2CodeConsole(Console):
 
             self.llm_encoding = tiktoken.get_encoding("cl100k_base")
         except Exception as e:
-            logging.warning(f"Failed to import tiktoken: {e}. Using character count / 4 instead.")
+            logging.warning(
+                "Failed to import optional library tiktoken. Using approximate instead of exact token count."
+            )
+            logging.debug(f"Exception: {e}")
             self.llm_encoding = None
 
     def info(self, *args, **kwargs):
@@ -107,7 +112,7 @@ class Plain2CodeConsole(Console):
                 return len(self.llm_encoding.encode(text))
             except Exception:
                 pass
-        return len(text) // 4
+        return len(text) // CHARACTERS_TO_TOKENS_RULE_OF_THUMB_RATIO
 
     def print_resources(self, resources_list, linked_resources):
         if len(resources_list) == 0:
