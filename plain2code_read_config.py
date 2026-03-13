@@ -1,4 +1,3 @@
-import os
 from argparse import ArgumentParser, Namespace
 from typing import Any, Dict
 
@@ -45,11 +44,6 @@ def get_args_from_config(config_file: str, parser: ArgumentParser) -> Namespace:
     """
 
     args = Namespace()
-
-    if config_file == "config.yaml":
-        if not os.path.exists(config_file):
-            console.info(f"Default config file {config_file} not found. No config file is read.")
-            return args
 
     # Load config
     config = load_config(config_file)
