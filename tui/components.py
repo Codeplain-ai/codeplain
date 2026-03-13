@@ -246,8 +246,10 @@ class RenderingInfoBox(Vertical):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.module_text = ""
+        self.functional_requirement_text = ""
         self.functionality_text = ""
         self.module_widget: Static | None = None
+        self.functional_requirement_widget: Static | None = None
         self.functionality_widget: Static | None = None
 
     def update_module(self, text: str) -> None:
@@ -260,25 +262,36 @@ class RenderingInfoBox(Vertical):
         self.functionality_text = text
         self._refresh_content()
 
+    def update_functional_requirement(self, text: str) -> None:
+        """Update the functionality text display."""
+        self.functional_requirement_text = text
+        self._refresh_content()
+
     def _refresh_content(self) -> None:
         """Refresh text inside the box."""
         if self.module_widget is not None:
             self.module_widget.update(self.module_text or "")
+        if self.functional_requirement_widget is not None:
+            self.functional_requirement_widget.update(self.functional_requirement_text or "")
         if self.functionality_widget is not None:
             self.functionality_widget.update(self.functionality_text or "")
 
     def on_mount(self) -> None:
         """Initialize default labels on mount."""
         self.module_text = "Module: "
+        self.functional_requirement_text = "Functional requirement:"
         self.functionality_text = "Functionality:"
+
         self._refresh_content()
 
     def compose(self):
         self.module_widget = Static(self.module_text, classes="rendering-info-row")
+        self.functional_requirement_widget = Static(self.functional_requirement_text, classes="rendering-info-row")
         self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row")
         yield Static("module status", classes="rendering-info-title")
         with Vertical(classes="rendering-info-box"):
             yield self.module_widget
+            yield self.functional_requirement_widget
             yield self.functionality_widget
 
 
@@ -355,6 +368,7 @@ class FRIDProgress(Vertical):
     CONFORMANCE_TEST_VALIDATION_TEXT = "Conformance tests"
 
     RENDERING_MODULE_TEXT = "Module: "
+    RENDERING_FUNCTIONAL_REQUIREMENT_TEXT = "Functional requirement:"
     RENDERING_FUNCTIONALITY_TEXT = "Functionality:"
 
     def __init__(
@@ -367,7 +381,14 @@ class FRIDProgress(Vertical):
         self.unittests_script = unittests_script
         self.conformance_tests_script = conformance_tests_script
 
-    def update_fr_text(self, text: str) -> None:
+    def update_functional_requirement_text(self, text: str) -> None:
+        try:
+            info_box = self.query_one(RenderingInfoBox)
+            info_box.update_functional_requirement(text)
+        except Exception:
+            pass
+
+    def update_functionality_text(self, text: str) -> None:
         try:
             # Update the rendering info box instead
             info_box = self.query_one(RenderingInfoBox)
