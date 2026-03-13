@@ -246,13 +246,13 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             render_error.append(e)
             event_bus.publish(RenderFailed(error_message=str(e)))
 
-    render_thread = threading.Thread(target=run_render, daemon=True)
 
     if args.headless:
         print(f"Render started. Render ID: {run_state.render_id}")
-        render_thread.start()
-        render_thread.join()
+        module_renderer.render_module()
+        return
     else:
+        render_thread = threading.Thread(target=run_render, daemon=True)
         app = Plain2CodeTUI(
             event_bus=event_bus,
             on_ready=render_thread.start,
