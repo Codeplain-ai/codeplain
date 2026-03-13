@@ -1,6 +1,9 @@
+import os
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import Optional
 
@@ -8,6 +11,7 @@ import file_utils
 import git_utils
 import plain_spec
 from plain2code_console import console
+from plain2code_exceptions import RenderCancelledError
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
@@ -42,6 +46,21 @@ def print_inputs(render_context, existing_files_content, message):
     )
 
 
+def _kill_process(proc: subprocess.Popen) -> None:
+    """Kill a process and its entire process group."""
+    if sys.platform != "win32":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            proc.terminate()
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
 def execute_script(
     script: str,
     scripts_args: list[str],
@@ -49,6 +68,7 @@ def execute_script(
     script_type: str,
     frid: Optional[str] = None,
     timeout: Optional[int] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> tuple[int, str, Optional[str]]:
     temp_file_path = None
     script_timeout = timeout if timeout is not None else SCRIPT_EXECUTION_TIMEOUT
@@ -59,36 +79,56 @@ def execute_script(
         cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path] + scripts_args
     else:
         cmd = [script_path] + scripts_args
+
+    popen_kwargs = {"start_new_session": True} if sys.platform != "win32" else {}
+    start_time = time.time()
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **popen_kwargs,
+    )
+
     try:
-        start_time = time.time()
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=script_timeout,
-        )
+        while proc.poll() is None:
+            if time.time() - start_time >= script_timeout:
+                partial_stdout = proc.stdout.read()
+                _kill_process(proc)
+                exc = subprocess.TimeoutExpired(cmd, script_timeout)
+                exc.stdout = partial_stdout
+                raise exc
+            if stop_event is not None:
+                stop_event.wait(timeout=0.2)
+                if stop_event.is_set():
+                    _kill_process(proc)
+                    raise RenderCancelledError()
+            else:
+                time.sleep(0.2)
+
+        stdout = proc.stdout.read()
         elapsed_time = time.time() - start_time
+
         # Log the info about the script execution
         if verbose:
             with tempfile.NamedTemporaryFile(
                 mode="w+", encoding="utf-8", delete=False, suffix=".script_output"
             ) as temp_file:
                 temp_file.write(f"\n═════════════════════════ {script_type} Script Output ═════════════════════════\n")
-                temp_file.write(result.stdout)
+                temp_file.write(stdout)
                 temp_file.write("\n══════════════════════════════════════════════════════════════════════\n")
                 temp_file_path = temp_file.name
-                if result.returncode != 0:
-                    temp_file.write(f"{script_type} script {script} failed with exit code {result.returncode}.\n")
+                if proc.returncode != 0:
+                    temp_file.write(f"{script_type} script {script} failed with exit code {proc.returncode}.\n")
                 else:
                     temp_file.write(f"{script_type} script {script} successfully passed.\n")
                 temp_file.write(f"{script_type} script execution time: {elapsed_time:.2f} seconds.\n")
 
             console.info(f"[#888888]{script_type} script output stored in: {temp_file_path.strip()}[/#888888]")
 
-            if result.returncode != 0:
+            if proc.returncode != 0:
                 if frid is not None:
                     console.info(
                         f"The {script_type} script for ID {frid} has failed. Initiating the patching mode to automatically correct the discrepancies."
@@ -103,7 +143,10 @@ def execute_script(
                 else:
                     console.info(f"[#79FC96]All {script_type} script passed successfully.[/#79FC96]")
 
-        return result.returncode, result.stdout, temp_file_path
+        return proc.returncode, stdout, temp_file_path
+
+    except RenderCancelledError:
+        raise
     except subprocess.TimeoutExpired as e:
         # Store timeout output in a temporary file
         if verbose:

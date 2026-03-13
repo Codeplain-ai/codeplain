@@ -79,3 +79,9 @@ class AmbiguousConfigFileError(Exception):
     """Raised when a config file is found in both the plain file directory and the current working directory."""
 
     pass
+
+
+class RenderCancelledError(Exception):
+    """Raised when the render is cancelled by the user closing the TUI."""
+
+    pass
