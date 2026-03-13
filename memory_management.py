@@ -61,7 +61,7 @@ class MemoryManager:
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )
-        _, memory_files_content = MemoryManager.fetch_memory_files(self.memory_folder)
+        memory_files, memory_files_content = MemoryManager.fetch_memory_files(self.memory_folder)
 
         conformance_tests_folder_name = (
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
@@ -96,7 +96,7 @@ class MemoryManager:
         )
         if len(response_files) > 0:
             memory_folder_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
-            file_utils.store_response_files(memory_folder_path, response_files, existing_files)
+            file_utils.store_response_files(memory_folder_path, response_files, memory_files)
 
     def delete_unresolved_memory_files(self):
         """Delete memory files whose resolution_status is not 'RESOLVED'."""
