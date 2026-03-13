@@ -54,7 +54,13 @@ class RunConformanceTests(BaseAction):
         )
 
         if exit_code == 0:
-            render_context.memory_manager.delete_unresolved_memory_files()
+            if (
+                render_context.conformance_tests_running_context.current_testing_module_name
+                == render_context.module_name
+                and render_context.conformance_tests_running_context.current_testing_frid
+                == render_context.frid_context.frid
+            ):
+                render_context.memory_manager.delete_unresolved_memory_files()
             return self.SUCCESSFUL_OUTCOME, None
 
         if exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
