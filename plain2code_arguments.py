@@ -2,6 +2,8 @@ import argparse
 import os
 import re
 
+from plain2code_console import console
+from plain2code_exceptions import AmbiguousConfigFileError
 from plain2code_read_config import get_args_from_config
 
 CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
@@ -83,9 +85,51 @@ def frid_range_string(s):
     return s
 
 
+def resolve_config_file(config_name: str, plain_file_path: str):
+    """
+    Resolve the config file path by searching in two locations:
+    1. Directory of the plain file
+    2. Current working directory (where render is called from)
+
+    Returns the resolved absolute path, or None if the file is not found in either location.
+    Raises AmbiguousConfigFileError if the file exists in both locations (and they differ).
+    """
+    plain_file_dir = os.path.dirname(os.path.abspath(plain_file_path))
+    cwd = os.getcwd()
+
+    plain_dir_config = os.path.normpath(os.path.join(plain_file_dir, config_name))
+    cwd_config = os.path.normpath(os.path.join(cwd, config_name))
+
+    in_plain_dir = os.path.exists(plain_dir_config)
+    in_cwd = os.path.exists(cwd_config)
+    same_location = plain_dir_config == cwd_config
+
+    if in_plain_dir and in_cwd and not same_location:
+        raise AmbiguousConfigFileError(
+            f"Config file '{config_name}' was found in two locations:\n"
+            f"  - Plain file directory: {plain_file_dir}\n"
+            f"  - Current working directory: {cwd}\n"
+            f"Remove the config file from one of these locations to resolve the ambiguity."
+        )
+
+    if in_plain_dir:
+        return plain_dir_config
+    if in_cwd:
+        return cwd_config
+    return None
+
+
 def update_args_with_config(args, parser):
     try:
-        config_args = get_args_from_config(args.config_name, parser)
+        resolved_config = resolve_config_file(args.config_name, args.filename)
+
+        if resolved_config is None:
+            console.info(f"No config file '{args.config_name}' found. Proceeding without one.")
+            return args
+
+        args.config_name = resolved_config
+        config_args = get_args_from_config(resolved_config, parser)
+
         # Get all action types from the parser
         action_types = {action.dest: action for action in parser._actions}
 
@@ -109,6 +153,8 @@ def update_args_with_config(args, parser):
             else:
                 parser.error(f"Invalid argument: {key}")
 
+    except AmbiguousConfigFileError as e:
+        parser.error(str(e))
     except Exception as e:
         parser.error(f"Error reading config file: {str(e)}")
 
@@ -152,7 +198,7 @@ def create_parser():
         "--config-name",
         type=non_empty_string,
         default="config.yaml",
-        help="Path to the config file, defaults to config.yaml",
+        help="Name of the config file to look for. Looked up in the plain file directory and the current working directory. Defaults to config.yaml.",
     )
 
     render_range_group = parser.add_mutually_exclusive_group()

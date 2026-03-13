@@ -73,3 +73,9 @@ class NetworkConnectionError(Exception):
     """Raised when there is a network connectivity issue with the API server."""
 
     pass
+
+
+class AmbiguousConfigFileError(Exception):
+    """Raised when a config file is found in both the plain file directory and the current working directory."""
+
+    pass
