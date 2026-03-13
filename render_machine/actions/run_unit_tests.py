@@ -25,6 +25,7 @@ class RunUnitTests(BaseAction):
             render_context.verbose,
             "Unit Tests",
             timeout=render_context.test_script_timeout,
+            stop_event=render_context.stop_event,
         )
 
         render_context.script_execution_history.latest_unit_test_output_path = unittests_temp_file_path

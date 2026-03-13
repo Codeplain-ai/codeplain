@@ -22,6 +22,7 @@ class PrepareTestingEnvironment(BaseAction):
             render_context.verbose,
             "Testing Environment Preparation",
             timeout=render_context.test_script_timeout,
+            stop_event=render_context.stop_event,
         )
 
         render_context.conformance_tests_running_context.should_prepare_testing_environment = False
