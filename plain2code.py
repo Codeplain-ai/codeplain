@@ -3,6 +3,7 @@ import logging
 import logging.config
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,7 @@ from event_bus import EventBus
 from module_renderer import ModuleRenderer
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
+from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
     CreditBalanceTooLow,
@@ -122,6 +124,7 @@ def setup_logging(
     log_file_name: str,
     plain_file_path: Optional[str],
     render_id: str,
+    headless: bool = False,
 ):
     # Set default level to INFO for everything not explicitly configured
     logging.getLogger().setLevel(logging.INFO)
@@ -162,10 +165,12 @@ def setup_logging(
     for h in root_logger.handlers[:]:
         root_logger.removeHandler(h)
 
-    handler = TuiLoggingHandler(event_bus)
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
+
+    if not headless:
+        handler = TuiLoggingHandler(event_bus)
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
 
     if log_to_file and log_file_path:
         try:
@@ -232,24 +237,36 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         event_bus,
     )
 
-    app = Plain2CodeTUI(
-        event_bus=event_bus,
-        worker_fun=module_renderer.render_module,
-        render_id=run_state.render_id,
-        unittests_script=args.unittests_script,
-        conformance_tests_script=args.conformance_tests_script,
-        prepare_environment_script=args.prepare_environment_script,
-        state_machine_version=system_config.client_version,
-        css_path="styles.css",
-    )
-    result = app.run()
+    render_error: list[Exception] = []
 
-    # If the app exited due to a worker error, re-raise it here
-    # so it hits the exception handlers in main()
-    if isinstance(result, Exception):
-        raise result
+    def run_render():
+        try:
+            module_renderer.render_module()
+        except Exception as e:
+            render_error.append(e)
+            event_bus.publish(RenderFailed(error_message=str(e)))
 
-    return
+    if args.headless:
+        print(f"Render started. Render ID: {run_state.render_id}")
+        module_renderer.render_module()
+        return
+    else:
+        render_thread = threading.Thread(target=run_render, daemon=True)
+        app = Plain2CodeTUI(
+            event_bus=event_bus,
+            on_ready=render_thread.start,
+            render_id=run_state.render_id,
+            unittests_script=args.unittests_script,
+            conformance_tests_script=args.conformance_tests_script,
+            prepare_environment_script=args.prepare_environment_script,
+            state_machine_version=system_config.client_version,
+            css_path="styles.css",
+        )
+        app.run()
+        render_thread.join(timeout=1)
+
+    if render_error:
+        raise render_error[0]
 
 
 def main():  # noqa: C901
@@ -285,7 +302,13 @@ def main():  # noqa: C901
 
     run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
 
-    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id)
+    if args.headless:
+        # Suppress Rich console output.
+        console.quiet = True
+
+    setup_logging(
+        args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id, args.headless
+    )
 
     exc_info = None
     try:
