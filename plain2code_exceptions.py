@@ -73,3 +73,9 @@ class NetworkConnectionError(Exception):
     """Raised when there is a network connectivity issue with the API server."""
 
     pass
+
+
+class RenderCancelledError(Exception):
+    """Raised when the render is cancelled by the user closing the TUI."""
+
+    pass

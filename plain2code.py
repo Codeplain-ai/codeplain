@@ -35,6 +35,7 @@ from plain2code_exceptions import (
     NetworkConnectionError,
     OutdatedClientVersion,
     PlainSyntaxError,
+    RenderCancelledError,
 )
 from plain2code_logger import (
     CrashLogHandler,
@@ -61,6 +62,7 @@ MAX_ISSUE_LENGTH = 10000  # Characters.
 
 UNRECOVERABLE_ERROR_EXIT_CODES = [69]
 TIMEOUT_ERROR_EXIT_CODE = 124
+RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.3
 
 
 def get_render_range(render_range, plain_source):
@@ -227,6 +229,8 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
 
     _check_connection(codeplainAPI)
 
+    stop_event = threading.Event()
+
     module_renderer = ModuleRenderer(
         codeplainAPI,
         args.filename,
@@ -235,6 +239,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         args,
         run_state,
         event_bus,
+        stop_event=stop_event,
     )
 
     render_error: list[Exception] = []
@@ -242,6 +247,8 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     def run_render():
         try:
             module_renderer.render_module()
+        except RenderCancelledError:
+            pass  # TUI already closed, nothing to report
         except Exception as e:
             render_error.append(e)
             event_bus.publish(RenderFailed(error_message=str(e)))
@@ -263,7 +270,8 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             css_path="styles.css",
         )
         app.run()
-        render_thread.join(timeout=1)
+        stop_event.set()
+        render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
 
     if render_error:
         raise render_error[0]
