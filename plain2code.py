@@ -246,7 +246,6 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             render_error.append(e)
             event_bus.publish(RenderFailed(error_message=str(e)))
 
-
     if args.headless:
         print(f"Render started. Render ID: {run_state.render_id}")
         module_renderer.render_module()
