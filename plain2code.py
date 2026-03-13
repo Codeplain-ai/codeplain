@@ -49,17 +49,6 @@ from tui.plain2code_tui import Plain2CodeTUI
 
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 
-MAX_UNITTEST_FIX_ATTEMPTS = 20
-MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
-MAX_CONFORMANCE_TEST_RUNS = 20
-MAX_REFACTORING_ITERATIONS = 5
-MAX_UNIT_TEST_RENDER_RETRIES = 2
-
-MAX_ISSUE_LENGTH = 10000  # Characters.
-
-UNRECOVERABLE_ERROR_EXIT_CODES = [69]
-TIMEOUT_ERROR_EXIT_CODE = 124
-
 
 def get_render_range(render_range, plain_source):
     render_range = render_range.split(",")
