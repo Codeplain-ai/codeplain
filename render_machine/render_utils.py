@@ -51,7 +51,7 @@ def _kill_process(proc: subprocess.Popen) -> None:
     if sys.platform != "win32":
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except (ProcessLookupError, OSError):
+        except OSError:
             proc.terminate()
     else:
         proc.terminate()
@@ -61,7 +61,7 @@ def _kill_process(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
-def execute_script(
+def execute_script(  # noqa: C901
     script: str,
     scripts_args: list[str],
     verbose: bool,
@@ -80,7 +80,6 @@ def execute_script(
     else:
         cmd = [script_path] + scripts_args
 
-    popen_kwargs = {"start_new_session": True} if sys.platform != "win32" else {}
     start_time = time.time()
     proc = subprocess.Popen(
         cmd,
@@ -89,7 +88,7 @@ def execute_script(
         text=True,
         encoding="utf-8",
         errors="replace",
-        **popen_kwargs,
+        start_new_session=(sys.platform != "win32"),
     )
 
     try:
