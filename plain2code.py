@@ -2,6 +2,7 @@ import importlib.resources
 import logging
 import logging.config
 import os
+import signal
 import sys
 import threading
 from pathlib import Path
@@ -230,6 +231,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     _check_connection(codeplainAPI)
 
     stop_event = threading.Event()
+    signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
     module_renderer = ModuleRenderer(
         codeplainAPI,
@@ -255,7 +257,10 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
 
     if args.headless:
         print(f"Render started. Render ID: {run_state.render_id}")
-        module_renderer.render_module()
+        try:
+            module_renderer.render_module()
+        except RenderCancelledError:
+            pass
         return
     else:
         render_thread = threading.Thread(target=run_render, daemon=True)
