@@ -17,7 +17,7 @@ Schematic overview of the Codeplain's code generation service
 
 An example application in ***plain
 
-<img src="https://raw.githubusercontent.com/Codeplain-ai/plain2code_client/main/resources/plain_example.png" width="70%" height="70%">
+<img src="resources/plain_example.png" width="70%" height="70%">
 
 
 ## Getting started
