@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from plain2code_events import RenderContextSnapshot
-from render_machine.render_context import MAX_CONFORMANCE_TEST_FIX_ATTEMPTS, MAX_UNITTEST_FIX_ATTEMPTS
 from render_machine.states import States
 
 from . import components as tui_components
@@ -67,12 +66,8 @@ class FridReadyHandler(StateHandler):
     def handle(self, _: list[str], snapshot: RenderContextSnapshot, _previous_state_segments: list[str]) -> None:
         """Handle READY_FOR_FRID_IMPLEMENTATION state."""
         # Update FRID text
-        functional_requirement_text = (
-            f"{tui_components.FRIDProgress.RENDERING_FUNCTIONAL_REQUIREMENT_TEXT} {snapshot.frid_context.frid}"
-        )
-        get_frid_progress(self.tui).update_functional_requirement_text(functional_requirement_text)
 
-        rendering_functionality_text = f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT} {snapshot.frid_context.functional_requirement_text}"
+        rendering_functionality_text = f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{snapshot.frid_context.frid}: {snapshot.frid_context.functional_requirement_text}"
         get_frid_progress(self.tui).update_functionality_text(rendering_functionality_text)
 
         # Set progress states
@@ -107,7 +102,9 @@ class UnitTestsHandler(StateHandler):
         self.unittests_script = unittests_script
         self.conformance_tests_script = conformance_tests_script
 
-    def handle(self, segments: list[str], snapshot: RenderContextSnapshot, _previous_state_segments: list[str]) -> None:
+    def handle(
+        self, segments: list[str], _snapshot: RenderContextSnapshot, _previous_state_segments: list[str]
+    ) -> None:
         """Handle PROCESSING_UNIT_TESTS state."""
         if segments[2] == States.UNIT_TESTS_READY.value:
             if self.unittests_script is not None:
@@ -128,11 +125,7 @@ class UnitTestsHandler(StateHandler):
                 update_progress_item_substates(
                     self.tui,
                     TUIComponents.FRID_PROGRESS_UNIT_TEST.value,
-                    [
-                        Substate(
-                            f"Fixing unit tests (attempt {snapshot.unit_tests_running_context.fix_attempts} of {MAX_UNITTEST_FIX_ATTEMPTS})"
-                        )
-                    ],
+                    [Substate("Fixing unit tests")],
                 )
 
 
@@ -223,12 +216,22 @@ class ConformanceTestsHandler(StateHandler):
                     [Substate("Preparing testing environment for conformance tests")],
                 )
             elif segments[2] == States.CONFORMANCE_TEST_ENV_PREPARED.value:
-                running_text = f"Running conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid} of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
+                running_text = f"Running conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid}"
+                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
+                    running_text += (
+                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
+                    )
+
                 update_progress_item_substates(
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(running_text)]
                 )
             elif segments[2] == States.CONFORMANCE_TEST_FAILED.value:
-                fixing_text = f"Fixing conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid} of module {snapshot.conformance_tests_running_context.current_testing_module_name} (attempt {snapshot.conformance_tests_running_context.fix_attempts} of {MAX_CONFORMANCE_TEST_FIX_ATTEMPTS})"
+                fixing_text = f"Fixing conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid}"
+                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
+                    fixing_text += (
+                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
+                    )
+
                 update_progress_item_substates(
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(fixing_text)]
                 )
