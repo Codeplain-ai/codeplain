@@ -1,5 +1,6 @@
 import argparse
 import os
+import threading
 
 import git_utils
 import plain_file
@@ -28,6 +29,7 @@ class ModuleRenderer:
         args: argparse.Namespace,
         run_state: RunState,
         event_bus: EventBus,
+        stop_event: threading.Event | None = None,
     ):
         self.codeplainAPI = codeplainAPI
         self.filename = filename
@@ -36,6 +38,7 @@ class ModuleRenderer:
         self.args = args
         self.run_state = run_state
         self.event_bus = event_bus
+        self.stop_event = stop_event
 
     def _ensure_module_folders_exist(self, module_name: str, first_render_frid: str) -> tuple[str, str]:
         """
@@ -177,6 +180,7 @@ class ModuleRenderer:
             run_state=self.run_state,
             event_bus=self.event_bus,
             test_script_timeout=self.args.test_script_timeout,
+            stop_event=self.stop_event,
         )
 
     def _render_module(
