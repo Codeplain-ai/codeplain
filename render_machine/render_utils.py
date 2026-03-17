@@ -94,8 +94,8 @@ def execute_script(  # noqa: C901
     try:
         while proc.poll() is None:
             if time.time() - start_time >= script_timeout:
-                partial_stdout = proc.stdout.read()
                 _kill_process(proc)
+                partial_stdout = proc.stdout.read()
                 exc = subprocess.TimeoutExpired(cmd, script_timeout)
                 exc.stdout = partial_stdout
                 raise exc
