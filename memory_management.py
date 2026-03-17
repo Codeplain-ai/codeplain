@@ -18,7 +18,7 @@ class MemoryManager:
         """Fetch memory files from memory_folder/conformance_test_memory."""
         memory_path = os.path.join(memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
         if not os.path.exists(memory_path):
-            return {}, {}
+            return [], {}
         memory_files = file_utils.list_all_text_files(memory_path)
         memory_files_content = file_utils.get_existing_files_content(memory_path, memory_files)
         console.info(f"Loaded {len(memory_files_content)} memory files.")
