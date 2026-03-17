@@ -21,35 +21,40 @@ my-new-project/
 ├── config.yaml                         # CLI configuration
 ├── run_unittests_[language].sh         # Unit test script
 ├── run_conformance_tests_[language].sh # Conformance test script
-├── build/                              # Generated
-└── conformance_tests/                  # Generated
+├── build/                              # Generated final code
+├── plain_modules/                      # Generated modules code
+└── conformance_tests/                  # Generated conformanece tests code
 ```
 
 In this guide we will cover how to create each of these step by step.
 
 ## 1. Define Your .plain File
 
-Create a `.plain` file. The following example shows how to specify the array sorting problem. For more details, see [***plain language specifications](https://www.plainlang.org/docs/intro/).
+Create a `.plain` file. The following example shows how to specify the array sorting problem. For more details, see [***plain language specifications](https://www.plainlang.org/docs/).
 
 **Example: `array_sorting.plain`**
 ```plain
-{% include "python-console-app-template.plain", main_executable_file_name: "array_sorting.py" %}
+---
+description: 'Example showing how to specify the array sorting problem'
+import:
+  - python-console-app-template
+---
 
-***Definitions:***
-- The Array is an array of integers received as input.
+***definitions***
+- :Array: is an array of integers received as input.
 
-***Functional Requirements:***
-- The App should be extended to receive The Array
-- Sort The Array.
-- Display The Array.
+***functional specs***
+- :App: should be extended to receive :Array:
+- Sort :Array:
+- Display :Array:
 
-    ***Acceptance Tests:***
-    - When given input "5 2 8 1 9", The App should output "1 2 5 8 9"
-    - When given input "1 2 3 4 5", The App should output "1 2 3 4 5"
+    ***acceptance tests***
+    - When given input "5 2 8 1 9", :App: should output "1 2 5 8 9"
+    - When given input "1 2 3 4 5", :App: should output "1 2 3 4 5"
 
 ```
 
-- When including templates, use `--full-plain` flag to preview the complete specification including all template content before rendering. You can find predefined templates in [standard template library](../standard_template_library/). (This flag can be configured in your config file.)
+`python-console-app-template` is predefined template providing specification of a typical Python console application. Check [standard template library](../standard_template_library/) for available predefined templates.
 
 ## 2. Add Test Scripts
 
@@ -59,7 +64,7 @@ Include the appropriate test scripts to your project:
 cp /path/to/plain2code_client/test_scripts/run_unittests_python.sh ./
 cp /path/to/plain2code_client/test_scripts/run_conformance_tests_python.sh ./
 ```
-- You may need to modify these scripts based on your specific project requirements.
+You may need to modify these scripts based on your specific project requirements.
 
 ## 3. Configure Parameters
 
@@ -71,6 +76,8 @@ Example of a basic `config.yaml` file:
 
 unittests-script: ./run_unittests_python.sh
 conformance-tests-script: ./run_conformance_tests_python.sh
+copy-build: true
+build-dest: build
 verbose: true
 
 ```
@@ -81,14 +88,7 @@ verbose: true
 ## 4. Generate & Run Your Project
 
 ```bash
-python ../plain2code_client/plain2code.py my_app.plain
+codeplain my_app.plain
 ```
-- Generated code will appear in build/ and conformance_tests/.
 
-
-## 5. Notes
-- `build/` and `conformance_tests/` folders are generated automatically
-- These folders are excluded from git via `.gitignore`
-- `dist/` and `dist_conformance_tests/` are created if you set `copy-build: true` and `copy-conformance-tests: true` in your config.yaml
-- Always review generated code before using in production
-- The `.plain` file is your source of truth - keep it well-documented and version-controlled
+After rendering is completed the generated code will be available in build/ folder.
