@@ -63,8 +63,7 @@ def test_single_file_change(temp_repo):
     result = diff(temp_repo, "1.1")
 
     assert "test.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- a/test.txt
         +++ b/test.txt
         @@ -1,3 +1,3 @@
@@ -72,8 +71,7 @@ def test_single_file_change(temp_repo):
         +modified content
          line2
          line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff
 
 
@@ -98,8 +96,7 @@ def test_multiple_file_changes(temp_repo):
 
     # Check first file
     assert "test.txt" in result
-    expected_diff1 = dedent(
-        """
+    expected_diff1 = dedent("""
         --- a/test.txt
         +++ b/test.txt
         @@ -1,3 +1,2 @@
@@ -107,22 +104,19 @@ def test_multiple_file_changes(temp_repo):
         +file1 modified
          line2
         -line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff1
 
     # Check second file
     assert "file2.txt" in result
-    expected_diff2 = dedent(
-        """
+    expected_diff2 = dedent("""
         --- /dev/null
         +++ b/file2.txt
         @@ -0,0 +1,2 @@
         +file2 modified
         +line2
         \\ No newline at end of file
-    """
-    ).strip()
+    """).strip()
     assert result["file2.txt"] == expected_diff2
 
 
@@ -157,8 +151,7 @@ def test_multiple_commits_diff(temp_repo):
 
     # Check first file
     assert "test.txt" in result
-    expected_diff1 = dedent(
-        """
+    expected_diff1 = dedent("""
         --- a/test.txt
         +++ b/test.txt
         @@ -1,3 +1,2 @@
@@ -166,35 +159,30 @@ def test_multiple_commits_diff(temp_repo):
         +file1 frid1.2 refactored version
          line2
         -line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff1
 
     # Check second file
     assert "file2.txt" in result
-    expected_diff2 = dedent(
-        """
+    expected_diff2 = dedent("""
         --- a/file2.txt
         +++ b/file2.txt
         @@ -1,2 +1,2 @@
         -file2 frid1.1 refactored version
         +file2 frid1.2 version
          line2
-    """
-    ).strip()
+    """).strip()
     assert result["file2.txt"] == expected_diff2
 
     # Check third file
     assert "file3.txt" in result
-    expected_diff3 = dedent(
-        """
+    expected_diff3 = dedent("""
         --- /dev/null
         +++ b/file3.txt
         @@ -0,0 +1,2 @@
         +file3 frid1.2 new file
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["file3.txt"] == expected_diff3
 
 
@@ -213,27 +201,23 @@ def test_diff_without_previous_frid_and_no_base_folder(empty_repo):
     result = diff(empty_repo)
 
     assert "new.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- /dev/null
         +++ b/new.txt
         @@ -0,0 +1,2 @@
         +new file content
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["new.txt"] == expected_diff
 
     assert "new2.txt" in result
-    expected_diff2 = dedent(
-        """
+    expected_diff2 = dedent("""
         --- /dev/null
         +++ b/new2.txt
         @@ -0,0 +1,2 @@
         +new file content
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["new2.txt"] == expected_diff2
 
 
@@ -251,16 +235,14 @@ def test_diff_without_previous_frid_and_base_folder(temp_repo):
     result = diff(temp_repo)
 
     assert "new.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- a/new.txt
         +++ b/new.txt
         @@ -1,2 +1,2 @@
         -base folder content
         +updated base folder content
          line2
-    """
-    ).strip()
+    """).strip()
     assert result["new.txt"] == expected_diff
 
 
@@ -276,15 +258,13 @@ def test_new_file(temp_repo):
     result = diff(temp_repo, "1.1")
 
     assert "new.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- /dev/null
         +++ b/new.txt
         @@ -0,0 +1,2 @@
         +new file content
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["new.txt"] == expected_diff
 
 
@@ -300,16 +280,14 @@ def test_deleted_file(temp_repo):
     result = diff(temp_repo, "1.1")
 
     assert "test.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- a/test.txt
         +++ /dev/null
         @@ -1,3 +0,0 @@
         -initial content
         -line2
         -line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff
 
 
