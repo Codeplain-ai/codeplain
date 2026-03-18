@@ -34,7 +34,7 @@ class FixUnitTests(BaseAction):
             )
 
         with console.status(
-            f"[{console.INFO_STYLE}]Fixing unit tests issue for functional requirement {render_context.frid_context.frid}...\n"
+            f"[{console.INFO_STYLE}]Fixing unit tests issue for functionality {render_context.frid_context.frid}...\n"
         ):
             response_files = render_context.codeplain_api.fix_unittests_issue(
                 render_context.frid_context.frid,

@@ -27,10 +27,10 @@ options:
                         Name of the log file. Defaults to 'codeplain.log'.Always resolved relative to the plain file directory.If file on this path already exists, the already existing log file will be overwritten by the
                         current logs.
   --render-range RENDER_RANGE
-                        Specify a range of functional requirements to render (e.g. `1` , `2`, `3`). Use comma to separate start and end IDs. If only one ID is provided, only that requirement is rendered. Range is
+                        Specify a range of functionalities to render (e.g. `1` , `2`, `3`). Use comma to separate start and end IDs. If only one ID is provided, only that requirement is rendered. Range is
                         inclusive of both start and end IDs.
   --render-from RENDER_FROM
-                        Continue generation starting from this specific functional requirement (e.g. `2`). The requirement with this ID will be included in the output. The ID must match one of the functional requirements
+                        Continue generation starting from this specific functionality (e.g. `2`). The requirement with this ID will be included in the output. The ID must match one of the functionalities
                         in your plain file.
   --force-render        Force re-render of all the required modules.
   --unittests-script UNITTESTS_SCRIPT

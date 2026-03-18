@@ -20,8 +20,8 @@ def test_regular_plain_source(get_test_data_path):
     assert plain_sections == {
         "definitions": [],
         "implementation reqs": [
-            {"markdown": "- First non-functional requirement."},
-            {"markdown": "- Second non-functional requirement."},
+            {"markdown": "- First implementation requirement."},
+            {"markdown": "- Second implementation requirement."},
         ],
         "functional specs": [{"markdown": '- Display "hello, world"'}],
     }
@@ -76,7 +76,7 @@ def test_plain_file_parser_with_comments(get_test_data_path):
     )
     assert plain_sections == {
         "definitions": [],
-        "implementation reqs": [{"markdown": "- Second non-functional requirement."}],
+        "implementation reqs": [{"markdown": "- Second implementation requirement."}],
         "functional specs": [{"markdown": '- Display "hello, world"'}],
     }
 
@@ -89,8 +89,8 @@ def test_plain_file_parser_with_comments_indented(get_test_data_path):
     assert plain_sections == {
         "definitions": [],
         "implementation reqs": [
-            {"markdown": "- First non-functional requirement."},
-            {"markdown": "- Second non-functional requirement."},
+            {"markdown": "- First implementation requirement."},
+            {"markdown": "- Second implementation requirement."},
         ],
         "functional specs": [{"markdown": '- Display "hello, world"'}],
     }
@@ -176,7 +176,7 @@ def test_duplicate_specification_heading(get_test_data_path):
 def test_missing_non_functional_requirements(get_test_data_path):
     with pytest.raises(
         Exception,
-        match="Syntax error: Functional requirement with no non-functional requirements specified.",
+        match="Syntax error: functionality with no implementation reqs specified.",
     ):
         plain_file.plain_file_parser(
             "missing_non_functional_requirements.plain",
@@ -187,7 +187,7 @@ def test_missing_non_functional_requirements(get_test_data_path):
 def test_without_non_functional_requirement(get_test_data_path):
     with pytest.raises(
         Exception,
-        match="Syntax error: Functional requirement with no non-functional requirements specified.",
+        match="Syntax error: functionality with no implementation reqs specified.",
     ):
         plain_file.plain_file_parser(
             "without_non_functional_requirement.plain",
@@ -203,8 +203,8 @@ def test_indented_include_tags():
 - This is a definition.
 
 ***implementation reqs***
-- First non-functional requirement.
-- Second non-functional requirement.
+- First implementation requirement.
+- Second implementation requirement.
 
 > This is a comment
 > This is a with an include tag {% include "template.plain" %}
@@ -218,7 +218,7 @@ def test_indented_include_tags():
     - Implement {% include "implement.plain" %}
 """
     loaded_templates = {
-        "template.plain": "- This is a functional requirement inside a template.",
+        "template.plain": "- This is a functionality inside a template.",
         "implement.plain": """something nice and useful
     - the nice thing should be really nice
     - the useful thing should be really useful""",
@@ -231,8 +231,8 @@ def test_indented_include_tags():
 - This is a definition.
 
 ***implementation reqs***
-- First non-functional requirement.
-- Second non-functional requirement.
+- First implementation requirement.
+- Second implementation requirement.
 
 > This is a comment
 > This is a with an include tag {% include 'template.plain' %}
@@ -241,10 +241,10 @@ def test_indented_include_tags():
 - Implement something nice and useful
     - the nice thing should be really nice
     - the useful thing should be really useful
-- This is a functional requirement inside a template.
+- This is a functionality inside a template.
 - Display "hello, world"
-    - This is a functional requirement inside a template.
-        - This is a functional requirement inside a template.
+    - This is a functionality inside a template.
+        - This is a functionality inside a template.
     - Implement something nice and useful
         - the nice thing should be really nice
         - the useful thing should be really useful
@@ -289,8 +289,8 @@ def test_code_variables(load_test_data, get_test_data_path):
 - :concept: is a concept.
 
 ***implementation reqs***
-- First non-functional requirement.
-- Second non-functional requirement.
+- First implementation requirement.
+- Second implementation requirement.
 
 ***functional specs***
 - Implement something nice and useful
@@ -304,8 +304,8 @@ def test_code_variables(load_test_data, get_test_data_path):
     expected_plain_source = {
         "definitions": [{"markdown": "- :concept: is a concept."}],
         "implementation reqs": [
-            {"markdown": "- First non-functional requirement."},
-            {"markdown": "- Second non-functional requirement."},
+            {"markdown": "- First implementation requirement."},
+            {"markdown": "- Second implementation requirement."},
         ],
         "functional specs": [
             {
@@ -331,8 +331,8 @@ def test_code_variables(load_test_data, get_test_data_path):
 - :concept: is a concept.
 
 ***implementation reqs***
-- First non-functional requirement {keys[0]}.
-- Second non-functional requirement {keys[1]}.
+- First implementation requirement {keys[0]}.
+- Second implementation requirement {keys[1]}.
 
 ***functional specs***
 - Implement something nice and useful
@@ -347,11 +347,11 @@ def test_code_variables(load_test_data, get_test_data_path):
         "definitions": [{"markdown": "- :concept: is a concept."}],
         "implementation reqs": [
             {
-                "markdown": "- First non-functional requirement {{ variable_name_1 }}.",
+                "markdown": "- First implementation requirement {{ variable_name_1 }}.",
                 "code_variables": [{"name": "variable_name_1", "value": "nice_1"}],
             },
             {
-                "markdown": "- Second non-functional requirement {{ variable_name_1 }}.",
+                "markdown": "- Second implementation requirement {{ variable_name_1 }}.",
                 "code_variables": [{"name": "variable_name_1", "value": "nice_2"}],
             },
         ],

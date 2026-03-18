@@ -17,7 +17,7 @@ class MockParseBuffer(list):
 
 
 def _create_mock_fr_content(content="Implement the entry point for ...", line_number=32):
-    """Helper to create a mock functional requirement content paragraph."""
+    """Helper to create a mock functionality content paragraph."""
     mock_fr_content_text = MagicMock(spec=RawText)
     mock_fr_content_text.content = content
 
@@ -68,7 +68,7 @@ def _create_mock_at_list(content="The App shouldn't show logging...", line_numbe
 
 @patch("plain_file._process_single_acceptance_test_requirement")
 def test_process_acceptance_tests_no_functional_requirements_key(mock_process_single):
-    """Tests early return when functional requirements key is missing."""
+    """Tests early return when functionality key is missing."""
     plain_source_tree = {}
 
     process_acceptance_tests(plain_source_tree)
@@ -88,7 +88,7 @@ def test_process_acceptance_tests_frs_lacks_children_attr(mock_process_single):
 
 @patch("plain_file._process_single_acceptance_test_requirement")
 def test_process_acceptance_tests_no_sections_direct_frs(mock_process_single):
-    """Tests processing of top-level functional requirements when no sections exist."""
+    """Tests processing of top-level functionality when no sections exist."""
     mock_fr_item1_with_children = MagicMock(name="FRItem1_WithChildren")
     mock_fr_item1_with_children.children = MagicMock(name="ChildrenOfFRItem1")
 
@@ -139,7 +139,7 @@ def test_psart_no_acceptance_tests_present():
 
 
 def test_psart_empty_children_list_in_fr():
-    """Tests behavior when the functional requirement itself has no children."""
+    """Tests behavior when the functionality itself has no children."""
     functional_requirement_mock = MagicMock(spec=ListItem)
     functional_requirement_mock.line_number = 1
     functional_requirement_mock.children = []
@@ -188,7 +188,7 @@ def test_psart_with_valid_acceptance_tests():
     mock_at_heading_paragraph = _create_mock_at_heading_paragraph()
     mock_at_list = _create_mock_at_list()
 
-    # Set up children of the functional requirement
+    # Set up children of the functionality
     functional_requirement_mock.children = [mock_fr_content, mock_at_heading_paragraph, mock_at_list]
 
     is_acceptance_test_heading, acceptance_test_heading_problem = plain_file._is_acceptance_test_heading(
@@ -220,7 +220,7 @@ def test_psart_with_invalid_acceptance_test_heading():
     # Change the content of the raw text to be invalid
     mock_at_heading_paragraph.children[0].children[0].children[0].content = "Acceptance test"  # missing colon
 
-    # Set up children of the functional requirement with just the invalid heading
+    # Set up children of the functionality with just the invalid heading
     functional_requirement_mock.children = [mock_at_heading_paragraph]
 
     # Verify that invalid heading is detected
@@ -248,7 +248,7 @@ def test_psart_with_duplicate_acceptance_test_heading():
     mock_at_heading_paragraph1 = _create_mock_at_heading_paragraph(line_number=34)
     mock_at_heading_paragraph2 = _create_mock_at_heading_paragraph(line_number=38)
 
-    # Set up children of the functional requirement with duplicate AT headings
+    # Set up children of the functionality with duplicate AT headings
     functional_requirement_mock.children = [
         mock_fr_content,
         mock_at_heading_paragraph1,
@@ -258,7 +258,7 @@ def test_psart_with_duplicate_acceptance_test_heading():
     ]
 
     # Call the function under test and expect a PlainSyntaxError about duplicate headings
-    expected_error_message = f"Syntax error at line {mock_at_heading_paragraph2.line_number}: Duplicate 'acceptance tests' heading found within the same functional requirement. Only one block of acceptance tests is allowed per functional requirement."
+    expected_error_message = f"Syntax error at line {mock_at_heading_paragraph2.line_number}: Duplicate 'acceptance tests' heading found within the same functionality. Only one block of acceptance tests is allowed per functionality."
 
     with pytest.raises(PlainSyntaxError) as exc_info:
         plain_file._process_single_acceptance_test_requirement(functional_requirement_mock)

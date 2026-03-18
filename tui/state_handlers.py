@@ -195,7 +195,7 @@ class ConformanceTestsHandler(StateHandler):
         if segments[2] != States.POSTPROCESSING_CONFORMANCE_TESTS.value:
             if segments[2] == States.CONFORMANCE_TESTING_INITIALISED.value:
                 if snapshot.conformance_tests_running_context.conformance_test_phase_index == 0:
-                    rendering_text = f"Rendering conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid}"
+                    rendering_text = f"Rendering conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
                     update_progress_item_substates(
                         self.tui,
                         TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
@@ -216,7 +216,7 @@ class ConformanceTestsHandler(StateHandler):
                     [Substate("Preparing testing environment for conformance tests")],
                 )
             elif segments[2] == States.CONFORMANCE_TEST_ENV_PREPARED.value:
-                running_text = f"Running conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid}"
+                running_text = f"Running conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
                 if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
                     running_text += (
                         f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
@@ -226,7 +226,7 @@ class ConformanceTestsHandler(StateHandler):
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(running_text)]
                 )
             elif segments[2] == States.CONFORMANCE_TEST_FAILED.value:
-                fixing_text = f"Fixing conformance tests for functional requirement {snapshot.conformance_tests_running_context.current_testing_frid}"
+                fixing_text = f"Fixing conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
                 if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
                     fixing_text += (
                         f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"

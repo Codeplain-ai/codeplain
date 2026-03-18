@@ -172,7 +172,7 @@ class RenderContext:
             return
 
         if self.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functional requirement {self.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
+            error_msg = f"Unittests could not be fixed after rendering the functionality {self.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
             self.dispatch_error(error_msg)
 
         self.frid_context.functional_requirement_render_attempts += 1
@@ -180,8 +180,8 @@ class RenderContext:
         if self.frid_context.functional_requirement_render_attempts > 1:
             # this if is intended just for logging
             console.info(
-                f"Unittests could not be fixed after rendering the functional requirement. "
-                f"Restarting rendering the functional requirement {self.frid_context.frid} from scratch."
+                f"Unittests could not be fixed after rendering the functionality. "
+                f"Restarting rendering the functionality {self.frid_context.frid} from scratch."
             )
 
     def finish_implementing_frid(self):
@@ -310,13 +310,13 @@ class RenderContext:
                 self.functional_requirements_render_attempts_failed_unit_during_conformance_tests
                 >= MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS
             ):
-                error_msg = f"Failed to adjust unit tests after implementation code was update while fixing conformance tests for functional requirement {self.frid_context.frid} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
+                error_msg = f"Failed to adjust unit tests after implementation code was update while fixing conformance tests for functionality {self.frid_context.frid} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
                 self.dispatch_error(error_msg)
             else:
                 console.info(
-                    f"Failed to adjust unit tests after implementation code was update while fixing conformance tests for functional requirement {self.frid_context.frid}."
+                    f"Failed to adjust unit tests after implementation code was update while fixing conformance tests for functionality {self.frid_context.frid}."
                 )
-                console.info(f"Restarting rendering the functional requirement {self.frid_context.frid} from scratch.")
+                console.info(f"Restarting rendering the functionality {self.frid_context.frid} from scratch.")
                 self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
 
     def start_fixing_unit_tests_in_refactoring(self):
@@ -336,7 +336,7 @@ class RenderContext:
         if self.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
             if self.verbose:
                 console.info(
-                    f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functional requirement {self.frid_context.frid}."
+                    f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {self.frid_context.frid}."
                 )
             self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
 
@@ -370,7 +370,7 @@ class RenderContext:
         if self.conformance_tests_running_context.regenerating_conformance_tests:
             if self.verbose:
                 console.info(
-                    f"Recreating conformance tests for functional requirement {self.conformance_tests_running_context.current_testing_frid}."
+                    f"Recreating conformance tests for functionality {self.conformance_tests_running_context.current_testing_frid}."
                 )
 
             existing_conformance_tests_folder = self.conformance_tests_running_context.get_conformance_tests_json(

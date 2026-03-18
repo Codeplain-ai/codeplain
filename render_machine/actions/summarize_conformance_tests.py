@@ -9,7 +9,7 @@ class SummarizeConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_tests_summarized"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
-        console.info(f"Summarizing conformance tests for functional requirement {render_context.frid_context.frid}.")
+        console.info(f"Summarizing conformance tests for functionality {render_context.frid_context.frid}.")
 
         _, existing_conformance_test_files_content = (
             render_context.conformance_tests.fetch_existing_conformance_test_files(
@@ -21,7 +21,7 @@ class SummarizeConformanceTests(BaseAction):
         )
 
         with console.status(
-            f"[{console.INFO_STYLE}]Summarizing finished conformance tests for functional requirement {render_context.frid_context.frid}...\n"
+            f"[{console.INFO_STYLE}]Summarizing finished conformance tests for functionality {render_context.frid_context.frid}...\n"
         ):
             summary = render_context.codeplain_api.summarize_finished_conformance_tests(
                 frid=render_context.frid_context.frid,

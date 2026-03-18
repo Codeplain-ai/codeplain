@@ -156,11 +156,11 @@ class CodeplainAPI:
         run_state: RunState,
     ) -> dict[str, str]:
         """
-        Renders the content of a functional requirement based on the provided ID,
+        Renders the content of a functionality based on the provided ID,
         corresponding sections from a Plain document, and existing files' content.
 
         Args:
-            frid (str): The unique identifier for the functional requirement to be rendered.
+            frid (str): The unique identifier for the functionality to be rendered.
             plain_source_tree (dict): A dictionary containing the plain source tree.
             linked_resources (dict): A dictionary where the keys represent filenames of linked
                                         resources and the values are dictionaries containing
@@ -170,7 +170,7 @@ class CodeplainAPI:
                                         and the values are the content of those files.
             memory_files_content (dict): A dictionary where the keys represent memory filenames
                                         and the values are the content of those files.
-            module_name (str): The name of the module to render the functional requirement for.
+            module_name (str): The name of the module to render the functionality for.
             required_modules (dict): A dictionary where the keys represent module names
                                      and the values are lists of functionalities implemented in those modules.
             run_state (RunState): The current state of the rendering process.
@@ -390,7 +390,7 @@ class CodeplainAPI:
         Renders acceptance tests based on the provided parameters.
 
         Args:
-            frid (str): The unique identifier for the functional requirement.
+            frid (str): The unique identifier for the functionality.
             plain_source_tree (dict): A dictionary containing the plain source tree.
             linked_resources (dict): A dictionary where the keys represent resource names
                                     and the values are the content of those resources.
