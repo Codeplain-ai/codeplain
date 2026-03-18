@@ -89,14 +89,12 @@ if [[ "$3" == "-v" || "$3" == "--verbose" ]]; then
   VERBOSE=1
 fi
 
-current_dir=$(pwd)
-
 # Ensures that if any command in the pipeline fails (like npm run build), the entire pipeline
 # will return a non-zero status, allowing the if condition to properly catch failures.
 set -o pipefail
 
 # Define the path to the subfolder
-NODE_SUBFOLDER=node_$1
+NODE_SUBFOLDER=$(dirname "$1")/node_$(basename "$1")
 
 # Running React application
 printf "### Step 1: Starting the React application in folder $NODE_SUBFOLDER...\n"
@@ -121,7 +119,7 @@ else
   mkdir -p $NODE_SUBFOLDER
 fi
 
-cp -R $1/* $NODE_SUBFOLDER
+cp -R "$1"/* $NODE_SUBFOLDER
 
 # Move to the subfolder
 cd "$NODE_SUBFOLDER" 2>/dev/null
@@ -202,11 +200,8 @@ fi
 # Execute all Cypress conformance tests in the build folder
 printf "### Step 2: Running Cypress conformance tests $2...\n"
 
-# Move back to the original directory
-cd $current_dir
-
 # Define the path to the conformance tests subfolder
-NODE_CONFORMANCE_TESTS_SUBFOLDER=node_$2
+NODE_CONFORMANCE_TESTS_SUBFOLDER=$(dirname "$2")/node_$(basename "$2")
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing conformance tests Node subfolder: $NODE_CONFORMANCE_TESTS_SUBFOLDER\n"
@@ -228,7 +223,7 @@ else
   mkdir -p $NODE_CONFORMANCE_TESTS_SUBFOLDER
 fi
 
-cp -R $2/* $NODE_CONFORMANCE_TESTS_SUBFOLDER
+cp -R "$2"/* $NODE_CONFORMANCE_TESTS_SUBFOLDER
 
 # Move to the subfolder with Cypress tests
 cd "$NODE_CONFORMANCE_TESTS_SUBFOLDER" 2>/dev/null
