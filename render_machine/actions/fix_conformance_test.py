@@ -17,7 +17,7 @@ class FixConformanceTest(BaseAction):
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         console.info(
-            f"Fixing conformance test for functional requirement {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
+            f"Fixing conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
         )
 
         if not previous_action_payload.get("previous_conformance_tests_issue"):
@@ -32,9 +32,9 @@ class FixConformanceTest(BaseAction):
         )
 
         if render_context.conformance_tests_running_context.current_testing_frid == render_context.frid_context.frid:
-            console_message = f"Fixing conformance test for functional requirement {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
+            console_message = f"Fixing conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
         else:
-            console_message = f"While implementing functional requirement {render_context.frid_context.frid}, conformance tests for functional requirement {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name} broke. Fixing them..."
+            console_message = f"While implementing functionality {render_context.frid_context.frid}, conformance tests for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name} broke. Fixing them..."
 
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder

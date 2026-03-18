@@ -34,7 +34,7 @@ class RenderConformanceTests(BaseAction):
 
         if not render_context.conformance_tests_running_context.current_conformance_tests_exist():
             with console.status(
-                f"[{console.INFO_STYLE}]Generating folder name for conformance tests for functional requirement {render_context.conformance_tests_running_context.current_testing_frid}...\n"
+                f"[{console.INFO_STYLE}]Generating folder name for conformance tests for functionality {render_context.conformance_tests_running_context.current_testing_frid}...\n"
             ):
                 fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
                     frid=render_context.conformance_tests_running_context.current_testing_frid,
@@ -96,7 +96,7 @@ class RenderConformanceTests(BaseAction):
 
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
         with console.status(
-            f"[{console.INFO_STYLE}]Rendering conformance test for functional requirement {render_context.conformance_tests_running_context.current_testing_frid}...\n"
+            f"[{console.INFO_STYLE}]Rendering conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid}...\n"
         ):
             response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
                 render_context.frid_context.frid,
@@ -152,7 +152,7 @@ class RenderConformanceTests(BaseAction):
             console.info(f"Generating acceptance test:\n  {acceptance_test}")
 
         with console.status(
-            f"[{console.INFO_STYLE}]Generating acceptance test for functional requirement {render_context.frid_context.frid}...\n"
+            f"[{console.INFO_STYLE}]Generating acceptance test for functionality {render_context.frid_context.frid}...\n"
         ):
             response_files = render_context.codeplain_api.render_acceptance_tests(
                 render_context.frid_context.frid,

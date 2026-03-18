@@ -86,12 +86,12 @@ def _get_frids_range(plain_source, start, end=None):
     start = str(start)
 
     if start not in frids:
-        raise InvalidFridArgument(f"Invalid start functional requirement ID: {start}. Valid IDs are: {frids}.")
+        raise InvalidFridArgument(f"Invalid start functionality ID: {start}. Valid IDs are: {frids}.")
 
     if end is not None:
         end = str(end)
         if end not in frids:
-            raise InvalidFridArgument(f"Invalid end functional requirement ID: {end}. Valid IDs are: {frids}.")
+            raise InvalidFridArgument(f"Invalid end functionality ID: {end}. Valid IDs are: {frids}.")
 
         end_idx = frids.index(end) + 1
     else:
@@ -99,9 +99,7 @@ def _get_frids_range(plain_source, start, end=None):
 
     start_idx = frids.index(start)
     if start_idx >= end_idx:
-        raise InvalidFridArgument(
-            f"Start functional requirement ID: {start} must be before end functional requirement ID: {end}."
-        )
+        raise InvalidFridArgument(f"Start functionality ID: {start} must be before end functionality ID: {end}.")
 
     return frids[start_idx:end_idx]
 

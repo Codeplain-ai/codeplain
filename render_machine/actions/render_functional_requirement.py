@@ -41,7 +41,7 @@ class RenderFunctionalRequirement(BaseAction):
                 )
 
             with console.status(
-                f"[{console.INFO_STYLE}]Generating functional requirement {render_context.frid_context.frid}...\n"
+                f"[{console.INFO_STYLE}]Generating functionality {render_context.frid_context.frid}...\n"
             ):
                 response_files = render_context.codeplain_api.render_functional_requirement(
                     render_context.frid_context.frid,
@@ -55,7 +55,7 @@ class RenderFunctionalRequirement(BaseAction):
                     render_context.run_state,
                 )
         except FunctionalRequirementTooComplex as e:
-            error_message = f"The functional requirement:\n{render_context.frid_context.functional_requirement_text}\n is too complex to be implemented. Please break down the functional requirement into smaller parts ({str(e)})."
+            error_message = f"The functionality:\n{render_context.frid_context.functional_requirement_text}\n is too complex to be implemented. Please break down the functionality into smaller parts ({str(e)})."
             if e.proposed_breakdown:
                 error_message += "\nProposed breakdown:"
                 for _, part in e.proposed_breakdown["functional_requirements"].items():

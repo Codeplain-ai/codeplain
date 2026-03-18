@@ -1,6 +1,5 @@
 import argparse
 import os
-import re
 
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
@@ -59,14 +58,14 @@ def non_empty_string(s):
 
 
 def frid_string(s):
-    """Validate that the string contains only numbers separated by dots."""
+    """Validate that the FRID is an integer."""
     if not s:
-        raise argparse.ArgumentTypeError("The functional requirement ID cannot be empty.")
+        raise argparse.ArgumentTypeError("The functionality ID cannot be empty.")
 
-    if not re.match(r"^\d+(\.\d+)*$", s):
-        raise argparse.ArgumentTypeError(
-            "Functional requirement ID string must contain only numbers optionally separated by dots (e.g. '1', '1.2.3')"
-        )
+    try:
+        int(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Functionality ID string must be a number.")
     return s
 
 
@@ -77,7 +76,7 @@ def frid_range_string(s):
 
     parts = s.split(",")
     if len(parts) > 2:
-        raise argparse.ArgumentTypeError("Range must contain at most two functional requirement IDs separated by comma")
+        raise argparse.ArgumentTypeError("Range must contain at most two functionality IDs separated by comma")
 
     for part in parts:
         frid_string(part)
@@ -205,15 +204,15 @@ def create_parser():
     render_range_group.add_argument(
         "--render-range",
         type=frid_range_string,
-        help="Specify a range of functional requirements to render (e.g. `1` , `2`, `3`). "
-        "Use comma to separate start and end IDs. If only one ID is provided, only that requirement is rendered. "
+        help="Specify a range of functionalities to render (e.g. `1` , `2`, `3`). "
+        "Use comma to separate start and end IDs. If only one ID is provided, only that functionality is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
     render_range_group.add_argument(
         "--render-from",
         type=frid_string,
-        help="Continue generation starting from this specific functional requirement (e.g. `2`). "
-        "The requirement with this ID will be included in the output. The ID must match one of the functional requirements in your plain file.",
+        help="Continue generation starting from this specific functionality (e.g. `2`). "
+        "The requirement with this ID will be included in the output. The ID must match one of the functionalities in your plain file.",
     )
 
     parser.add_argument(

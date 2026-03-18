@@ -6,8 +6,8 @@ from plain2code_console import console
 AMBIGUITY_CAUSES = {
     "reference_resource_ambiguity": "Ambiguity is in the reference resources",
     "definition_ambiguity": "Ambiguity is in the definitions",
-    "non_functional_requirement_ambiguity": "Ambiguity is in the non-functional requirements",
-    "functional_requirement_ambiguity": "Ambiguity is in the functional requirements",
+    "non_functional_requirement_ambiguity": "Ambiguity is in the implementation reqs",
+    "functional_requirement_ambiguity": "Ambiguity is in the functionality",
     "other": "Ambiguity in the other parts of the specification",
 }
 
@@ -23,7 +23,7 @@ def print_dry_run_output(plain_source_tree: dict, render_range: Optional[list[st
             functional_requirement_text = specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]
             console.info(
                 "-------------------------------------\n"
-                f"Rendering functional requirement {frid}\n"
+                f"Rendering functionality {frid}\n"
                 f"{functional_requirement_text}\n"
                 "-------------------------------------\n"
             )

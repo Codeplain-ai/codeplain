@@ -136,7 +136,7 @@ def check_if_functional_requirements_are_specified(plain_source, non_functional_
 
     found_functional_requirements = plain_spec.FUNCTIONAL_REQUIREMENTS in plain_source
     if found_functional_requirements and len(non_functional_requirements) == 0:
-        raise PlainSyntaxError("Syntax error: Functional requirement with no non-functional requirements specified.")
+        raise PlainSyntaxError("Syntax error: functionality with no implementation reqs specified.")
 
     return found_functional_requirements
 
@@ -183,16 +183,16 @@ def _is_acceptance_test_heading(token) -> tuple[bool, str | None]:
 
 def _process_single_acceptance_test_requirement(functional_requirement: mistletoe.block_token.ListItem):
     """
-    Process a single functional requirement to extract acceptance tests.
+    Process a single functionality to extract acceptance tests.
 
     Expected functional_requirement properties:
     - Is a list item
     - If acceptance tests are specified, it has 3 children:
-        - List item element with functional requirement instructions/text
+        - List item element with functionality instructions/text
         - Paragraph with `***Acceptance test:***` heading
         - List of acceptance tests
     - If acceptance tests are not specified, it has 1 child:
-        - List item element with functional requirement instructions/text
+        - List item element with functionality instructions/text
     """
     new_children = []
     functional_requirement_children = iter(functional_requirement.children)
@@ -205,7 +205,7 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
         if acceptance_test_heading_problem:
             # Handle the case when the heading is not valid. This case includes cases such as:
             # - Writing `acceptance test` instead of `acceptance tests` (or any other syntax diffs).
-            # - Instead of specifying `acceptance tests` below the functional requirement, creator of the plain file
+            # - Instead of specifying `acceptance tests` below the functionality, creator of the plain file
             #   might have specified some other building block (e.g. `implementation reqs`)
             raise PlainSyntaxError(acceptance_test_heading_problem)
 
@@ -213,7 +213,7 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
             if acceptance_tests_found_already:
                 # Handle edge case of duplicated ***acceptance tests*** heading
                 raise PlainSyntaxError(
-                    f"Syntax error at line {functional_requirement_child.line_number}: Duplicate 'acceptance tests' heading found within the same functional requirement. Only one block of acceptance tests is allowed per functional requirement."
+                    f"Syntax error at line {functional_requirement_child.line_number}: Duplicate 'acceptance tests' heading found within the same functionality. Only one block of acceptance tests is allowed per functionality."
                 )
 
             try:
@@ -237,20 +237,20 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
             # Regular token, keep it
             new_children.append(functional_requirement_child)
 
-    # Assign the children property to all the children of the functional requirement from previous, with exception
+    # Assign the children property to all the children of the functionality from previous, with exception
     # of those we parsed as acceptance tests
     functional_requirement.children = type(functional_requirement.children)(new_children)
 
 
 def process_acceptance_tests(plain_source):
-    # Early returns for cases without functional requirements
+    # Early returns for cases without functionalities
     if plain_spec.FUNCTIONAL_REQUIREMENTS not in plain_source:
         return
     frs = plain_source[plain_spec.FUNCTIONAL_REQUIREMENTS]
     if not hasattr(frs, "children"):
         return
 
-    # Process each functional requirement
+    # Process each functionality
     for functional_requirement in frs.children:
         if not hasattr(functional_requirement, "children"):
             continue
@@ -343,7 +343,7 @@ def process_imports(
         )
 
         if check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-            raise PlainSyntaxError("Imported module must not contain functional requirements.")
+            raise PlainSyntaxError("Imported module must not contain functionalities.")
 
         for specification_heading in plain_file_parse_result.plain_source:
             if specification_heading not in plain_spec.ALLOWED_IMPORT_SPECIFICATION_HEADINGS:
@@ -649,7 +649,7 @@ def plain_file_parser(  # noqa: C901
         )
 
     if not check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-        raise PlainSyntaxError("Syntax error: No functional requirements specified.")
+        raise PlainSyntaxError("Syntax error: No functionality specified.")
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,

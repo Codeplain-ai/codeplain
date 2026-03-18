@@ -27,7 +27,7 @@ class RefactorCode(BaseAction):
                 style=console.INPUT_STYLE,
             )
         with console.status(
-            f"[{console.INFO_STYLE}]Refactoring the generated code for functional requirement {render_context.frid_context.frid}..."
+            f"[{console.INFO_STYLE}]Refactoring the generated code for functionality {render_context.frid_context.frid}..."
         ):
             response_files = render_context.codeplain_api.refactor_source_files_if_needed(
                 frid=render_context.frid_context.frid,

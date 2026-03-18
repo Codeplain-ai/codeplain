@@ -164,7 +164,7 @@ def get_next_frid(plain_source_tree, frid):
         if temp_frid == frid:
             return next(functional_requirements, None)
 
-    raise Exception(f"Functional requirement {frid} does not exist.")
+    raise Exception(f"Functionality {frid} does not exist.")
 
 
 def get_previous_frid(plain_source_tree, frid):
@@ -175,7 +175,7 @@ def get_previous_frid(plain_source_tree, frid):
 
         previous_frid = temp_frid
 
-    raise Exception(f"Functional requirement {frid} does not exist.")
+    raise Exception(f"Functionality {frid} does not exist.")
 
 
 def get_frids_before(plain_source_tree, target_frid: str) -> list[str]:
@@ -314,7 +314,7 @@ def get_specifications_for_frid(plain_source_tree, frid, replace_code_variables=
         replace_code_variables,
     )
     if result is None:
-        raise Exception(f"Functional requirement {frid} does not exist.")
+        raise Exception(f"Functionality {frid} does not exist.")
 
     specifications = {
         DEFINITIONS: definitions,

@@ -46,11 +46,11 @@ class AnalyzeSpecificationAmbiguity(BaseAction):
         if rendering_analysis:
             # TODO: Before this output is exposed to the user, we should check the 'guidance' field using LLM in the same way as we do conflicting requirements.
             console.info(
-                f"Specification ambiguity detected! {AMBIGUITY_CAUSES[rendering_analysis['cause']]} of the functional requirement {render_context.frid_context.frid}."
+                f"Specification ambiguity detected! {AMBIGUITY_CAUSES[rendering_analysis['cause']]} of the functionality {render_context.frid_context.frid}."
             )
             console.info(rendering_analysis["guidance"])
         else:
             console.warning(
-                f"No specification ambiguity detected for functional requirement {render_context.frid_context.frid}."
+                f"No specification ambiguity detected for functionality {render_context.frid_context.frid}."
             )
         return self.SUCCESSFUL_OUTCOME, None

@@ -1,8 +1,8 @@
 ***definitions***
 
 ***implementation reqs***
->- First non-functional requirement.
-- Second non-functional requirement.
+>- First implementation requirement.
+- Second implementation requirement.
 
 ***functional specs***
 - Display "hello, world"
