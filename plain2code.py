@@ -43,6 +43,7 @@ from plain2code_logger import (
     TuiLoggingHandler,
     dump_crash_logs,
     get_log_file_path,
+    LOGGER_NAME,
 )
 from plain2code_state import RunState
 from plain2code_utils import print_dry_run_output
@@ -115,6 +116,7 @@ def setup_logging(
 ):
     # Set default level to INFO for everything not explicitly configured
     logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger(LOGGER_NAME).setLevel(logging.INFO)
     logging.getLogger("git").setLevel(logging.WARNING)
     logging.getLogger("repositories").setLevel(logging.WARNING)
     logging.getLogger("transitions").setLevel(logging.ERROR)
@@ -136,9 +138,9 @@ def setup_logging(
     # We add the TuiLoggingHandler to the root logger.
     # CRITICAL: We must remove existing handlers (like StreamHandler) to prevent double-logging
     # that spills into the TUI dashboard.
-    root_logger = logging.getLogger()
-    for h in root_logger.handlers[:]:
-        root_logger.removeHandler(h)
+    root_logger = logging.getLogger(LOGGER_NAME)
+    configured_log_level = root_logger.level
+    root_logger.setLevel(logging.DEBUG)  # Capture all logs; handlers will filter levels as needed
 
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
 
@@ -151,6 +153,7 @@ def setup_logging(
         try:
             file_handler = logging.FileHandler(log_file_path, mode="w")
             file_handler.setFormatter(formatter)
+            file_handler.setLevel(configured_log_level)
             root_logger.addHandler(file_handler)
         except Exception as e:
             console.warning(f"Failed to setup file logging to {log_file_path}: {str(e)}")
@@ -159,6 +162,7 @@ def setup_logging(
         # in case we need to dump them on crash.
         crash_handler = CrashLogHandler()
         crash_handler.setFormatter(formatter)
+        crash_handler.setLevel(configured_log_level)
         root_logger.addHandler(crash_handler)
 
     root_logger.info(f"Render ID: {render_id}")  # Ensure render ID is logged in to codeplain.log file

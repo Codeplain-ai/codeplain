@@ -6,6 +6,8 @@ from typing import Optional
 from event_bus import EventBus
 from plain2code_events import LogMessageEmitted
 
+LOGGER_NAME = "codeplain"
+
 
 class RetryOnlyFilter(logging.Filter):
     def filter(self, record):
@@ -105,7 +107,7 @@ def dump_crash_logs(args, formatter=None):
     if formatter is None:
         formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
 
-    root_logger = logging.getLogger()
+    root_logger = logging.getLogger(LOGGER_NAME)
     crash_handler = next((h for h in root_logger.handlers if isinstance(h, CrashLogHandler)), None)
 
     if crash_handler and args.filename:

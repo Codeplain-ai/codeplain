@@ -4,7 +4,11 @@ from rich.console import Console
 from rich.style import Style
 from rich.tree import Tree
 
+import plain2code_logger
+
 CHARACTERS_TO_TOKENS_RULE_OF_THUMB_RATIO = 4
+
+logger = logging.getLogger(plain2code_logger.LOGGER_NAME)
 
 
 class Plain2CodeConsole(Console):
@@ -22,35 +26,35 @@ class Plain2CodeConsole(Console):
 
             self.llm_encoding = tiktoken.get_encoding("cl100k_base")
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 "Failed to import optional library tiktoken. Using approximate instead of exact token count."
             )
-            logging.debug(f"Exception: {e}")
+            logger.debug(f"Exception: {e}")
             self.llm_encoding = None
 
     def info(self, *args, **kwargs):
-        logging.info(" ".join(map(str, args)))
+        logger.info(" ".join(map(str, args)))
         super().print(*args, **kwargs, style=self.INFO_STYLE)
 
     def warning(self, *args, **kwargs):
-        logging.warning(" ".join(map(str, args)))
+        logger.warning(" ".join(map(str, args)))
         super().print(*args, **kwargs, style=self.WARNING_STYLE)
 
     def error(self, *args, **kwargs):
-        logging.error(" ".join(map(str, args)))
+        logger.error(" ".join(map(str, args)))
         super().print(*args, **kwargs, style=self.ERROR_STYLE)
 
     def input(self, *args, **kwargs):
         # We also log input as info so it shows in the toggled view
-        logging.info(" ".join(map(str, args)))
+        logger.info(" ".join(map(str, args)))
         super().print(*args, **kwargs, style=self.INPUT_STYLE)
 
     def output(self, *args, **kwargs):
-        logging.info(" ".join(map(str, args)))
+        logger.info(" ".join(map(str, args)))
         super().print(*args, **kwargs, style=self.OUTPUT_STYLE)
 
     def debug(self, *args, **kwargs):
-        logging.debug(" ".join(map(str, args)))
+        logger.debug(" ".join(map(str, args)))
         super().print(*args, **kwargs, style=self.DEBUG_STYLE)
 
     def print_list(self, items, style=None):
@@ -116,7 +120,7 @@ class Plain2CodeConsole(Console):
 
     def print_resources(self, resources_list, linked_resources):
         if len(resources_list) == 0:
-            self.input("Linked resources: None")
+            self.debug("Linked resources: None")
             return
 
         self.input("Linked resources:")
