@@ -328,7 +328,7 @@ def create_parser():
 
     parser.add_argument(
         "--logging-config-path",
-        action="store_true",
+        type=str,
         default="logging_config.yaml",
         help="Path to the logging configuration file.",
     )
