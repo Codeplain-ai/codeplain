@@ -115,14 +115,7 @@ def setup_logging(
 ):
     # Set default level to INFO for everything not explicitly configured
     logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("anthropic").setLevel(logging.WARNING)
-    logging.getLogger("langsmith").setLevel(logging.WARNING)
     logging.getLogger("git").setLevel(logging.WARNING)
-    logging.getLogger("anthropic._base_client").setLevel(logging.WARNING)
-    logging.getLogger("services.langsmith.langsmith_service").setLevel(logging.WARNING)
     logging.getLogger("repositories").setLevel(logging.WARNING)
     logging.getLogger("transitions").setLevel(logging.ERROR)
     logging.getLogger("transitions.extensions.diagrams").setLevel(logging.ERROR)
@@ -138,11 +131,6 @@ def setup_logging(
                 console.info(f"Loaded logging configuration from {args.logging_config_path}")
         except Exception as e:
             console.warning(f"Failed to load logging configuration from {args.logging_config_path}: {str(e)}")
-
-    # Allow detailed retry logs for anthropic if needed
-    logging.getLogger("anthropic._base_client").setLevel(logging.DEBUG)
-    if logging.getLogger("anthropic._base_client").level == logging.DEBUG:
-        logging.getLogger("anthropic._base_client").addFilter(RetryOnlyFilter())
 
     # The IndentedFormatter provides better multiline log readability.
     # We add the TuiLoggingHandler to the root logger.

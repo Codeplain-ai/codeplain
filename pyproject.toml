@@ -102,13 +102,8 @@ exclude = [
     "^\\.venv/",
     "^\\.env/",
     "^\\.conda/",
-    "^build/",
-    "^dist/",
     "^tests/",
     "^examples/",
-    "^render_cache/",
-    "^src/services/langsmith/",
-    "^deploy/",
 ]
 
 [tool.pytest.ini_options]
