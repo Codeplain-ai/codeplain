@@ -135,8 +135,6 @@ def setup_logging(
 
     # The IndentedFormatter provides better multiline log readability.
     # We add the TuiLoggingHandler to the root logger.
-    # CRITICAL: We must remove existing handlers (like StreamHandler) to prevent double-logging
-    # that spills into the TUI dashboard.
     root_logger = logging.getLogger(LOGGER_NAME)
     configured_log_level = root_logger.level
     root_logger.setLevel(logging.DEBUG)  # Capture all logs; handlers will filter levels as needed
