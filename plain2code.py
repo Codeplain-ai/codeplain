@@ -110,7 +110,6 @@ def setup_logging(
     log_to_file: bool,
     log_file_name: str,
     plain_file_path: Optional[str],
-    render_id: str,
     headless: bool = False,
 ):
     # Set default level to INFO for everything not explicitly configured
@@ -161,8 +160,6 @@ def setup_logging(
         crash_handler.setFormatter(formatter)
         crash_handler.setLevel(configured_log_level)
         root_logger.addHandler(crash_handler)
-
-    root_logger.info(f"Render ID: {render_id}")  # Ensure render ID is logged in to codeplain.log file
 
 
 def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
@@ -282,9 +279,7 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    setup_logging(
-        args, event_bus, args.log_to_file, args.log_file_name, args.filename, run_state.render_id, args.headless
-    )
+    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, args.headless)
 
     exc_info = None
     try:
@@ -294,7 +289,7 @@ def main():  # noqa: C901
                 "API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument."
             )
 
-        console.debug(f"Render ID: {run_state.render_id}")  # Ensure render ID is logged to the console
+        console.info(f"Render ID: {run_state.render_id}")
         render(args, run_state, event_bus)
     except InvalidFridArgument as e:
         exc_info = sys.exc_info()
