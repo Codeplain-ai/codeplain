@@ -37,13 +37,12 @@ from plain2code_exceptions import (
     PlainSyntaxError,
 )
 from plain2code_logger import (
+    LOGGER_NAME,
     CrashLogHandler,
     IndentedFormatter,
-    RetryOnlyFilter,
     TuiLoggingHandler,
     dump_crash_logs,
     get_log_file_path,
-    LOGGER_NAME,
 )
 from plain2code_state import RunState
 from plain2code_utils import print_dry_run_output
