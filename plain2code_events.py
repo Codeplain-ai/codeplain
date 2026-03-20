@@ -40,7 +40,7 @@ class RenderFailed(BaseEvent):
 
 @dataclass
 class LogMessageEmitted(BaseEvent):
-    logger_name: str  # e.g., "services.langsmith.langsmith_service", "root"
+    logger_name: str  # e.g., "codeplain"
     level: str  # e.g., "INFO", "DEBUG", "ERROR"
     message: str  # The actual log message
     timestamp: str  # Formatted timestamp

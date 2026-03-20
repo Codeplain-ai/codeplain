@@ -488,7 +488,7 @@ class StructuredLogView(VerticalScroll):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.min_level = "DEBUG"  # Show all by default
+        self.min_level = "INFO"  # By default, show INFO and above
 
     def _should_show_log(self, level: str) -> bool:
         """Check if log should be shown based on minimum level."""
