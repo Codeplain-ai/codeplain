@@ -116,7 +116,6 @@ def setup_logging(
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger(LOGGER_NAME).setLevel(logging.INFO)
     logging.getLogger("git").setLevel(logging.WARNING)
-    logging.getLogger("repositories").setLevel(logging.WARNING)
     logging.getLogger("transitions").setLevel(logging.ERROR)
     logging.getLogger("transitions.extensions.diagrams").setLevel(logging.ERROR)
 
