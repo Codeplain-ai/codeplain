@@ -18,6 +18,8 @@ CONFORMANCE_TESTS_SCRIPT_NAME = "conformance_tests_script"
 DEFAULT_LOG_FILE_NAME = "codeplain.log"
 PREPARE_ENVIRONMENT_SCRIPT_NAME = "prepare_environment_script"
 
+FOLDER_ARGS = ["build_folder", "conformance_tests_folder", "build_dest", "conformance_tests_dest", "base_folder"]
+
 
 def process_test_script_path(script_arg_name, config):
     """Resolve script paths in config."""
@@ -116,6 +118,22 @@ def resolve_config_file(config_name: str, plain_file_path: str):
     if in_cwd:
         return cwd_config
     return None
+
+
+def resolve_output_paths(args):
+    """Resolve relative output folder paths to be relative to the plain file directory.
+
+    All relative paths (whether from command line, config file, or defaults) are anchored
+    to the directory of the plain file being rendered, not the current working directory.
+    """
+    plain_file_dir = os.path.dirname(os.path.abspath(args.filename))
+
+    for arg_name in FOLDER_ARGS:
+        value = getattr(args, arg_name, None)
+        if value and not os.path.isabs(value):
+            setattr(args, arg_name, os.path.normpath(os.path.join(plain_file_dir, value)))
+
+    return args
 
 
 def update_args_with_config(args, parser):
@@ -349,6 +367,7 @@ def parse_arguments():
 
     args = parser.parse_args()
     args = update_args_with_config(args, parser)
+    args = resolve_output_paths(args)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
