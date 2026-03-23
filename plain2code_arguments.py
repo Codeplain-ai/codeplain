@@ -160,9 +160,16 @@ def update_args_with_config(args, parser):
     return args
 
 
-def create_parser():
+def create_parser(color: bool = False):
     """Create the argument parser without parsing arguments."""
-    parser = argparse.ArgumentParser(description="Render plain code to target code.")
+    parser_kwargs: dict[str, Any] = {
+        "description": "Render plain code to target code.",
+    }
+
+    if sys.version_info >= (3, 13):
+        parser_kwargs["color"] = color
+
+    parser = argparse.ArgumentParser(**parser_kwargs)
 
     parser.add_argument(
         "filename",
