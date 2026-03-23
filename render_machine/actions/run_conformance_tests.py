@@ -44,6 +44,7 @@ class RunConformanceTests(BaseAction):
             render_context.verbose,
             "Conformance Tests",
             frid=render_context.conformance_tests_running_context.current_testing_frid,
+            module=render_context.conformance_tests_running_context.current_testing_module_name,
             timeout=render_context.test_script_timeout,
             stop_event=render_context.stop_event,
         )

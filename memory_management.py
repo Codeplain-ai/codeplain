@@ -21,7 +21,7 @@ class MemoryManager:
             return [], {}
         memory_files = file_utils.list_all_text_files(memory_path)
         memory_files_content = file_utils.get_existing_files_content(memory_path, memory_files)
-        console.info(f"Loaded {len(memory_files_content)} memory files.")
+        console.debug(f"Loaded {len(memory_files_content)} memory files.")
         return memory_files, memory_files_content
 
     def __init__(self, codeplain_api, module_build_folder: str):

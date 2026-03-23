@@ -123,11 +123,11 @@ class Plain2CodeConsole(Console):
             self.debug("Linked resources: None")
             return
 
-        self.input("Linked resources:")
+        self.debug("Linked resources:")
         for resource_name in resources_list:
             if resource_name["target"] in linked_resources:
                 file_tokens = self._count_tokens(linked_resources[resource_name["target"]])
-                self.input(
+                self.debug(
                     f"- {resource_name['text']} [#4169E1]({resource_name['target']}, {file_tokens} tokens)[/#4169E1]"
                 )
 

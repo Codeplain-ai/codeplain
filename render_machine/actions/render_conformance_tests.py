@@ -55,7 +55,7 @@ class RenderConformanceTests(BaseAction):
             )
 
             if render_context.verbose:
-                console.info(f"Storing conformance test files in subfolder {conformance_tests_folder_name}/")
+                console.debug(f"Storing conformance test files in subfolder {conformance_tests_folder_name}/")
 
             render_context.conformance_tests_running_context.get_conformance_tests_json(
                 render_context.conformance_tests_running_context.current_testing_module_name

@@ -67,8 +67,8 @@ class CodeplainAPI:
         connection_error_type = "Network error" if is_connection_error else "Error"
         if attempt < num_retries:
             if not silent:
-                self.console.info(f"{connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}")
-                self.console.info(f"Retrying in {retry_delay} seconds...")
+                self.console.debug(f"{connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}")
+                self.console.debug(f"Retrying in {retry_delay} seconds...")
             time.sleep(retry_delay)
             # Exponential backoff
             return retry_delay * 2
@@ -117,7 +117,7 @@ class CodeplainAPI:
                 try:
                     response_json = response.json()
                 except requests.exceptions.JSONDecodeError as e:
-                    print(f"Failed to decode JSON response: {e}. Response text: {response.text}")
+                    self.console.debug(f"Failed to decode JSON response: {e}. Response text: {response.text}")
                     raise
 
                 if response.status_code == requests.codes.bad_request and "error_code" in response_json:

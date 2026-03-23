@@ -23,7 +23,7 @@ def print_dry_run_output(plain_source_tree: dict, render_range: Optional[list[st
             functional_requirement_text = specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]
             console.info(
                 "-------------------------------------\n"
-                f"Rendering functionality {frid}\n"
+                f"Rendering functionality {frid}:\n"
                 f"{functional_requirement_text}\n"
                 "-------------------------------------\n"
             )

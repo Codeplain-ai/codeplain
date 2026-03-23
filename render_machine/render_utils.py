@@ -76,6 +76,7 @@ def execute_script(  # noqa: C901
     verbose: bool,
     script_type: str,
     frid: Optional[str] = None,
+    module: Optional[str] = None,
     timeout: Optional[int] = None,
     stop_event: Optional[threading.Event] = None,
 ) -> tuple[int, str, Optional[str]]:
@@ -139,22 +140,24 @@ def execute_script(  # noqa: C901
                     temp_file.write(f"{script_type} script {script} successfully passed.\n")
                 temp_file.write(f"{script_type} script execution time: {elapsed_time:.2f} seconds.\n")
 
-            console.info(f"[#888888]{script_type} script output stored in: {temp_file_path.strip()}[/#888888]")
+            console.debug(f"[#888888]{script_type} script output stored in: {temp_file_path.strip()}[/#888888]")
 
             if proc.returncode != 0:
                 if frid is not None:
-                    console.info(
-                        f"The {script_type} script for ID {frid} has failed. Initiating the patching mode to automatically correct the discrepancies."
+                    console.debug(
+                        f"The {script_type} script for functionality ID {frid} of module {module} has failed. Initiating the patching mode to automatically correct the discrepancies."
                     )
                 else:
-                    console.info(
+                    console.debug(
                         f"The {script_type} script has failed. Initiating the patching mode to automatically correct the discrepancies."
                     )
             else:
                 if frid is not None:
-                    console.info(f"[#79FC96]The {script_type} script for ID {frid} has passed successfully.[/#79FC96]")
+                    console.info(
+                        f"[#79FC96]The {script_type} script for functionality ID {frid} of module {module} has passed successfully.[/#79FC96]"
+                    )
                 else:
-                    console.info(f"[#79FC96]All {script_type} script passed successfully.[/#79FC96]")
+                    console.info(f"[#79FC96]All {script_type} scripts have passed successfully.[/#79FC96]")
 
         return proc.returncode, stdout, temp_file_path
 

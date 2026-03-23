@@ -221,6 +221,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     def run_render():
         try:
             module_renderer.render_module()
+            console.info(f"[#79FC96]Render {run_state.render_id} completed successfully.[/#79FC96]")
         except RenderCancelledError:
             pass  # TUI already closed, nothing to report
         except Exception as e:
@@ -228,7 +229,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             event_bus.publish(RenderFailed(error_message=str(e)))
 
     if args.headless:
-        print(f"Render started. Render ID: {run_state.render_id}")
+        console.info(f"Render started. Render ID: {run_state.render_id}")
         try:
             module_renderer.render_module()
         except RenderCancelledError:
