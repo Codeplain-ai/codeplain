@@ -52,7 +52,7 @@ from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
-RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.3
+RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 
 
 def get_render_range(render_range, plain_source):
