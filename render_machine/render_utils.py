@@ -15,6 +15,9 @@ from plain2code_exceptions import RenderCancelledError
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
+POLL_INTERVAL_SECONDS = 0.2
+SIGTERM_GRACE_PERIOD_SECONDS = 0.2
+STDOUT_READ_TIMEOUT_SECONDS = 5
 
 
 def revert_changes_for_frid(render_context):
@@ -56,9 +59,15 @@ def _kill_process(proc: subprocess.Popen) -> None:
     else:
         proc.terminate()
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=SIGTERM_GRACE_PERIOD_SECONDS)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        if sys.platform != "win32":
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except OSError:
+                proc.kill()
+        else:
+            proc.kill()
 
 
 def execute_script(  # noqa: C901
@@ -100,14 +109,19 @@ def execute_script(  # noqa: C901
                 exc.stdout = partial_stdout
                 raise exc
             if stop_event is not None:
-                stop_event.wait(timeout=0.2)
+                stop_event.wait(timeout=POLL_INTERVAL_SECONDS)
                 if stop_event.is_set():
                     _kill_process(proc)
                     raise RenderCancelledError()
             else:
-                time.sleep(0.2)
+                time.sleep(POLL_INTERVAL_SECONDS)
 
-        stdout = proc.stdout.read()
+        # Use communicate() with a timeout because child processes may hold the pipe open after the main process exits.
+        try:
+            stdout, _ = proc.communicate(timeout=STDOUT_READ_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.stdout.close()
+            stdout = ""
         elapsed_time = time.time() - start_time
 
         # Log the info about the script execution
