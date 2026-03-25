@@ -9,7 +9,7 @@ if [ -z "$1" ]; then
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
-GO_BUILD_SUBFOLDER=go_$1
+GO_BUILD_SUBFOLDER=$(dirname "$1")/go_$(basename "$1")
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing Go build subfolder: $GO_BUILD_SUBFOLDER\n"
@@ -31,7 +31,7 @@ else
   mkdir -p $GO_BUILD_SUBFOLDER
 fi
 
-cp -R $1/* $GO_BUILD_SUBFOLDER
+cp -R "$1"/* $GO_BUILD_SUBFOLDER
 
 # Move to the subfolder
 cd "$GO_BUILD_SUBFOLDER" 2>/dev/null

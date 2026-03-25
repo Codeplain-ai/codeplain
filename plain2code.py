@@ -257,6 +257,12 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
 def main():  # noqa: C901
     args = parse_arguments()
 
+    # Anchor all relative paths to the plain file's directory.
+    # Resolve filename to absolute first (it may be relative to the original CWD),
+    # then change CWD so that all subsequent relative paths (build_folder, etc.) resolve correctly.
+    args.filename = os.path.abspath(args.filename)
+    os.chdir(os.path.dirname(args.filename))
+
     # Handle early-exit flags before heavy initialization
     if args.dry_run or args.full_plain:
         template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
