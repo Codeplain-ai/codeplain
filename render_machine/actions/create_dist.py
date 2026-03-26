@@ -21,6 +21,6 @@ class CreateDist(BaseAction):
                 render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
                 render_context.conformance_tests_dest,
             )
-        console.info(f"[#79FC96]Render {render_context.run_state.render_id} completed successfully.[/#79FC96]")
+        console.info(f"[#79FC96]Render of module {render_context.module_name} completed successfully.[/#79FC96]")
 
         return self.SUCCESSFUL_OUTCOME, None

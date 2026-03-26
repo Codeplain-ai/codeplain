@@ -42,7 +42,7 @@ class ConformanceTests:
         """Dump the conformance tests definition to the file."""
         if os.path.exists(self.get_module_conformance_tests_folder(module_name)):
             if self.verbose:
-                console.info(
+                console.debug(
                     f"Storing conformance tests definition to {self._get_full_conformance_tests_definition_file_name(module_name)}"
                 )
             with open(self._get_full_conformance_tests_definition_file_name(module_name), "w") as f:
@@ -108,7 +108,7 @@ class ConformanceTests:
         existing_conformance_test_files: list[str],
     ):
         if module_name != current_testing_module_name:
-            console.info(
+            console.debug(
                 f"Storing conformance tests files for module '{current_testing_module_name}' inside module '{module_name}'"
             )
 
@@ -122,7 +122,7 @@ class ConformanceTests:
             )
 
             if source_conformance_test_folder_name != module_name:
-                console.info(
+                console.debug(
                     f"Creating folder {new_conformance_test_folder_name} for a copy of conformance tests {source_conformance_test_folder_name}"
                 )
 

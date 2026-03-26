@@ -50,7 +50,5 @@ class AnalyzeSpecificationAmbiguity(BaseAction):
             )
             console.info(rendering_analysis["guidance"])
         else:
-            console.warning(
-                f"No specification ambiguity detected for functionality {render_context.frid_context.frid}."
-            )
+            console.debug(f"No specification ambiguity detected for functionality {render_context.frid_context.frid}.")
         return self.SUCCESSFUL_OUTCOME, None

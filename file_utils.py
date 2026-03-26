@@ -7,6 +7,7 @@ from liquid2 import Environment, FileSystemLoader, StrictUndefined
 from liquid2.exceptions import UndefinedError
 
 import plain_spec
+from plain2code_console import console
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
 from plain_modules import CODEPLAIN_MEMORY_SUBFOLDER, CODEPLAIN_METADATA_FOLDER
 
@@ -79,7 +80,7 @@ def list_all_text_files(directory):
                     with open(os.path.join(root, filename), "rb") as f:
                         f.read().decode("utf-8")
                 except UnicodeDecodeError:
-                    print(f"WARNING! Not listing {filename} in {root}. File is not a text file. Skipping it.")
+                    console.debug(f"WARNING! Not listing {filename} in {root}. File is not a text file. Skipping it.")
                     continue
 
                 all_files.append(os.path.join(modified_root, filename))
@@ -178,7 +179,7 @@ def get_existing_files_content(build_folder, existing_files):
             try:
                 existing_files_content[file_name] = content.decode("utf-8")
             except UnicodeDecodeError:
-                print(f"WARNING! Error loading {file_name}. File is not a text file. Skipping it.")
+                console.debug(f"WARNING! Error loading {file_name}. File is not a text file. Skipping it.")
 
     return existing_files_content
 
@@ -193,7 +194,7 @@ def store_response_files(target_folder, response_files, existing_files):
                 os.remove(full_file_name)
                 existing_files.remove(file_name)
             else:
-                print(f"WARNING! Cannot delete file! File {full_file_name} does not exist.")
+                console.debug(f"WARNING! Cannot delete file! File {full_file_name} does not exist.")
 
             continue
 
@@ -219,7 +220,9 @@ def open_from(dirs, file_name):
             try:
                 content_text = content.decode("utf-8")
             except UnicodeDecodeError:
-                print(f"WARNING! Error loading {file_name} ({file_name}). File is not a text file. Skipping it.")
+                console.debug(
+                    f"WARNING! Error loading {file_name} ({file_name}). File is not a text file. Skipping it."
+                )
             return content_text
 
     return None

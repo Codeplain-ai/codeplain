@@ -203,7 +203,7 @@ class ModuleRenderer:
         required_modules = []
         has_any_required_module_changed = False
         if not self.args.render_machine_graph and required_modules_list:
-            console.info(f"Analyzing required modules of module {module_name}...")
+            console.debug(f"Analyzing required modules of module {module_name}...")
             for required_module_name in required_modules_list:
                 required_module_filename = required_module_name + plain_file.PLAIN_SOURCE_FILE_EXTENSION
                 has_module_changed, sub_required_modules, rendering_failed = self._render_module(

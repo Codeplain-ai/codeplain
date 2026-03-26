@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+from typing import Any
 
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
@@ -160,9 +162,16 @@ def update_args_with_config(args, parser):
     return args
 
 
-def create_parser():
+def create_parser(color: bool = False):
     """Create the argument parser without parsing arguments."""
-    parser = argparse.ArgumentParser(description="Render plain code to target code.")
+    parser_kwargs: dict[str, Any] = {
+        "description": "Render plain code to target code.",
+    }
+
+    if sys.version_info >= (3, 13):
+        parser_kwargs["color"] = color
+
+    parser = argparse.ArgumentParser(**parser_kwargs)
 
     parser.add_argument(
         "filename",
@@ -205,14 +214,14 @@ def create_parser():
         "--render-range",
         type=frid_range_string,
         help="Specify a range of functionalities to render (e.g. `1` , `2`, `3`). "
-        "Use comma to separate start and end IDs. If only one ID is provided, only that functionality is rendered. "
+        "Use comma to separate start and end IDs. If only one functionality ID is provided, only that functionality is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
     render_range_group.add_argument(
         "--render-from",
         type=frid_string,
         help="Continue generation starting from this specific functionality (e.g. `2`). "
-        "The requirement with this ID will be included in the output. The ID must match one of the functionalities in your plain file.",
+        "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
 
     parser.add_argument(

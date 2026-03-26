@@ -17,7 +17,7 @@ class RefactorCode(BaseAction):
         )
 
         if render_context.verbose:
-            console.info(f"Refactoring iteration {render_context.frid_context.refactoring_iteration}.")
+            console.debug(f"Refactoring iteration {render_context.frid_context.refactoring_iteration}.")
 
         if render_context.verbose:
             console.print_files(
@@ -38,7 +38,7 @@ class RefactorCode(BaseAction):
 
         if len(response_files) == 0:
             if render_context.verbose:
-                console.info("No files refactored.")
+                console.debug("No files refactored.")
             return self.NO_FILES_REFACTORED_OUTCOME, None
 
         file_utils.store_response_files(render_context.build_folder, response_files, existing_files)

@@ -20,7 +20,7 @@ class FixUnitTests(BaseAction):
         previous_unittests_issue = previous_action_payload["previous_unittests_issue"]
 
         if previous_unittests_issue and len(previous_unittests_issue) > MAX_ISSUE_LENGTH:
-            console.warning(
+            console.debug(
                 f"Unit tests issue text is too long and will be smartly truncated to {MAX_ISSUE_LENGTH} characters."
             )
 
