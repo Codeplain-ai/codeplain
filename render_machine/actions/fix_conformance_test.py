@@ -116,8 +116,10 @@ class FixConformanceTest(BaseAction):
 
         if issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS:
             render_context.conformance_tests_running_context.conflicting_requirement_count += 1
+            render_context.conformance_tests_running_context.conflicting_module_name = current_testing_module_name
+            render_context.conformance_tests_running_context.conflicting_frid = current_testing_frid
             console.info(
-                f"Conflicting requirements detected. Conflicting requirement count: {render_context.conformance_tests_running_context.conflicting_requirement_count}"
+                f"Potential conflicting functionalities detected while fixing conformance tests for functionality {current_testing_frid} in module {current_testing_module_name}."
             )
 
         if (
