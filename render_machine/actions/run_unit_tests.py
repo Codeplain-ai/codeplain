@@ -34,6 +34,7 @@ class RunUnitTests(BaseAction):
             return self.SUCCESSFUL_OUTCOME, None
 
         elif exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
+            console.error(unittests_issue)
             return (
                 self.UNRECOVERABLE_ERROR_OUTCOME,
                 RenderError.encode(
