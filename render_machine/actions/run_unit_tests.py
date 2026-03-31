@@ -34,7 +34,6 @@ class RunUnitTests(BaseAction):
             return self.SUCCESSFUL_OUTCOME, None
 
         elif exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
-            console.error(unittests_issue)
             return (
                 self.UNRECOVERABLE_ERROR_OUTCOME,
                 RenderError.encode(
@@ -42,6 +41,7 @@ class RunUnitTests(BaseAction):
                     error_type="ENVIRONMENT_ERROR",
                     exit_code=exit_code,
                     script=render_context.unittests_script,
+                    issue=unittests_issue,
                 ).to_payload(),
             )
         else:

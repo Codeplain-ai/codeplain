@@ -1,4 +1,5 @@
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -124,6 +125,10 @@ def execute_script(  # noqa: C901
             proc.stdout.close()
             stdout = ""
         elapsed_time = time.time() - start_time
+
+        erase_display_pattern = re.compile(r"(?:\033\[[^a-zA-Z]*[a-zA-Z])*\033\[2J(?:\033\[[^a-zA-Z]*[a-zA-Z])*")
+        parts = erase_display_pattern.split(stdout)
+        stdout = parts[-1] if len(parts) > 1 else stdout
 
         # Log the info about the script execution
         if verbose:
