@@ -39,7 +39,6 @@ class RunUnitTests(BaseAction):
                 RenderError.encode(
                     message="Unit tests script failed due to problems in the environment setup. Please check your environment or update the script for running unittests.",
                     error_type="ENVIRONMENT_ERROR",
-                    exit_code=exit_code,
                     script=render_context.unittests_script,
                     issue=unittests_issue,
                 ).to_payload(),

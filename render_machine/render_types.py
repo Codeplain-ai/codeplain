@@ -133,7 +133,11 @@ class RenderError:
         if self.details:
             lines.append("\nDetails:")
             for detail_name, detail_value in self.details.items():
-                lines.append(f"  {detail_name}: {detail_value}")
+                if detail_name == "issue":
+                    detail_value_indented = "\n".join("  " + line for line in detail_value.splitlines())
+                    lines.append(detail_value_indented)
+                else:
+                    lines.append(f"  {detail_name.capitalize()}: {detail_value}")
 
         return "\n".join(lines)
 
