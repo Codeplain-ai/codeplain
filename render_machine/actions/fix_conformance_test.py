@@ -15,6 +15,10 @@ class FixConformanceTest(BaseAction):
     IMPLEMENTATION_CODE_NOT_UPDATED = "implementation_code_not_updated"
     IMPLEMENTATION_CODE_UPDATED = "implementation_code_updated"
 
+    ISSUE_REASON_CODE_CONFORMANCE_TESTS = 0
+    ISSUE_REASON_CODE_IMPLEMENTATION_CODE = 1
+    ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS = 2
+
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         console.info(
             f"Fixing conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
@@ -53,6 +57,15 @@ class FixConformanceTest(BaseAction):
             render_context.build_folder, render_context.plain_source_tree, render_context.frid_context.frid
         )
 
+        conflicting_module_name = render_context.conformance_tests_running_context.conflicting_module_name
+        conflicting_frid = render_context.conformance_tests_running_context.conflicting_frid
+        current_testing_module_name = render_context.conformance_tests_running_context.current_testing_module_name
+        current_testing_frid = render_context.conformance_tests_running_context.current_testing_frid
+
+        # Reset the conflicting requirement count if the current testing functionality is not the same as the previously conflicting functionality
+        if conflicting_module_name != current_testing_module_name or conflicting_frid != current_testing_frid:
+            render_context.conformance_tests_running_context.conflicting_requirement_count = 0
+
         if render_context.verbose:
             tmp_resources_list = []
             plain_spec.collect_linked_resources(
@@ -79,7 +92,7 @@ class FixConformanceTest(BaseAction):
             )
 
         with console.status(console_message):
-            [conformance_tests_fixed, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
+            [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
                 render_context.frid_context.frid,
                 render_context.conformance_tests_running_context.current_testing_frid,
                 render_context.plain_source_tree,
@@ -96,11 +109,21 @@ class FixConformanceTest(BaseAction):
                 render_context.conformance_tests_running_context.fix_attempts,
                 render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
                 render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
+                render_context.conformance_tests_running_context.conflicting_requirement_count,
                 run_state=render_context.run_state,
             )
         code_diff_files_content = {}
 
-        if conformance_tests_fixed:
+        if issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS:
+            render_context.conformance_tests_running_context.conflicting_requirement_count += 1
+            console.info(
+                f"Conflicting requirements detected. Conflicting requirement count: {render_context.conformance_tests_running_context.conflicting_requirement_count}"
+            )
+
+        if (
+            issue_reason_code == self.ISSUE_REASON_CODE_CONFORMANCE_TESTS
+            or issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS
+        ):
             render_context.conformance_tests.store_conformance_tests_files(
                 render_context.module_name,
                 render_context.required_modules,
