@@ -1,3 +1,4 @@
+import fcntl
 import os
 import signal
 import subprocess
@@ -18,6 +19,8 @@ TIMEOUT_ERROR_EXIT_CODE = 124
 POLL_INTERVAL_SECONDS = 0.2
 SIGTERM_GRACE_PERIOD_SECONDS = 0.2
 STDOUT_READ_TIMEOUT_SECONDS = 5
+F_SETPIPE_SIZE = 1031  # Linux-only constant
+PIPE_SIZE_KB = 1024  # 1MB
 
 
 def revert_changes_for_frid(render_context):
@@ -100,6 +103,10 @@ def execute_script(  # noqa: C901
         errors="replace",
         start_new_session=(sys.platform != "win32"),
     )
+
+    if sys.platform == "linux":
+        # Set the pipe size to 1MB to avoid buffer overflows
+        fcntl.fcntl(proc.stdout.fileno(), F_SETPIPE_SIZE, PIPE_SIZE_KB * 1024)  # 1MB
 
     try:
         while proc.poll() is None:
