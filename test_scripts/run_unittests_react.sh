@@ -45,6 +45,7 @@ cp -R $1/* $NODE_SUBFOLDER
 cd "$NODE_SUBFOLDER" 2>/dev/null
 
 if [ $? -ne 0 ]; then
+  clear
   echo "Error: Subfolder '$1' does not exist."
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi

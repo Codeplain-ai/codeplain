@@ -37,6 +37,7 @@ cp -R $1/* $GO_BUILD_SUBFOLDER
 cd "$GO_BUILD_SUBFOLDER" 2>/dev/null
 
 if [ $? -ne 0 ]; then
+  clear
   printf "Error: Go build folder '$GO_BUILD_SUBFOLDER' does not exist.\n"
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
