@@ -54,6 +54,7 @@ class RenderContext:
         event_bus: EventBus,
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
+        enter_pause_event: Optional[threading.Event] = None,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -77,6 +78,7 @@ class RenderContext:
         self.run_state = run_state
         self.event_bus = event_bus
         self.stop_event = stop_event
+        self.enter_pause_event = enter_pause_event
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout

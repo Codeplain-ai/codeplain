@@ -30,6 +30,7 @@ class ModuleRenderer:
         run_state: RunState,
         event_bus: EventBus,
         stop_event: threading.Event | None = None,
+        enter_pause_event: threading.Event | None = None,
     ):
         self.codeplainAPI = codeplainAPI
         self.filename = filename
@@ -39,6 +40,7 @@ class ModuleRenderer:
         self.run_state = run_state
         self.event_bus = event_bus
         self.stop_event = stop_event
+        self.enter_pause_event = enter_pause_event
 
     def _ensure_module_folders_exist(self, module_name: str, first_render_frid: str) -> tuple[str, str]:
         """
@@ -181,6 +183,7 @@ class ModuleRenderer:
             event_bus=self.event_bus,
             test_script_timeout=self.args.test_script_timeout,
             stop_event=self.stop_event,
+            enter_pause_event=self.enter_pause_event,
         )
 
     def _render_module(

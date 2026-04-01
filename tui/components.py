@@ -1,9 +1,9 @@
-import time
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
+from textual.timer import Timer
 from textual.widgets import Button, Static
 
 from .models import Substate
@@ -13,7 +13,10 @@ from .spinner import Spinner
 class CustomFooter(Horizontal):
     """A custom footer with keyboard shortcuts and render ID."""
 
-    FOOTER_TEXT = "ctrl+c: copy  *  ctrl+d: quit  *  ctrl+l: toggle logs"
+    FOOTER_BASE_TEXT = "ctrl+c: copy  *  ctrl+d: quit  *  ctrl+l: toggle logs"
+    FOOTER_RENDERING_TEXT = FOOTER_BASE_TEXT + "  *  ctrl+p: pause"
+    RENDER_PAUSING_TEXT = FOOTER_BASE_TEXT + "  *  pausing ..."
+    RENDER_PAUSED_TEXT = FOOTER_BASE_TEXT + "  *  ctrl+p: resume"
     RENDER_FINISHED_TEXT = "enter: exit  *  ctrl+c: copy  *  ctrl+l: toggle logs"
 
     def __init__(self, render_id: str = "", **kwargs):
@@ -21,15 +24,28 @@ class CustomFooter(Horizontal):
         self.render_id = render_id
 
     def compose(self):
-        self._footer_text_widget = Static(self.FOOTER_TEXT, classes="custom-footer-text")
+        self._footer_text_widget = Static(self.FOOTER_RENDERING_TEXT, classes="custom-footer-text")
         yield self._footer_text_widget
         if self.render_id:
             yield Static(f"render id: {self.render_id} ", classes="custom-footer-render-id")
 
-    def show_render_finished(self) -> None:
-        """Update footer text to show render-finished keybindings."""
+    def update_footer_state(self, state: Literal["rendering", "pausing", "paused", "finished"]) -> None:
+        self.remove_class("footer-state-default")
+        self.remove_class("footer-state-paused")
+
         if self._footer_text_widget is not None:
-            self._footer_text_widget.update(self.RENDER_FINISHED_TEXT)
+            if state == "rendering":
+                self._footer_text_widget.update(self.FOOTER_RENDERING_TEXT)
+                self.add_class("footer-state-default")
+            elif state == "pausing":
+                self._footer_text_widget.update(self.RENDER_PAUSING_TEXT)
+                self.add_class("footer-state-paused")
+            elif state == "paused":
+                self._footer_text_widget.update(self.RENDER_PAUSED_TEXT)
+                self.add_class("footer-state-paused")
+            elif state == "finished":
+                self._footer_text_widget.update(self.RENDER_FINISHED_TEXT)
+                self.add_class("footer-state-default")
 
 
 class ScriptOutputType(str, Enum):
@@ -90,12 +106,14 @@ class TUIComponents(str, Enum):
 class SubstateLine(Horizontal):
     """A single substate row with an attached timer."""
 
-    def __init__(self, text: str, indent: str, **kwargs):
+    def __init__(self, text: str, indent: str, progress_status: str, **kwargs):
         super().__init__(**kwargs)
         self.text = text
         self.indent = indent
-        self.start_time = time.monotonic()
+        self._progress_status = progress_status
         self._line_widget: Static | None = None
+        self._timer: Timer | None = None
+        self._seconds_elapsed = 0
 
     def compose(self):
         self._line_widget = Static(self._format_line(), classes="substate-line-text")
@@ -103,10 +121,25 @@ class SubstateLine(Horizontal):
 
     def on_mount(self) -> None:
         self._refresh_timer()
-        self.set_interval(1, self._refresh_timer)
+        self._timer = self.set_interval(1, self._add_second)
+        if self._progress_status == ProgressItem.PAUSED:
+            self._timer.pause()
+
+    def set_progress_status(self, progress_status: str) -> None:
+        self._progress_status = progress_status
+        if self._timer is None:
+            return
+        if progress_status == ProgressItem.PAUSED:
+            self._timer.pause()
+        else:
+            self._timer.resume()
+
+    def _add_second(self) -> None:
+        self._seconds_elapsed += 1
+        self._refresh_timer()
 
     def _format_timer(self) -> str:
-        elapsed = int(time.monotonic() - self.start_time)
+        elapsed = int(self._seconds_elapsed)
         if elapsed < 60:
             return f"{elapsed}s"
         minutes = elapsed // 60
@@ -135,10 +168,13 @@ class ProgressItem(Vertical):
     PROCESSING = "PROCESSING"
     COMPLETED = "COMPLETED"
     STOPPED = "STOPPED"
+    PAUSED = "PAUSED"
+    PAUSING = "PAUSING"
 
     def __init__(self, initial_text: str, **kwargs):
         super().__init__(**kwargs)
         self.initial_text = initial_text
+        self.current_status = self.PENDING
 
     def compose(self):
         # Main row with status and description
@@ -156,11 +192,16 @@ class ProgressItem(Vertical):
             return "◉ processing"
         elif status == self.STOPPED:
             return "◼ stopped"
+        elif status == self.PAUSING:
+            return "◉ pausing"
+        elif status == self.PAUSED:
+            return "⏸ paused"
         else:
             return "○ pending"
 
     async def update_status(self, status: str):
         # TODO: Move to plain2code_tui.py
+        self.current_status = status
         try:
             # Get the main row container
             main_row = self.query_one(f"#{self.id}-main-row", Horizontal)
@@ -173,21 +214,20 @@ class ProgressItem(Vertical):
                 pass
 
             # Add appropriate widget based on status
-            if status == self.PROCESSING:
+            if status == self.PROCESSING or status == self.PAUSING:
                 # Use spinner for processing state
-                spinner = Spinner(text="processing", classes=f"status {status}")
+                spinner = Spinner(
+                    text="processing" if status == self.PROCESSING else "pausing", classes=f"status {status}"
+                )
                 await main_row.mount(spinner, before=0)
             else:
                 # Use static text for pending/completed
                 status_widget = Static(self._get_status_text(status), classes=f"status {status}")
                 await main_row.mount(status_widget, before=0)
 
-        except Exception:
-            pass
+            for line in self.query(SubstateLine):
+                line.set_progress_status(status)
 
-    def update_text(self, text: str):
-        try:
-            self.query_one(".description", Static).update(text)
         except Exception:
             pass
 
@@ -224,7 +264,7 @@ class ProgressItem(Vertical):
 
         for substate in substates:
             # Render the current substate
-            substate_widget = SubstateLine(substate.text, indent, classes="substate-row")
+            substate_widget = SubstateLine(substate.text, indent, self.current_status, classes="substate-row")
             await container.mount(substate_widget)
 
             # Recursively render children if they exist
@@ -373,13 +413,6 @@ class FRIDProgress(Vertical):
             # Update the rendering info box instead
             info_box = self.query_one(RenderingInfoBox)
             info_box.update_functionality(text)
-        except Exception:
-            pass
-
-    def update_fr_status(self, status: str) -> None:
-        try:
-            widget = self.query_one(f"#{TUIComponents.FRID_PROGRESS_RENDER_FR.value}", ProgressItem)
-            self.call_later(widget.update_status, status)
         except Exception:
             pass
 

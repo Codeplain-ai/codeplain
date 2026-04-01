@@ -13,7 +13,7 @@ from .widget_helpers import (
     display_error_message,
     display_success_message,
     get_frid_progress,
-    set_frid_progress_to_stopped,
+    transition_frid_progress,
     update_progress_item_status,
     update_progress_item_substates,
 )
@@ -331,7 +331,7 @@ class RenderErrorHandler:
         self.tui = tui
 
     def handle(self, error_message: str) -> None:
-        set_frid_progress_to_stopped(self.tui)
+        transition_frid_progress(self.tui, None, ProgressItem.STOPPED)
         display_error_message(self.tui, error_message)
 
 
