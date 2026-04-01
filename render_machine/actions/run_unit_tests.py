@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import render_machine.render_utils as render_utils
@@ -15,12 +16,14 @@ class RunUnitTests(BaseAction):
     UNRECOVERABLE_ERROR_OUTCOME = "unrecoverable_error_occurred"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        unittests_script = os.path.normpath(render_context.unittests_script)
+
         if render_context.verbose:
             console.info(
-                f"Running unit tests script {render_context.unittests_script}. (attempt: {render_context.unit_tests_running_context.fix_attempts + 1})"
+                f"Running unit tests script {unittests_script}. (attempt: {render_context.unit_tests_running_context.fix_attempts + 1})"
             )
         exit_code, unittests_issue, unittests_temp_file_path = render_utils.execute_script(
-            render_context.unittests_script,
+            unittests_script,
             [render_context.build_folder],
             render_context.verbose,
             "Unit Tests",
@@ -35,12 +38,13 @@ class RunUnitTests(BaseAction):
 
         elif exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
             console.error(unittests_issue)
+
             return (
                 self.UNRECOVERABLE_ERROR_OUTCOME,
                 RenderError.encode(
                     message="Unit tests script failed due to problems in the environment setup. Please check your environment or update the script for running unittests.",
                     error_type="ENVIRONMENT_ERROR",
-                    script=render_context.unittests_script,
+                    script=unittests_script,
                     issue=unittests_issue,
                 ).to_payload(),
             )
