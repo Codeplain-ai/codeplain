@@ -194,6 +194,12 @@ TestScriptsContainer {
   background: #c77777;
 }
 
+.status.PAUSED,
+.status.PAUSING {
+  color: #fff;
+  background: #0a1fd5;
+}
+
 .description {
   margin-left: 1;
 }
@@ -388,20 +394,32 @@ Footer {
 /* Custom Footer */
 CustomFooter {
   dock: bottom;
-  height: 2;
+  height: auto;
+  min-height: 1;
+  max-height: 2;
   background: transparent;
   padding: 0 1;
   align: left bottom;
 }
 
+CustomFooter.footer-state-default {
+  background: $background;
+  color: #888;
+}
+
+CustomFooter.footer-state-paused {
+  background: #0a1fd5;
+  color: #fff;
+}
+
 .custom-footer-text {
   width: 1fr;
-  color: #888;
+  background: transparent;
 }
 
 .custom-footer-render-id {
   width: auto;
-  color: #888;
+  background: transparent;
   text-align: right;
 }
 

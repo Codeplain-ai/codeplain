@@ -1,10 +1,13 @@
+import time
 from copy import deepcopy
 
 from transitions.extensions.diagrams import HierarchicalGraphMachine
 
-from plain2code_events import RenderModuleCompleted, RenderModuleStarted, RenderStateUpdated
+from plain2code_events import RenderModuleCompleted, RenderModuleStarted, RenderPaused, RenderStateUpdated
 from render_machine.render_context import RenderContext
 from render_machine.state_machine_config import StateMachineConfig, States
+
+PAUSE_POLL_INTERVAL_SECONDS = 1
 
 
 class CodeRenderer:
@@ -35,7 +38,14 @@ class CodeRenderer:
         self.render_context.event_bus.publish(RenderModuleStarted(module_name=self.render_context.module_name))
         previous_action_payload = None
         previous_state = None
+
         while True:
+            if self.render_context.enter_pause_event.is_set():
+                self.render_context.event_bus.publish(RenderPaused())
+
+                while self.render_context.enter_pause_event.is_set():
+                    time.sleep(PAUSE_POLL_INTERVAL_SECONDS)
+
             self.render_context.event_bus.publish(
                 RenderStateUpdated(
                     state=self.render_context.state,

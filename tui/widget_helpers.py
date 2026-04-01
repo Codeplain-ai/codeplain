@@ -111,17 +111,23 @@ def display_success_message(tui, rendered_code_path: str):
     widget.update(message)
 
 
-def set_frid_progress_to_stopped(tui):
-    progress_ids = [
-        TUIComponents.FRID_PROGRESS_RENDER_FR.value,
-        TUIComponents.FRID_PROGRESS_UNIT_TEST.value,
-        TUIComponents.FRID_PROGRESS_REFACTORING.value,
-        TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
-    ]
+FRID_PROGRESS_IDS = [
+    TUIComponents.FRID_PROGRESS_RENDER_FR.value,
+    TUIComponents.FRID_PROGRESS_UNIT_TEST.value,
+    TUIComponents.FRID_PROGRESS_REFACTORING.value,
+    TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
+]
 
-    for widget_id in progress_ids:
-        update_progress_item_status(tui, widget_id, ProgressItem.STOPPED)
-        clear_progress_item_substates(tui, widget_id)
+
+def transition_frid_progress(tui, from_status: str | None, to_status: str):
+    """Transition all FRID progress items matching from_status to to_status."""
+    for widget_id in FRID_PROGRESS_IDS:
+        try:
+            widget = tui.query_one(f"#{widget_id}", ProgressItem)
+            if widget.current_status == from_status or from_status is None:
+                update_progress_item_status(tui, widget_id, to_status)
+        except Exception:
+            pass
 
 
 def display_error_message(tui, error_message: str):

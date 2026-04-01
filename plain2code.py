@@ -203,6 +203,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     _check_connection(codeplainAPI)
 
     stop_event = threading.Event()
+    enter_pause_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
     module_renderer = ModuleRenderer(
@@ -214,6 +215,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         run_state,
         event_bus,
         stop_event=stop_event,
+        enter_pause_event=enter_pause_event,
     )
 
     render_error: list[Exception] = []
@@ -245,6 +247,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             conformance_tests_script=args.conformance_tests_script,
             prepare_environment_script=args.prepare_environment_script,
             state_machine_version=system_config.client_version,
+            enter_pause_event=enter_pause_event,
             css_path="styles.css",
         )
         app.run()

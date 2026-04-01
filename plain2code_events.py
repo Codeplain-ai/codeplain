@@ -61,3 +61,8 @@ class RenderModuleCompleted(BaseEvent):
 @dataclass
 class RenderModuleStarted(BaseEvent):
     module_name: str
+
+
+@dataclass
+class RenderPaused(BaseEvent):
+    pass

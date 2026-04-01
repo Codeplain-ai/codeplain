@@ -1,3 +1,4 @@
+import threading
 from typing import Callable, Optional
 
 from textual.app import App, ComposeResult
@@ -14,16 +15,18 @@ from plain2code_events import (
     RenderFailed,
     RenderModuleCompleted,
     RenderModuleStarted,
+    RenderPaused,
     RenderStateUpdated,
 )
 from render_machine.states import States
-from tui.widget_helpers import log_to_widget
+from tui.widget_helpers import log_to_widget, transition_frid_progress
 
 from .components import (
     CustomFooter,
     FRIDProgress,
     LogFilterChanged,
     LogLevelFilter,
+    ProgressItem,
     RenderingInfoBox,
     ScriptOutputType,
     StructuredLogView,
@@ -47,10 +50,13 @@ from .state_handlers import (
 class Plain2CodeTUI(App):
     """A Textual TUI for plain2code."""
 
+    ENABLE_COMMAND_PALETTE = False
+
     BINDINGS = [
         Binding("ctrl+c", "copy_selection", "Copy", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("enter", "enter_exit", "Exit", show=False),
+        Binding("ctrl+p", "pause", "Pause", show=False, priority=True),
         ("ctrl+l", "toggle_logs", "Toggle Logs"),
     ]
 
@@ -63,6 +69,7 @@ class Plain2CodeTUI(App):
         conformance_tests_script: str,
         prepare_environment_script: str,
         state_machine_version: str,
+        enter_pause_event: threading.Event | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -74,6 +81,7 @@ class Plain2CodeTUI(App):
         self.conformance_tests_script: Optional[str] = conformance_tests_script
         self.prepare_environment_script: Optional[str] = prepare_environment_script
         self.state_machine_version = state_machine_version
+        self.enter_pause_event = enter_pause_event
         self._render_finished = False
 
         # Initialize state handlers
@@ -118,14 +126,13 @@ class Plain2CodeTUI(App):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
-        self.event_bus.register_dispatch_wrapper(self.call_from_thread)
-
         self.event_bus.subscribe(RenderStateUpdated, self.on_render_state_updated)
         self.event_bus.subscribe(RenderCompleted, self.on_render_completed)
         self.event_bus.subscribe(RenderFailed, self.on_render_failed)
         self.event_bus.subscribe(RenderModuleStarted, self.on_render_module_started)
         self.event_bus.subscribe(RenderModuleCompleted, self.on_render_module_completed)
         self.event_bus.subscribe(LogMessageEmitted, self.on_log_message_emitted)
+        self.event_bus.subscribe(RenderPaused, self.on_render_paused)
 
         self._on_ready()
 
@@ -238,13 +245,19 @@ class Plain2CodeTUI(App):
 
         self._state_completion_handler.handle(segments, snapshot, previous_state_segments)
 
+    def on_render_paused(self, event: RenderPaused):
+        footer = self.screen.query_one(CustomFooter)
+        footer.update_footer_state("paused")
+        transition_frid_progress(self, ProgressItem.PAUSING, ProgressItem.PAUSED)
+        pass
+
     def on_render_completed(self, event: RenderCompleted):
         """Handle successful render completion."""
         self._render_success_handler.handle(event.rendered_code_path)
         self._render_finished = True
         try:
             footer = self.screen.query_one(CustomFooter)
-            footer.show_render_finished()
+            footer.update_footer_state("finished")
         except NoMatches:
             pass
 
@@ -254,7 +267,7 @@ class Plain2CodeTUI(App):
         self._render_finished = True
         try:
             footer = self.screen.query_one(CustomFooter)
-            footer.show_render_finished()
+            footer.update_footer_state("finished")
         except NoMatches:
             pass
 
@@ -269,6 +282,21 @@ class Plain2CodeTUI(App):
             self.copy_to_clipboard(selected_text)
             self.screen.clear_selection()
             self.notify("Copied to clipboard", timeout=2)
+
+    def action_pause(self) -> None:
+        """Handle ctrl+p: request the render machine to pause."""
+        if not self._render_finished and self.enter_pause_event is not None:
+            if self.enter_pause_event.is_set():
+                transition_frid_progress(self, ProgressItem.PAUSED, ProgressItem.PROCESSING)
+                transition_frid_progress(self, ProgressItem.PAUSING, ProgressItem.PROCESSING)
+                footer = self.screen.query_one(CustomFooter)
+                footer.update_footer_state("rendering")
+                self.enter_pause_event.clear()
+            else:
+                transition_frid_progress(self, ProgressItem.PROCESSING, ProgressItem.PAUSING)
+                footer = self.screen.query_one(CustomFooter)
+                footer.update_footer_state("pausing")
+                self.enter_pause_event.set()
 
     def action_enter_exit(self) -> None:
         """Handle enter: exit the TUI only after rendering has finished."""
