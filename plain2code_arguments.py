@@ -346,6 +346,13 @@ def create_parser():
         "All logs are written to the log file.",
     )
 
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="Skip the re-render confirmation prompt and re-render all changed modules.",
+    )
+
     return parser
 
 

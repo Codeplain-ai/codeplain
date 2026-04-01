@@ -218,6 +218,12 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         enter_pause_event=enter_pause_event,
     )
 
+    # Collect render plan and prompt user before TUI starts (must run on main thread)
+    module_renderer.collect_render_plan()
+    if not args.headless and not getattr(args, "yes", False) and not args.force_render:
+        if module_renderer.prompt_user_if_needed():
+            return
+
     render_error: list[Exception] = []
 
     def run_render():
