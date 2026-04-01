@@ -71,6 +71,17 @@ def _kill_process(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
+def sanitize_script_output(script_output: str) -> str:
+    # this function removes the escape codes that clear the console
+    clear_console_escape_codes_pattern = r"(?:\033\[[^a-zA-Z]*[a-zA-Z])*\033\[2J(?:\033\[[^a-zA-Z]*[a-zA-Z])*"
+
+    pattern = re.compile(clear_console_escape_codes_pattern)
+    parts = pattern.split(script_output)
+
+    # take only the part after the last clear console escape code
+    return parts[-1] if len(parts) > 1 else script_output
+
+
 def execute_script(  # noqa: C901
     script: str,
     scripts_args: list[str],
@@ -126,9 +137,7 @@ def execute_script(  # noqa: C901
             stdout = ""
         elapsed_time = time.time() - start_time
 
-        erase_display_pattern = re.compile(r"(?:\033\[[^a-zA-Z]*[a-zA-Z])*\033\[2J(?:\033\[[^a-zA-Z]*[a-zA-Z])*")
-        parts = erase_display_pattern.split(stdout)
-        stdout = parts[-1] if len(parts) > 1 else stdout
+        sanitized_script_output = sanitize_script_output(stdout)
 
         # Log the info about the script execution
         if verbose:
@@ -136,7 +145,7 @@ def execute_script(  # noqa: C901
                 mode="w+", encoding="utf-8", delete=False, suffix=".script_output"
             ) as temp_file:
                 temp_file.write(f"\n═════════════════════════ {script_type} Script Output ═════════════════════════\n")
-                temp_file.write(stdout)
+                temp_file.write(sanitized_script_output)
                 temp_file.write("\n══════════════════════════════════════════════════════════════════════\n")
                 temp_file_path = temp_file.name
                 if proc.returncode != 0:
@@ -164,7 +173,7 @@ def execute_script(  # noqa: C901
                 else:
                     console.info(f"[#79FC96]All {script_type} scripts have passed successfully.[/#79FC96]")
 
-        return proc.returncode, stdout, temp_file_path
+        return proc.returncode, sanitized_script_output, temp_file_path
 
     except RenderCancelledError:
         raise
