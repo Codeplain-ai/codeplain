@@ -71,7 +71,7 @@ def _kill_process(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
-def sanitize_script_output(script_output: str) -> str:
+def _sanitize_script_output(script_output: str) -> str:
     # this function removes the escape codes that clear the console
     clear_console_escape_codes_pattern = r"(?:\033\[[^a-zA-Z]*[a-zA-Z])*\033\[2J(?:\033\[[^a-zA-Z]*[a-zA-Z])*"
 
@@ -137,7 +137,7 @@ def execute_script(  # noqa: C901
             stdout = ""
         elapsed_time = time.time() - start_time
 
-        sanitized_script_output = sanitize_script_output(stdout)
+        sanitized_script_output = _sanitize_script_output(stdout)
 
         # Log the info about the script execution
         if verbose:
