@@ -23,7 +23,6 @@ from plain2code_console import console
 from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
-    CreditBalanceTooLow,
     InternalClientError,
     InternalServerError,
     InvalidAPIKey,
@@ -37,6 +36,7 @@ from plain2code_exceptions import (
     OutdatedClientVersion,
     PlainSyntaxError,
     RenderCancelledError,
+    RenderingCreditBalanceTooLow,
 )
 from plain2code_logger import (
     LOGGER_NAME,
@@ -346,7 +346,7 @@ def main():  # noqa: C901
         exc_info = sys.exc_info()
         console.error(f"Conflicting requirements: {str(e)}\n")
         console.debug(f"Render ID: {run_state.render_id}")
-    except CreditBalanceTooLow as e:
+    except RenderingCreditBalanceTooLow as e:
         exc_info = sys.exc_info()
         console.error(f"Credit balance too low: {str(e)}\n")
         console.debug(f"Render ID: {run_state.render_id}")

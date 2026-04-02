@@ -9,7 +9,7 @@ class ConflictingRequirements(Exception):
     pass
 
 
-class CreditBalanceTooLow(Exception):
+class RenderingCreditBalanceTooLow(Exception):
     pass
 
 
