@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import render_machine.render_utils as render_utils
@@ -16,6 +17,8 @@ class RunConformanceTests(BaseAction):
     UNRECOVERABLE_ERROR_OUTCOME = "unrecoverable_error_occurred"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        conformance_tests_script = os.path.normpath(render_context.conformance_tests_script)
+
         if render_context.module_name == render_context.conformance_tests_running_context.current_testing_module_name:
             conformance_tests_folder_name = (
                 render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
@@ -32,14 +35,14 @@ class RunConformanceTests(BaseAction):
 
         if render_context.verbose:
             console.info(
-                f"Running conformance tests script {render_context.conformance_tests_script} "
+                f"Running conformance tests script {conformance_tests_script} "
                 + f"for {conformance_tests_folder_name} ("
                 + f"functionality {render_context.conformance_tests_running_context.current_testing_frid} "
                 + f"in module {render_context.conformance_tests_running_context.current_testing_module_name}"
                 + ")."
             )
         exit_code, conformance_tests_issue, conformance_tests_temp_file_path = render_utils.execute_script(
-            render_context.conformance_tests_script,
+            conformance_tests_script,
             [render_context.build_folder, conformance_tests_folder_name],
             render_context.verbose,
             "Conformance Tests",
@@ -72,9 +75,9 @@ class RunConformanceTests(BaseAction):
                 RenderError.encode(
                     message=conformance_tests_issue,
                     error_type="ENVIRONMENT_ERROR",
-                    exit_code=exit_code,
-                    script=render_context.conformance_tests_script,
+                    script=conformance_tests_script,
                     frid=render_context.conformance_tests_running_context.current_testing_frid,
+                    issue=conformance_tests_issue,
                 ).to_payload(),
             )
 

@@ -47,6 +47,7 @@ cp -R $1/* $PYTHON_BUILD_SUBFOLDER
 cd "$PYTHON_BUILD_SUBFOLDER" 2>/dev/null
 
 if [ $? -ne 0 ]; then
+  clear
   printf "Error: Python build folder '$PYTHON_BUILD_SUBFOLDER' does not exist.\n"
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
