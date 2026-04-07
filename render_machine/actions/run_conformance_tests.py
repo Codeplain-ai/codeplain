@@ -73,10 +73,9 @@ class RunConformanceTests(BaseAction):
             return (
                 self.UNRECOVERABLE_ERROR_OUTCOME,
                 RenderError.encode(
-                    message=conformance_tests_issue,
+                    message="Conformance tests script failed due to problems in the environment setup. Please check your environment or update the script for running conformance tests.",
                     error_type="ENVIRONMENT_ERROR",
                     script=conformance_tests_script,
-                    frid=render_context.conformance_tests_running_context.current_testing_frid,
                     issue=conformance_tests_issue,
                 ).to_payload(),
             )
