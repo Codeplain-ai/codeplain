@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 from typing import Any
 
 from plain2code_console import console
@@ -162,14 +161,11 @@ def update_args_with_config(args, parser):
     return args
 
 
-def create_parser(color: bool = False):
+def create_parser():
     """Create the argument parser without parsing arguments."""
     parser_kwargs: dict[str, Any] = {
         "description": "Render plain code to target code.",
     }
-
-    if sys.version_info >= (3, 13):
-        parser_kwargs["color"] = color
 
     parser = argparse.ArgumentParser(**parser_kwargs)
 

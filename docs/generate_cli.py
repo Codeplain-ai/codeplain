@@ -9,7 +9,7 @@ def main():
     from plain2code_arguments import create_parser
 
     # Get the parser and generate help text
-    parser = create_parser(color=False)  # Disable color for markdown output
+    parser = create_parser()  # Disable color for markdown output
     help_text = parser.format_help()
 
     # Create markdown
