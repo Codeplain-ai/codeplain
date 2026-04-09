@@ -201,8 +201,14 @@ def execute_script(  # noqa: C901
                 f"The {script_type} script timed out after {script_timeout} seconds. {script_type} script output stored in: {temp_file_path}"
             )
 
+        partial_output = ""
+        if e.stdout:
+            decoded = e.stdout.decode("utf-8") if isinstance(e.stdout, bytes) else e.stdout
+            sanitized = _sanitize_script_output(decoded)
+            if sanitized:
+                partial_output = f"\nPartial test script output:\n{sanitized}"
         return (
             TIMEOUT_ERROR_EXIT_CODE,
-            f"{script_type} script did not finish in {script_timeout} seconds.",
+            f"{script_type} script did not finish in {script_timeout} seconds.{partial_output}",
             temp_file_path,
         )
