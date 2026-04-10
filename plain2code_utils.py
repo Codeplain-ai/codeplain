@@ -1,7 +1,6 @@
-from typing import Optional
-
 import plain_spec
 
+from typing import Optional
 
 def format_duration_hms(total_seconds: int) -> str:
     """Format a duration in seconds as hours, minutes, and seconds (e.g. ``1h 2m 3.45s``, ``45.67s``)."""
