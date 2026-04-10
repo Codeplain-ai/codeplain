@@ -275,4 +275,5 @@ class ModuleRenderer:
                 last_module_name = self.filename.replace(plain_file.PLAIN_SOURCE_FILE_EXTENSION, "")
                 rendered_code_path = f"{os.path.join(self.args.build_folder, last_module_name)}/"
 
+            self.run_state.set_render_generated_code_path(rendered_code_path)
             self.event_bus.publish(RenderCompleted(rendered_code_path=rendered_code_path))

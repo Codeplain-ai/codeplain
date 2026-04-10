@@ -55,6 +55,20 @@ DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 
 
+def _print_post_tui_exit_summary(
+    run_state: RunState,
+    spec_filename: str,
+) -> None:
+    """Print render outcome after the TUI exits (terminal restored)."""
+    msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
+    msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
+    msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
+    msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or "—"}\n\n"
+    if run_state.render_succeeded:
+        msg += f"[#8E8F91]functionalities  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]used credits  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]render time  [#FFFFFF]12s\n"
+    console.info(msg)
+
+
 def get_render_range(render_range, plain_source):
     render_range = render_range.split(",")
     range_end = render_range[1] if len(render_range) == 2 else render_range[0]
@@ -186,8 +200,6 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
 def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
-    console.info(f"Rendering {args.filename} to target code.")
-
     # Compute render range from either --render-range or --render-from
     render_range = None
     if args.render_range or args.render_from:
@@ -219,14 +231,16 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     )
 
     render_error: list[Exception] = []
+    run_state.render_succeeded = False
 
     def run_render():
         try:
             module_renderer.render_module()
-            console.info(f"[#79FC96]Render {run_state.render_id} completed successfully.[/#79FC96]")
+            run_state.set_render_succeeded(True)
         except RenderCancelledError:
             pass  # TUI already closed, nothing to report
         except Exception as e:
+            run_state.set_render_succeeded(False)
             render_error.append(e)
             event_bus.publish(RenderFailed(error_message=str(e)))
 
@@ -251,6 +265,8 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             css_path="styles.css",
         )
         app.run()
+        _print_post_tui_exit_summary(run_state, args.filename)
+
         stop_event.set()
         render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
 
@@ -304,8 +320,6 @@ def main():  # noqa: C901
             raise MissingAPIKey(
                 "API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument."
             )
-
-        console.info(f"Render ID: {run_state.render_id}")
         render(args, run_state, event_bus)
     except InvalidFridArgument as e:
         exc_info = sys.exc_info()

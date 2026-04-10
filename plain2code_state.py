@@ -9,6 +9,9 @@ class RunState:
 
     def __init__(self, spec_filename: str, replay_with: Optional[str] = None):
         self.replay: bool = replay_with is not None
+        self.render_succeeded: bool = False
+        self.render_generated_code_path: Optional[str] = None
+        self.rendered_functionalities: int = 0
         if replay_with:
             self.render_id: str = replay_with
         else:
@@ -26,6 +29,15 @@ class RunState:
 
     def add_rendering_analysis_for_frid(self, frid, rendering_analysis) -> None:
         self.frid_render_anaysis[frid] = rendering_analysis
+
+    def set_render_succeeded(self, succeeded: bool):
+        self.render_succeeded = succeeded
+
+    def set_render_generated_code_path(self, generated_code_path: str):
+        self.render_generated_code_path = generated_code_path
+
+    def increment_rendered_functionalities(self):
+        self.rendered_functionalities += 1
 
     def to_dict(self):
         return {
