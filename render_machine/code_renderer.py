@@ -3,7 +3,9 @@ from copy import deepcopy
 
 from transitions.extensions.diagrams import HierarchicalGraphMachine
 
+from plain2code_console import console
 from plain2code_events import RenderModuleCompleted, RenderModuleStarted, RenderPaused, RenderStateUpdated
+from plain2code_utils import format_duration_hms
 from render_machine.render_context import RenderContext
 from render_machine.state_machine_config import StateMachineConfig, States
 
@@ -42,9 +44,11 @@ class CodeRenderer:
         while True:
             if self.render_context.enter_pause_event.is_set():
                 self.render_context.event_bus.publish(RenderPaused())
+                self.render_context.run_state.add_to_render_time()
 
                 while self.render_context.enter_pause_event.is_set():
                     time.sleep(PAUSE_POLL_INTERVAL_SECONDS)
+                self.render_context.run_state.set_last_render_resume_timestamp()
 
             self.render_context.event_bus.publish(
                 RenderStateUpdated(

@@ -47,7 +47,7 @@ from plain2code_logger import (
     get_log_file_path,
 )
 from plain2code_state import RunState
-from plain2code_utils import print_dry_run_output
+from plain2code_utils import format_duration_hms, print_dry_run_output
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 
@@ -65,7 +65,7 @@ def _print_post_tui_exit_summary(
     msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
     msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or "—"}\n\n"
     if run_state.render_succeeded:
-        msg += f"[#8E8F91]functionalities  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]used credits  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]render time  [#FFFFFF]12s\n"
+        msg += f"[#8E8F91]functionalities  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]used credits  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]render time  [#FFFFFF]{ format_duration_hms(run_state.render_time) }\n"
     console.info(msg)
 
 
