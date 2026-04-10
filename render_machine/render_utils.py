@@ -19,7 +19,7 @@ SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
 POLL_INTERVAL_SECONDS = 0.2
 SIGTERM_GRACE_PERIOD_SECONDS = 0.2
-STDOUT_READ_TIMEOUT_SECONDS = 5
+STDOUT_READ_TIMEOUT_SECONDS = 2
 F_SETPIPE_SIZE = 1031  # Linux-only constant
 PIPE_SIZE_KB = 1024  # 1MB
 
@@ -120,11 +120,27 @@ def execute_script(  # noqa: C901
         # Set the pipe size to 1MB to avoid buffer overflows
         fcntl.fcntl(proc.stdout.fileno(), F_SETPIPE_SIZE, PIPE_SIZE_KB * 1024)  # 1MB
 
+    # Drain stdout in a background thread to prevent pipe buffer deadlock.
+    # macOS has a 64KB pipe buffer; without continuous draining, scripts that produce
+    # more output than that block on write and never exit, causing spurious timeouts.
+    output_chunks: list[str] = []
+
+    def _drain_stdout() -> None:
+        try:
+            for chunk in iter(lambda: proc.stdout.read(8192), ""):
+                output_chunks.append(chunk)
+        except (OSError, ValueError):
+            pass
+
+    reader = threading.Thread(target=_drain_stdout, daemon=True)
+    reader.start()
+
     try:
         while proc.poll() is None:
             if time.time() - start_time >= script_timeout:
                 _kill_process(proc)
-                partial_stdout = proc.stdout.read()
+                reader.join(timeout=2)
+                partial_stdout = "".join(output_chunks)
                 exc = subprocess.TimeoutExpired(cmd, script_timeout)
                 exc.stdout = partial_stdout
                 raise exc
@@ -136,12 +152,13 @@ def execute_script(  # noqa: C901
             else:
                 time.sleep(POLL_INTERVAL_SECONDS)
 
-        # Use communicate() with a timeout because child processes may hold the pipe open after the main process exits.
-        try:
-            stdout, _ = proc.communicate(timeout=STDOUT_READ_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
+        # Wait for the reader to finish draining remaining output.
+        # Close stdout if child processes keep the pipe open beyond the grace period.
+        reader.join(timeout=STDOUT_READ_TIMEOUT_SECONDS)
+        if reader.is_alive():
             proc.stdout.close()
-            stdout = ""
+            reader.join(timeout=1)
+        stdout = "".join(output_chunks)
         elapsed_time = time.time() - start_time
 
         sanitized_script_output = _sanitize_script_output(stdout)
