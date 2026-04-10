@@ -55,7 +55,7 @@ DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 
 
-def _print_post_tui_exit_summary(
+def print_exit_summary(
     run_state: RunState,
     spec_filename: str,
 ) -> None:
@@ -265,7 +265,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             css_path="styles.css",
         )
         app.run()
-        _print_post_tui_exit_summary(run_state, args.filename)
+        print_exit_summary(run_state, args.filename)
 
         stop_event.set()
         render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
