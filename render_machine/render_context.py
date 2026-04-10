@@ -192,7 +192,6 @@ class RenderContext:
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
-        # TODO test this out on an example with multiple modules and functionalities
         self.run_state.increment_rendered_functionalities()
 
     def should_run_unit_tests(self) -> bool:
