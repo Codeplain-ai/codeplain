@@ -3,9 +3,7 @@ from copy import deepcopy
 
 from transitions.extensions.diagrams import HierarchicalGraphMachine
 
-from plain2code_console import console
 from plain2code_events import RenderModuleCompleted, RenderModuleStarted, RenderPaused, RenderStateUpdated
-from plain2code_utils import format_duration_hms
 from render_machine.render_context import RenderContext
 from render_machine.state_machine_config import StateMachineConfig, States
 

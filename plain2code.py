@@ -63,7 +63,7 @@ def print_exit_summary(
     msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
     msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
     msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
-    msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or "—"}\n\n"
+    msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or "-"}\n\n"
     if run_state.render_succeeded:
         msg += f"[#8E8F91]functionalities  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]used credits  [#FFFFFF]{ run_state.rendered_functionalities }  [#8E8F91]render time  [#FFFFFF]{ format_duration_hms(run_state.render_time) }\n"
     console.info(msg)
@@ -248,7 +248,10 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         console.info(f"Render started. Render ID: {run_state.render_id}")
         try:
             module_renderer.render_module()
+            run_state.set_render_succeeded(True)
+            print_exit_summary(run_state, args.filename)
         except RenderCancelledError:
+            run_state.set_render_succeeded(False)
             pass
         return
     else:
