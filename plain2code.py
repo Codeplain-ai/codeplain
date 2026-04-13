@@ -5,7 +5,9 @@ import os
 import signal
 import sys
 import threading
+import traceback
 from pathlib import Path
+from types import TracebackType
 from typing import Optional
 
 import yaml
@@ -58,15 +60,24 @@ RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 def print_exit_summary(
     run_state: RunState,
     spec_filename: str,
+    error_message: Optional[str] = None,
+    verbose: bool = False,
+    exc_info: Optional[tuple[type[BaseException] | None, BaseException | None, TracebackType | None]] = None,
 ) -> None:
     console.quiet = False
     """Print render outcome after the TUI exits (terminal restored)."""
+
     msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
     msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
     msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
     msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or '-'}\n\n"
     msg += f"[#8E8F91]functionalities  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]used credits  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]render time  [#FFFFFF]{format_duration_hms(run_state.render_time)}\n"
     console.info(msg)
+
+    if not run_state.render_succeeded and error_message:
+        console.error(error_message)
+    if verbose and exc_info and exc_info[0] is not None:
+        console.error("".join(traceback.format_exception(*exc_info)))
     console.quiet = True
 
 
@@ -316,6 +327,8 @@ def main():  # noqa: C901
     setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, args.headless)
 
     exc_info = None
+    error_message = None
+
     try:
         # Validate API key is present
         if not args.api_key:
@@ -324,76 +337,62 @@ def main():  # noqa: C901
             )
         render(args, run_state, event_bus)
     except InvalidFridArgument as e:
-        exc_info = sys.exc_info()
-        console.error(f"Invalid FRID argument: {str(e)}.\n")
+        error_message = f"Invalid FRID argument: {str(e)}.\n"
     except FileNotFoundError as e:
-        exc_info = sys.exc_info()
-        console.error(f"File not found: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"File not found: {str(e)}\n"
+    except MissingResource as e:
+        error_message = f"Missing resource: {str(e)}\n"
     except TemplateNotFoundError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Template not found: {str(e)}\n")
-        console.error(system_config.get_error_message("template_not_found"))
+        error_message = f"""Template not found: {str(e)}\n
+The required template could not be found. Templates are searched in the following order (highest to lowest precedence):
+
+    1. The directory containing your .plain file
+    2. The directory specified by --template-dir (if provided)
+    3. The built-in 'standard_template_library' directory
+
+Please ensure that the missing template exists in one of these locations, or specify the correct --template-dir if using custom templates.
+        """
     except PlainSyntaxError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Plain syntax error: {str(e)}\n")
+        error_message = f"Plain syntax error: {str(e)}\n"
     except KeyboardInterrupt:
-        exc_info = sys.exc_info()
-        console.error("Keyboard interrupt")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = "Keyboard interrupt"
     except RequestException as e:
-        exc_info = sys.exc_info()
-        console.error(f"Error rendering plain code: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"Error rendering plain code: {str(e)}\n"
     except MissingPreviousFunctionalitiesError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Error rendering plain code: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"Error rendering plain code: {str(e)}\n"
     except MissingAPIKey as e:
-        console.error(f"Missing API key: {str(e)}\n")
+        error_message = f"Missing API key: {str(e)}\n"
     except InvalidAPIKey as e:
-        console.error(f"Invalid API key: {str(e)}\n")
+        error_message = f"Invalid API key: {str(e)}\n"
     except OutdatedClientVersion as e:
-        console.error(f"Outdated client version: {str(e)}\n")
+        error_message = f"Outdated client version: {str(e)}\n"
     except (InternalServerError, InternalClientError):
         exc_info = sys.exc_info()
-        console.error(
-            f"Internal server error.\n\nPlease report the error to support@codeplain.ai with the attached {args.log_file_name} file."
-        )
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"Internal server error.\n\nPlease report the error to support@codeplain.ai with the attached {args.log_file_name} file."
     except ConflictingRequirements as e:
-        exc_info = sys.exc_info()
-        console.error(f"Conflicting requirements: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"Conflicting requirements: {str(e)}\n"
     except RenderingCreditBalanceTooLow as e:
-        exc_info = sys.exc_info()
-        console.error(f"Credit balance too low: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"Credit balance too low: {str(e)}\n"
     except LLMInternalError as e:
         exc_info = sys.exc_info()
-        console.error(f"LLM internal error: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except MissingResource as e:
-        exc_info = sys.exc_info()
-        console.error(f"Missing resource: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"LLM internal error: {str(e)}\n"
     except NetworkConnectionError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Connection error: {str(e)}\n")
-        console.error("Please check that your internet connection is working.")
+        error_message = f"Connection error: {str(e)}\n\nPlease check that your internet connection is working."
     except ModuleDoesNotExistError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Module does not exist: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = str(e)
     except Exception as e:
         exc_info = sys.exc_info()
-        console.error(f"Error rendering plain code: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+        error_message = f"Error rendering plain code: {str(e)}\n"
     finally:
-        print_exit_summary(run_state, args.filename)
+        print_exit_summary(
+            run_state,
+            args.filename,
+            error_message=error_message,
+            verbose=args.verbose,
+            exc_info=exc_info,
+        )
         if exc_info:
-            # Log traceback using the logging system
-            logging.error("Render crashed with exception:", exc_info=exc_info)
+            # Log traceback
             dump_crash_logs(args)
 
 
