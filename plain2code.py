@@ -59,6 +59,7 @@ def print_exit_summary(
     run_state: RunState,
     spec_filename: str,
 ) -> None:
+    console.quiet = False
     """Print render outcome after the TUI exits (terminal restored)."""
     msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
     msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
@@ -67,6 +68,7 @@ def print_exit_summary(
     if run_state.render_succeeded:
         msg += f"[#8E8F91]functionalities  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]used credits  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]render time  [#FFFFFF]{format_duration_hms(run_state.render_time)}\n"
     console.info(msg)
+    console.quiet = True
 
 
 def get_render_range(render_range, plain_source):
@@ -249,7 +251,6 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         try:
             module_renderer.render_module()
             run_state.set_render_succeeded(True)
-            print_exit_summary(run_state, args.filename)
         except RenderCancelledError:
             run_state.set_render_succeeded(False)
             pass
@@ -268,7 +269,6 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             css_path="styles.css",
         )
         app.run()
-        print_exit_summary(run_state, args.filename)
 
         stop_event.set()
         render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
@@ -391,6 +391,7 @@ def main():  # noqa: C901
         console.error(f"Error rendering plain code: {str(e)}\n")
         console.debug(f"Render ID: {run_state.render_id}")
     finally:
+        print_exit_summary(run_state, args.filename)
         if exc_info:
             # Log traceback using the logging system
             logging.error("Render crashed with exception:", exc_info=exc_info)
