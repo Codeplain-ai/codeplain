@@ -33,19 +33,16 @@ class FixUnitTests(BaseAction):
                 render_context, existing_files_content, "Files sent as input to unit tests fixing:"
             )
 
-        with console.status(
-            f"[{console.INFO_STYLE}]Fixing unit tests issue for functionality {render_context.frid_context.frid}...\n"
-        ):
-            response_files = render_context.codeplain_api.fix_unittests_issue(
-                render_context.frid_context.frid,
-                render_context.plain_source_tree,
-                render_context.frid_context.linked_resources,
-                existing_files_content,
-                render_context.module_name,
-                render_context.get_required_modules_functionalities(),
-                previous_unittests_issue,
-                run_state=render_context.run_state,
-            )
+        response_files = render_context.codeplain_api.fix_unittests_issue(
+            render_context.frid_context.frid,
+            render_context.plain_source_tree,
+            render_context.frid_context.linked_resources,
+            existing_files_content,
+            render_context.module_name,
+            render_context.get_required_modules_functionalities(),
+            previous_unittests_issue,
+            run_state=render_context.run_state,
+        )
 
         _, changed_files = file_utils.update_build_folder_with_rendered_files(
             render_context.build_folder, existing_files, response_files

@@ -31,11 +31,6 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.current_testing_frid
         )
 
-        if render_context.conformance_tests_running_context.current_testing_frid == render_context.frid_context.frid:
-            console_message = f"Fixing conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
-        else:
-            console_message = f"While implementing functionality {render_context.frid_context.frid}, conformance tests for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name} broke. Fixing them..."
-
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )
@@ -78,7 +73,6 @@ class FixConformanceTest(BaseAction):
                 style=console.INPUT_STYLE,
             )
 
-        with console.status(console_message):
             [conformance_tests_fixed, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
                 render_context.frid_context.frid,
                 render_context.conformance_tests_running_context.current_testing_frid,
