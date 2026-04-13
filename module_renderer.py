@@ -66,7 +66,7 @@ class ModuleRenderer:
                 f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
             )
 
-        if not os.path.exists(conformance_tests_path):
+        if not os.path.exists(conformance_tests_path) and self.args.render_conformance_tests:
             raise MissingPreviousFunctionalitiesError(
                 f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the conformance tests folder does not exist.\n\n"
                 f"To fix this, please render the module from the beginning by running:\n"
