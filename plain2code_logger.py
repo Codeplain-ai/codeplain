@@ -27,11 +27,12 @@ class TuiLoggingHandler(logging.Handler):
 
     def emit(self, record):
         try:
-            offset_seconds = record.created - self.start_time
-            minutes = int(offset_seconds // 60)
-            seconds = int(offset_seconds % 60)
-            milliseconds = int((offset_seconds % 1) * 100)
-            timestamp = f"{minutes:02d}:{seconds:02d}:{milliseconds:02d}"
+            offset_seconds = int(record.created - self.start_time)
+            hours = offset_seconds // 3600
+            minutes = (offset_seconds % 3600) // 60
+            seconds = offset_seconds % 60
+            timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
             event = LogMessageEmitted(
                 logger_name=record.name,
                 level=record.levelname,
