@@ -1,6 +1,8 @@
-import plain_spec
-
 from typing import Optional
+
+import plain_spec
+from plain2code_console import console
+
 
 def format_duration_hms(total_seconds: int) -> str:
     """Format a duration in seconds as hours, minutes, and seconds (e.g. ``1h 2m 3.45s``, ``45.67s``)."""
@@ -16,8 +18,6 @@ def format_duration_hms(total_seconds: int) -> str:
     text = f"{s}".rstrip("0").rstrip(".")
     return f"{text}s" if text else "0s"
 
-
-from plain2code_console import console
 
 AMBIGUITY_CAUSES = {
     "reference_resource_ambiguity": "Ambiguity is in the reference resources",
