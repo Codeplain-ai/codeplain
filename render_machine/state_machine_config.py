@@ -231,6 +231,7 @@ class StateMachineConfig:
                     refactoring_code_states,
                     self.get_processing_conformance_tests_states(render_context),
                     States.FRID_FULLY_IMPLEMENTED.value,
+                    {"name": States.FRID_FULLY_IMPLEMENTED.value, "on_exit": "finish_fully_implementing_frid"},
                 ],
             },
             {"name": States.RENDER_COMPLETED.value, "on_enter": "start_render_completed"},
