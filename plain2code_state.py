@@ -1,5 +1,6 @@
 """Contains all state and context information we need for the rendering process."""
 
+import time
 import uuid
 from typing import Optional
 
@@ -9,6 +10,9 @@ class RunState:
 
     def __init__(self, spec_filename: str, replay_with: Optional[str] = None):
         self.replay: bool = replay_with is not None
+        self.render_succeeded: bool = False
+        self.render_generated_code_path: Optional[str] = None
+        self.rendered_functionalities: int = 0
         if replay_with:
             self.render_id: str = replay_with
         else:
@@ -17,6 +21,8 @@ class RunState:
         self.call_count: int = 0
         self.unittest_batch_id: int = 0
         self.frid_render_anaysis: dict[str, str] = {}
+        self.render_time_accumulated: int = 0
+        self.last_render_start_timestamp: float = time.monotonic()
 
     def increment_call_count(self):
         self.call_count += 1
@@ -26,6 +32,21 @@ class RunState:
 
     def add_rendering_analysis_for_frid(self, frid, rendering_analysis) -> None:
         self.frid_render_anaysis[frid] = rendering_analysis
+
+    def set_render_succeeded(self, succeeded: bool):
+        self.render_succeeded = succeeded
+
+    def set_render_generated_code_path(self, generated_code_path: str):
+        self.render_generated_code_path = generated_code_path
+
+    def increment_rendered_functionalities(self):
+        self.rendered_functionalities += 1
+
+    def add_to_render_time(self):
+        self.render_time_accumulated += int(time.monotonic() - self.last_render_start_timestamp)
+
+    def set_last_render_start_timestamp(self):
+        self.last_render_start_timestamp = time.monotonic()
 
     def to_dict(self):
         return {

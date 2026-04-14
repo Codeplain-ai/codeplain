@@ -191,6 +191,7 @@ class RenderContext:
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
+        self.run_state.increment_rendered_functionalities()
 
     def should_run_unit_tests(self) -> bool:
         return self.unittests_script is not None
@@ -453,3 +454,11 @@ class RenderContext:
             console.info(
                 f"Running conformance tests attempt {self.conformance_tests_running_context.fix_attempts + 1}."
             )
+
+    def start_render_completed(self):
+        self.run_state.set_render_succeeded(True)
+        self.run_state.add_to_render_time()
+
+    def start_render_failed(self):
+        self.run_state.set_render_succeeded(False)
+        self.run_state.add_to_render_time()
