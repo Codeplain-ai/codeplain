@@ -233,8 +233,8 @@ class StateMachineConfig:
                     States.FRID_FULLY_IMPLEMENTED.value,
                 ],
             },
-            States.RENDER_COMPLETED.value,
-            States.RENDER_FAILED.value,
+            {"name": States.RENDER_COMPLETED.value, "on_enter": "start_render_completed"},
+            {"name": States.RENDER_FAILED.value, "on_enter": "start_render_failed"},
         ]
 
     def get_transitions(self) -> List[Dict[str, Any]]:
