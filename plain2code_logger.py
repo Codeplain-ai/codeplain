@@ -5,6 +5,7 @@ from typing import Optional
 
 from event_bus import EventBus
 from plain2code_events import LogMessageEmitted
+from plain2code_state import RunState
 
 LOGGER_NAME = "codeplain"
 
@@ -20,14 +21,17 @@ class IndentedFormatter(logging.Formatter):
 
 
 class TuiLoggingHandler(logging.Handler):
-    def __init__(self, event_bus: EventBus):
+    def __init__(self, event_bus: EventBus, run_state: RunState):
         super().__init__()
         self.event_bus = event_bus
-        self.start_time = time.time()
+        self.run_state = run_state
 
     def emit(self, record):
         try:
-            offset_seconds = int(record.created - self.start_time)
+            offset_seconds = self.run_state.render_time_accumulated + int(
+                time.monotonic() - self.run_state.last_render_start_timestamp
+            )
+
             hours = offset_seconds // 3600
             minutes = (offset_seconds % 3600) // 60
             seconds = offset_seconds % 60

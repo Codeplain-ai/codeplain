@@ -125,6 +125,7 @@ def _get_frids_range(plain_source, start, end=None):
 def setup_logging(
     args,
     event_bus: EventBus,
+    run_state: RunState,
     log_to_file: bool,
     log_file_name: str,
     plain_file_path: Optional[str],
@@ -158,7 +159,7 @@ def setup_logging(
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
 
     if not headless:
-        handler = TuiLoggingHandler(event_bus)
+        handler = TuiLoggingHandler(event_bus, run_state)
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
 
@@ -313,7 +314,7 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, args.headless)
+    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless)
 
     exc_info = None
     try:
