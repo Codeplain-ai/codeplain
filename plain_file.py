@@ -53,6 +53,14 @@ class PlainRenderer(MarkdownRenderer):
         )
 
 
+def get_filename_from_module_name(module_name: str) -> str:
+    return f"{module_name}{PLAIN_SOURCE_FILE_EXTENSION}"
+
+
+def get_module_name_from_filename(filename: str) -> str:
+    return filename.replace(PLAIN_SOURCE_FILE_EXTENSION, "")
+
+
 def remove_quotes(token):
     # If the token has no children, there's nothing to remove.
     if not hasattr(token, "children") or token.children is None:

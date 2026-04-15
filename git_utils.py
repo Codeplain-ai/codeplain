@@ -1,4 +1,5 @@
 import os
+import re
 from configparser import NoOptionError, NoSectionError
 from typing import Optional, Union
 
@@ -415,3 +416,22 @@ def get_repo_info(repo_path: Union[str, os.PathLike]) -> dict:
     info["remotes"] = remotes
 
     return info
+
+
+def get_last_finished_frid(repo_path: Union[str, os.PathLike]) -> tuple[Optional[str], Optional[str]]:
+    if not os.path.exists(repo_path):
+        return None, None
+
+    repo = Repo(repo_path)
+    grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
+    grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
+    commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
+    if not commit_sha:
+        return None, None
+    commit_message = repo.commit(commit_sha).message
+    match = re.search(r"FRID\):(\S+) fully implemented", commit_message)
+    frid = match.group(1) if match else None
+
+    match = re.search(r"Module name:\s*(\S+)\n", commit_message)
+    module_name = match.group(1) if match else None
+    return module_name, frid
