@@ -36,11 +36,11 @@ class PrepareRepositories(BaseAction):
             if render_context.required_modules:
                 previous_module = render_context.required_modules[-1]
                 if render_context.verbose:
-                    console.debug(f"Cloning git repo from module {previous_module.name}.")
+                    console.debug(f"Cloning git repo from module {previous_module.module_name}.")
 
                 file_utils.delete_folder(render_context.build_folder)
                 git_utils.clone_repo(
-                    previous_module.get_module_build_folder(),
+                    previous_module.module_build_folder,
                     render_context.build_folder,
                     render_context.module_name,
                     render_context.run_state.render_id,
