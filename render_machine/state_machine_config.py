@@ -262,11 +262,6 @@ class StateMachineConfig:
                 "unless": "should_run_unit_tests",
             },
             {
-                "source": f"{States.IMPLEMENTING_FRID.value}",
-                "trigger": triggers.PREPARE_FINAL_OUTPUT,
-                "dest": States.RENDER_COMPLETED.value,
-            },
-            {
                 "source": "*",
                 "trigger": triggers.HANDLE_ERROR,
                 "dest": States.RENDER_FAILED.value,
@@ -349,6 +344,13 @@ class StateMachineConfig:
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}",
                 "trigger": triggers.PROCEED_FRID_PROCESSING,
                 "dest": f"{States.IMPLEMENTING_FRID.value}",
+                "conditions": "has_next_frid",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}",
+                "trigger": triggers.PROCEED_FRID_PROCESSING,
+                "dest": States.RENDER_COMPLETED.value,
+                "unless": "has_next_frid",
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}",

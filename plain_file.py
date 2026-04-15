@@ -649,7 +649,7 @@ def plain_file_parser(  # noqa: C901
         )
 
     if not check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-        raise PlainSyntaxError("Syntax error: No functionality specified.")
+        raise PlainSyntaxError(f"Module '{module_name}' was required but does not contain functional requirements.")
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,

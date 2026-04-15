@@ -146,12 +146,6 @@ class RenderContext:
         else:
             frid = plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid)
 
-        if frid is None:
-            # If frid context is empty, it means that all frids have been implemented
-            self.frid_context = None
-            self.machine.dispatch(triggers.PREPARE_FINAL_OUTPUT)
-            return
-
         specifications, _ = plain_spec.get_specifications_for_frid(self.plain_source_tree, frid)
         functional_requirement_text = specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]
 
@@ -172,10 +166,6 @@ class RenderContext:
         return
 
     def check_frid_iteration_limit(self):
-        # If frid context is not set, it means that all frids have been implemented
-        if self.frid_context is None:
-            return
-
         if self.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
             error_msg = f"Unittests could not be fixed after rendering the functionality {self.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
             self.dispatch_error(error_msg)
@@ -188,6 +178,9 @@ class RenderContext:
                 f"Unittests could not be fixed after rendering the functionality. "
                 f"Restarting rendering the functionality {self.frid_context.frid} from scratch."
             )
+
+    def has_next_frid(self) -> bool:
+        return plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid) is not None
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
