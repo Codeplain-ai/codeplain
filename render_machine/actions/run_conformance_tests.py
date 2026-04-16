@@ -54,11 +54,12 @@ class RunConformanceTests(BaseAction):
         render_context.script_execution_history.latest_conformance_test_output_path = conformance_tests_temp_file_path
         render_context.script_execution_history.should_update_script_outputs = True
 
-        render_context.memory_manager.create_conformance_tests_memory(
-            render_context, exit_code, conformance_tests_issue
-        )
-
         if exit_code == 0:
+
+            render_context.memory_manager.create_conformance_tests_memory(
+                render_context, exit_code, conformance_tests_issue
+            )
+
             if (
                 render_context.conformance_tests_running_context.current_testing_module_name
                 == render_context.module_name
@@ -80,4 +81,13 @@ class RunConformanceTests(BaseAction):
                 ).to_payload(),
             )
 
-        return self.FAILED_OUTCOME, {"previous_conformance_tests_issue": conformance_tests_issue}
+        summarized_issue = render_context.codeplain_api.summarize_test_issue(
+            conformance_tests_issue,
+            render_context.conformance_tests_running_context.current_testing_frid,
+            render_context.conformance_tests_running_context.current_testing_module_name,
+            render_context.run_state,
+        )
+
+        render_context.memory_manager.create_conformance_tests_memory(render_context, exit_code, summarized_issue)
+
+        return self.FAILED_OUTCOME, {"previous_conformance_tests_issue": summarized_issue}

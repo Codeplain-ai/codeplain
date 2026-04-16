@@ -327,6 +327,25 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
+    def summarize_test_issue(
+        self,
+        tests_issue: str,
+        frid: str,
+        module_name: str,
+        run_state: RunState,
+    ) -> str:
+        endpoint_url = f"{self.api_url}/summarize_test_issue"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "tests_issue": tests_issue,
+            "frid": frid,
+            "module_name": module_name,
+        }
+
+        response = self.post_request(endpoint_url, headers, payload, run_state)
+        return response["summarized_issue"]
+
     def fix_conformance_tests_issue(
         self,
         frid,

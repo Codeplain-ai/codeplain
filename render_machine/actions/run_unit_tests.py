@@ -49,4 +49,10 @@ class RunUnitTests(BaseAction):
                 ).to_payload(),
             )
         else:
-            return self.FAILED_OUTCOME, {"previous_unittests_issue": unittests_issue}
+            summarized_issue = render_context.codeplain_api.summarize_test_issue(
+                unittests_issue,
+                render_context.frid_context.frid,
+                render_context.module_name,
+                render_context.run_state,
+            )
+            return self.FAILED_OUTCOME, {"previous_unittests_issue": summarized_issue}
