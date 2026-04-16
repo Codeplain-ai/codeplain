@@ -81,6 +81,7 @@ class RunConformanceTests(BaseAction):
                 ).to_payload(),
             )
 
+        assert render_context.conformance_tests_running_context.current_testing_frid is not None
         summarized_issue = render_context.codeplain_api.summarize_test_issue(
             conformance_tests_issue,
             render_context.conformance_tests_running_context.current_testing_frid,
