@@ -16,3 +16,4 @@ generated code folder:
 │           └── tests
 │               ├── __init__.py
 │               └── test_hello.py
+- figure out it the paths from the CLI args should be relative to spec file too
