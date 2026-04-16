@@ -3,6 +3,7 @@ from typing import Any
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
+from render_machine.render_types import RenderError
 
 
 class ExitWithError(BaseAction):
@@ -24,4 +25,9 @@ class ExitWithError(BaseAction):
         if render_context.run_state.render_id is not None:
             console.info(f"Render ID: {render_context.run_state.render_id}")
 
-        return self.SUCCESSFUL_OUTCOME, previous_action_payload
+        return (
+            self.SUCCESSFUL_OUTCOME,
+            RenderError.encode(
+                message=render_context.last_error_message or "Unknown error",
+            ).to_payload(),
+        )
