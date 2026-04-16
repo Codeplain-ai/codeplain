@@ -350,10 +350,13 @@ def main():  # noqa: C901
         console.error(f"Error rendering plain code: {str(e)}\n")
         console.debug(f"Render ID: {run_state.render_id}")
     except MissingAPIKey as e:
+        exc_info = sys.exc_info()
         console.error(f"Missing API key: {str(e)}\n")
     except InvalidAPIKey as e:
+        exc_info = sys.exc_info()
         console.error(f"Invalid API key: {str(e)}\n")
     except OutdatedClientVersion as e:
+        exc_info = sys.exc_info()
         console.error(f"Outdated client version: {str(e)}\n")
     except (InternalServerError, InternalClientError):
         exc_info = sys.exc_info()
@@ -395,6 +398,9 @@ def main():  # noqa: C901
             # Log traceback using the logging system
             logging.error("Render crashed with exception:", exc_info=exc_info)
             dump_crash_logs(args)
+
+    if args.headless and (exc_info is not None or not run_state.render_succeeded):
+        sys.exit(1)
 
 
 if __name__ == "__main__":  # noqa: C901
