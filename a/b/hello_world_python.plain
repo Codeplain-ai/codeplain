@@ -1,0 +1,19 @@
+---
+description: '"hello, world" in Plain (Python version)'
+import:
+  - python-console-app-template
+---
+
+***implementation reqs***
+
+- :MainExecutableFile: of :App: should be called "hello_world.py".
+
+***functional specs***
+
+- Display "hello, world"
+
+  ***acceptance tests***
+    
+  - :App: should exit with status code 0 indicating successful execution.
+
+  - :App: should complete execution in under 1 second.

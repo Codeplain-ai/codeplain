@@ -1,0 +1,6 @@
+unittests-script: ../../../test_scripts/run_unittests_python.sh
+conformance-tests-script: ../../../test_scripts/run_conformance_tests_python.sh
+# TODO see what happens without the build-folder specified
+# build-folder: should_be_in_a_b_dir
+verbose: true
+api: http://localhost:5000

@@ -1,5 +1,6 @@
 import argparse
 import os
+from ntpath import isabs
 from typing import Any
 
 from plain2code_console import console
@@ -129,6 +130,13 @@ def update_args_with_config(args, parser):
 
         args.config_name = resolved_config
         config_args = get_args_from_config(resolved_config, parser)
+
+        # TODO figure out what's the best place to make the build_folder and conformance_tests_folder relative to the plain file
+
+        build_folder = getattr(config_args, "build_folder", None)
+        if build_folder is not None and not os.path.isabs(build_folder):
+            plain_file_dir = os.path.dirname(os.path.abspath(args.filename))
+            config_args.build_folder = os.path.normpath(os.path.join(plain_file_dir, build_folder))
 
         # Get all action types from the parser
         action_types = {action.dest: action for action in parser._actions}
@@ -370,6 +378,16 @@ def parse_arguments():
 
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")
+
+    if not os.path.isabs(args.conformance_tests_folder):
+        args.conformance_tests_folder = os.path.normpath(
+            os.path.join(os.path.dirname(os.path.abspath(args.filename)), args.conformance_tests_folder)
+        )
+
+    if not os.path.isabs(args.build_folder):
+        args.build_folder = os.path.normpath(
+            os.path.join(os.path.dirname(os.path.abspath(args.filename)), args.build_folder)
+        )
 
     script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME, PREPARE_ENVIRONMENT_SCRIPT_NAME]
     for script_name in script_arg_names:
