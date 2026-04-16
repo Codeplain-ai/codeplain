@@ -76,7 +76,7 @@ class ConformanceTests:
 
         conformance_test_subfolder_name = original_conformance_test_folder_name[len(original_prefix) :]
 
-        modules_list = [module_name] + [m.name for m in reversed(required_modules)]
+        modules_list = [module_name] + [m.module_name for m in reversed(required_modules)]
 
         for copy_from_module in modules_list:
             if copy_from_module == current_testing_module_name:

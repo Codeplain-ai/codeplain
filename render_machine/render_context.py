@@ -225,7 +225,7 @@ class RenderContext:
                     {},
                 )
         else:
-            conformance_tests_running_context.current_testing_module_name = module.name
+            conformance_tests_running_context.current_testing_module_name = module.module_name
             conformance_tests_running_context.set_conformance_tests_json(
                 conformance_tests_running_context.current_testing_module_name,
                 self.conformance_tests.get_conformance_tests_json(
@@ -270,7 +270,7 @@ class RenderContext:
             else:
                 next_module_index = -1
                 for i, required_module in enumerate(self.required_modules):
-                    if required_module.name == conformance_tests_running_context.current_testing_module_name:
+                    if required_module.module_name == conformance_tests_running_context.current_testing_module_name:
                         next_module_index = i + 1
                         break
 
