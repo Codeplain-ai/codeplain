@@ -80,11 +80,11 @@ def check_section_for_linked_resources(section):
         parsed_url = urlparse(link.node.target)
         if parsed_url.scheme != "" or os.path.isabs(link.node.target):
             raise PlainSyntaxError(
-                f"Only relative links are allowed (text: {link.node.children[0].content}, target: {link.node.target})."
+                f"Plain syntax error: Only relative links are allowed (text: {link.node.children[0].content}, target: {link.node.target})."
             )
 
         if len(link.node.children) != 1:
-            raise PlainSyntaxError(f"Link must have text specified (link: {link.node.target}).")
+            raise PlainSyntaxError(f"Plain syntax error: Link must have text specified (link: {link.node.target}).")
 
         linked_resources.append({"text": link.node.children[0].content, "target": link.node.target})
 
@@ -136,7 +136,7 @@ def check_if_functional_requirements_are_specified(plain_source, non_functional_
 
     found_functional_requirements = plain_spec.FUNCTIONAL_REQUIREMENTS in plain_source
     if found_functional_requirements and len(non_functional_requirements) == 0:
-        raise PlainSyntaxError("Syntax error: functionality with no implementation reqs specified.")
+        raise PlainSyntaxError("Plain syntax error: functionality with no implementation reqs specified.")
 
     return found_functional_requirements
 
@@ -207,13 +207,13 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
             # - Writing `acceptance test` instead of `acceptance tests` (or any other syntax diffs).
             # - Instead of specifying `acceptance tests` below the functionality, creator of the plain file
             #   might have specified some other building block (e.g. `implementation reqs`)
-            raise PlainSyntaxError(acceptance_test_heading_problem)
+            raise PlainSyntaxError(f"Plain syntax error: {acceptance_test_heading_problem}")
 
         if is_acceptance_test_heading:
             if acceptance_tests_found_already:
                 # Handle edge case of duplicated ***acceptance tests*** heading
                 raise PlainSyntaxError(
-                    f"Syntax error at line {functional_requirement_child.line_number}: Duplicate 'acceptance tests' heading found within the same functionality. Only one block of acceptance tests is allowed per functionality."
+                    f"Plain syntax error: Syntax error at line {functional_requirement_child.line_number}: Duplicate 'acceptance tests' heading found within the same functionality. Only one block of acceptance tests is allowed per functionality."
                 )
 
             try:
@@ -333,7 +333,7 @@ def process_imports(
     required_concepts = list[str]()
     for module_name in imports:
         if module_name in modules_trace:
-            raise PlainSyntaxError(f"Circular import detected: {module_name}.")
+            raise PlainSyntaxError(f"Plain syntax error: Circular import detected: {module_name}.")
 
         if module_name in imported_modules:
             continue
@@ -343,12 +343,12 @@ def process_imports(
         )
 
         if check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-            raise PlainSyntaxError("Imported module must not contain functionalities.")
+            raise PlainSyntaxError("Plain syntax error: Imported module must not contain functionalities.")
 
         for specification_heading in plain_file_parse_result.plain_source:
             if specification_heading not in plain_spec.ALLOWED_IMPORT_SPECIFICATION_HEADINGS:
                 raise PlainSyntaxError(
-                    f"Syntax error: Invalid specification heading (`{specification_heading}`). Allowed headings: {', '.join(plain_spec.ALLOWED_IMPORT_SPECIFICATION_HEADINGS)}"
+                    f"Plain syntax error: Invalid specification heading (`{specification_heading}`). Allowed headings: {', '.join(plain_spec.ALLOWED_IMPORT_SPECIFICATION_HEADINGS)}"
                 )
 
             if plain_source[specification_heading] is None:
@@ -377,7 +377,7 @@ def read_plain_source_metadata(plain_source_text):
     try:
         plain_source_obj = frontmatter.loads(plain_source_text)
     except Exception as e:
-        raise PlainSyntaxError(f"Syntax error: Invalid frontmatter: {e}")
+        raise PlainSyntaxError(f"Plain syntax error: Invalid frontmatter: {e}")
 
     for directive in [EXPORTED_CONCEPTS_DIRECTIVE, REQUIRED_CONCEPTS_DIRECTIVE]:
         if directive in plain_source_obj.metadata:
@@ -393,7 +393,7 @@ def read_plain_source_metadata(plain_source_text):
                     prepared_metadata.append(f"- {item}")
                 else:
                     raise PlainSyntaxError(
-                        f"Syntax error: Invalid {directive} metadata. Expected a dictionary or a string."
+                        f"Plain syntax error: Invalid {directive} metadata. Expected a dictionary or a string."
                     )
 
             plain_source_obj.metadata[directive] = prepared_metadata
@@ -446,14 +446,14 @@ def parse_plain_source(  # noqa: C901
             ):
 
                 raise PlainSyntaxError(
-                    f"Syntax error at line {token.line_number}: Invalid specification (`{token_text}`)"
+                    f"Plain syntax error: Syntax error at line {token.line_number}: Invalid specification (`{token_text}`)"
                 )
 
             specification_heading = token.children[0].children[0].children[0].content
 
             if specification_heading not in plain_spec.ALLOWED_SPECIFICATION_HEADINGS:
                 raise PlainSyntaxError(
-                    f"Syntax error at line {token.line_number}: Invalid specification heading (`{specification_heading}`). Allowed headings: {', '.join(plain_spec.ALLOWED_SPECIFICATION_HEADINGS)}"
+                    f"Plain syntax error: Syntax error at line {token.line_number}: Invalid specification heading (`{specification_heading}`). Allowed headings: {', '.join(plain_spec.ALLOWED_SPECIFICATION_HEADINGS)}"
                 )
 
             if (
@@ -464,12 +464,12 @@ def parse_plain_source(  # noqa: C901
 
             if specification_heading in processed_specification_headings:
                 raise PlainSyntaxError(
-                    f"Syntax error at line {token.line_number}: Duplicate specification heading (`{specification_heading}`)"
+                    f"Plain syntax error: Syntax error at line {token.line_number}: Duplicate specification heading (`{specification_heading}`)"
                 )
 
             if specification_heading == plain_spec.DEFINITIONS and current_specification_heading is not None:
                 raise PlainSyntaxError(
-                    f"Syntax error at line {token.line_number}: Definitions specification must be the first specification in the section  (`{token_text}`)"
+                    f"Plain syntax error: Syntax error at line {token.line_number}: Definitions specification must be the first specification in the section  (`{token_text}`)"
                 )
 
             current_specification_heading = specification_heading
@@ -480,13 +480,13 @@ def parse_plain_source(  # noqa: C901
         elif isinstance(token, List):
             if current_specification_heading is None:
                 raise PlainSyntaxError(
-                    f"Syntax error at line {token.line_number}: Missing specification heading (`{token_text}`)"
+                    f"Plain syntax error: Syntax error at line {token.line_number}: Missing specification heading (`{token_text}`)"
                 )
             plain_source[current_specification_heading].children.extend(token.children)
 
         else:
             raise PlainSyntaxError(
-                f"Syntax error at line {token.line_number}: Invalid source structure  (`{token_text}`)"
+                f"Plain syntax error: Syntax error at line {token.line_number}: Invalid source structure  (`{token_text}`)"
             )
 
     if plain_source[plain_spec.DEFINITIONS] is not None:
@@ -545,7 +545,7 @@ def process_required_modules(
     exported_definitions = list[mistletoe.block_token.token]()
     for module_name in required_modules:
         if module_name in modules_trace:
-            raise PlainSyntaxError(f"Circular required module detected: {module_name}.")
+            raise PlainSyntaxError(f"Plain syntax error: Circular required module detected: {module_name}.")
 
         if len(all_required_modules) > 0 and module_name == all_required_modules[-1]:
             continue
@@ -560,7 +560,7 @@ def process_required_modules(
                 # In the future we will support the cases where required modules can be rendered independently
                 # and then merged (somehow).
                 raise PlainSyntaxError(
-                    f"There must be a fixed order how required modules are dependent ({module_name})."
+                    f"Plain syntax error: There must be a fixed order how required modules are dependent ({module_name})."
                 )
         else:
             process_required_modules(
@@ -576,13 +576,13 @@ def process_required_modules(
             for concept in plain_file_parse_result.plain_source_obj.metadata[EXPORTED_CONCEPTS_DIRECTIVE]:
                 if concept in concept_utils.DEFAULT_CONCEPTS:
                     raise PlainSyntaxError(
-                        f"Syntax error: Default concept cannot be exported: {concept}. Only user-defined concepts can be exported."
+                        f"Plain syntax error: Default concept cannot be exported: {concept}. Only user-defined concepts can be exported."
                     )
 
                 if isinstance(concept, str):
                     exported_concepts.extend(concept_utils.extract_concepts_from_definition(concept)[0])
                 else:
-                    raise PlainSyntaxError(f"Syntax error: Invalid exported concept: {concept}.")
+                    raise PlainSyntaxError(f"Plain syntax error: Invalid exported concept: {concept}.")
 
             with PlainRenderer() as renderer:
                 for exported_concept in exported_concepts:
@@ -626,7 +626,7 @@ def plain_file_parser(  # noqa: C901
     plain_source_file_path = Path(plain_source_file_name)
     if plain_source_file_path.suffix != PLAIN_SOURCE_FILE_EXTENSION:
         raise PlainSyntaxError(
-            f"Invalid plain file extension: {plain_source_file_path.suffix}. Expected: {PLAIN_SOURCE_FILE_EXTENSION}."
+            f"Plain syntax error: Invalid plain file extension: {plain_source_file_path.suffix}. Expected: {PLAIN_SOURCE_FILE_EXTENSION}."
         )
 
     module_name = plain_source_file_path.stem
@@ -645,11 +645,13 @@ def plain_file_parser(  # noqa: C901
         missing_required_concepts_msg = "Missing required concepts: "
         missing_required_concepts_msg += ", ".join(plain_file_parse_result.required_concepts)
         raise PlainSyntaxError(
-            f"Syntax error: Not all required concepts were defined. {missing_required_concepts_msg}."
+            f"Plain syntax error: Not all required concepts were defined. {missing_required_concepts_msg}."
         )
 
     if not check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-        raise PlainSyntaxError(f"Module '{module_name}' was required but does not contain functional requirements.")
+        raise PlainSyntaxError(
+            f"Plain syntax error: Module '{module_name}' was required but does not contain functional requirements."
+        )
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,
@@ -673,7 +675,7 @@ def plain_file_parser(  # noqa: C901
     if len(validation_errors) > 0:
         errors_msg = "\n".join(validation_errors)
         msg = f"Found {len(validation_errors)} errors in the plain file:\n{errors_msg}"
-        raise PlainSyntaxError(msg)
+        raise PlainSyntaxError(f"Plain syntax error: {msg}")
 
     if plain_spec.DEFINITIONS in marshalled_plain_source:
         concept_utils.sort_definitions(marshalled_plain_source[plain_spec.DEFINITIONS])

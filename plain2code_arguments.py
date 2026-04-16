@@ -31,7 +31,7 @@ def process_test_script_path(script_arg_name, config):
     if isinstance(script_input_path, str) and script_input_path.startswith("/"):
         if not os.path.exists(script_input_path):
             raise FileNotFoundError(
-                f"Path for {script_arg_name} not found: {script_input_path}. Set it to the absolute path or relative to the config file."
+                f"File not found: Path for {script_arg_name} not found: {script_input_path}. Set it to the absolute path or relative to the config file.\n"
             )
         return config
 
@@ -47,7 +47,7 @@ def process_test_script_path(script_arg_name, config):
         setattr(config, script_arg_name, renderer_relative_path)
     else:
         raise FileNotFoundError(
-            f"Path for {script_arg_name} not found: {script_input_path}. Set it to the absolute path or relative to the config file."
+            f"File not found: Path for {script_arg_name} not found: {script_input_path}. Set it to the absolute path or relative to the config file.\n"
         )
     return config
 

@@ -33,21 +33,18 @@ class RenderConformanceTests(BaseAction):
             )
 
         if not render_context.conformance_tests_running_context.current_conformance_tests_exist():
-            with console.status(
-                f"[{console.INFO_STYLE}]Generating folder name for conformance tests for functionality {render_context.conformance_tests_running_context.current_testing_frid}...\n"
-            ):
-                fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
-                    frid=render_context.conformance_tests_running_context.current_testing_frid,
-                    functional_requirement=render_context.conformance_tests_running_context.current_testing_frid_specifications[
-                        plain_spec.FUNCTIONAL_REQUIREMENTS
-                    ][
-                        -1
-                    ],
-                    existing_folder_names=render_context.conformance_tests.fetch_existing_conformance_test_folder_names(
-                        render_context.conformance_tests_running_context.current_testing_module_name
-                    ),
-                    run_state=render_context.run_state,
-                )
+            fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
+                frid=render_context.conformance_tests_running_context.current_testing_frid,
+                functional_requirement=render_context.conformance_tests_running_context.current_testing_frid_specifications[
+                    plain_spec.FUNCTIONAL_REQUIREMENTS
+                ][
+                    -1
+                ],
+                existing_folder_names=render_context.conformance_tests.fetch_existing_conformance_test_folder_names(
+                    render_context.conformance_tests_running_context.current_testing_module_name
+                ),
+                run_state=render_context.run_state,
+            )
 
             conformance_tests_folder_name = os.path.join(
                 render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
@@ -95,25 +92,23 @@ class RenderConformanceTests(BaseAction):
             )
 
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
-        with console.status(
-            f"[{console.INFO_STYLE}]Rendering conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid}...\n"
-        ):
-            response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
-                render_context.frid_context.frid,
-                render_context.conformance_tests_running_context.current_testing_frid,
-                render_context.plain_source_tree,
-                render_context.frid_context.linked_resources,
-                existing_files_content,
-                memory_files_content,
-                render_context.module_name,
-                render_context.get_required_modules_functionalities(),
-                conformance_tests_folder_name,
-                render_context.conformance_tests_running_context.get_conformance_tests_json(
-                    render_context.conformance_tests_running_context.current_testing_module_name
-                ),
-                all_acceptance_tests,
-                run_state=render_context.run_state,
-            )
+
+        response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
+            render_context.frid_context.frid,
+            render_context.conformance_tests_running_context.current_testing_frid,
+            render_context.plain_source_tree,
+            render_context.frid_context.linked_resources,
+            existing_files_content,
+            memory_files_content,
+            render_context.module_name,
+            render_context.get_required_modules_functionalities(),
+            conformance_tests_folder_name,
+            render_context.conformance_tests_running_context.get_conformance_tests_json(
+                render_context.conformance_tests_running_context.current_testing_module_name
+            ),
+            all_acceptance_tests,
+            run_state=render_context.run_state,
+        )
 
         render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
             implementation_plan_summary
@@ -151,21 +146,18 @@ class RenderConformanceTests(BaseAction):
         if render_context.verbose:
             console.info(f"Generating acceptance test:\n  {acceptance_test}")
 
-        with console.status(
-            f"[{console.INFO_STYLE}]Generating acceptance test for functionality {render_context.frid_context.frid}...\n"
-        ):
-            response_files = render_context.codeplain_api.render_acceptance_tests(
-                render_context.frid_context.frid,
-                render_context.plain_source_tree,
-                render_context.frid_context.linked_resources,
-                existing_files_content,
-                memory_files_content,
-                conformance_tests_files_content,
-                render_context.module_name,
-                render_context.get_required_modules_functionalities(),
-                acceptance_test,
-                run_state=render_context.run_state,
-            )
+        response_files = render_context.codeplain_api.render_acceptance_tests(
+            render_context.frid_context.frid,
+            render_context.plain_source_tree,
+            render_context.frid_context.linked_resources,
+            existing_files_content,
+            memory_files_content,
+            conformance_tests_files_content,
+            render_context.module_name,
+            render_context.get_required_modules_functionalities(),
+            acceptance_test,
+            run_state=render_context.run_state,
+        )
         conformance_tests_folder_name = (
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
         )

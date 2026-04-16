@@ -21,7 +21,7 @@ class AnalyzeSpecificationAmbiguity(BaseAction):
         )
         if fixed_implementation_code_diff is None:
             raise InternalClientError(
-                "Fixes to the implementation code found during conformance testing are not committed to git."
+                "Internal client error: Fixes to the implementation code found during conformance testing are not committed to git."
             )
 
         previous_frid = plain_spec.get_previous_frid(render_context.plain_source_tree, render_context.frid_context.frid)

@@ -91,7 +91,7 @@ class PlainModule:
     def get_functionalities(self) -> dict[str, list[str]]:
         module_metadata = self.load_module_metadata()
         if module_metadata is None:
-            raise ModuleDoesNotExistError(f"Module {self.name} does not exist or has no metadata.")
+            raise ModuleDoesNotExistError(f"Module {self.name} does not exist or has no metadata.\n")
 
         if REQUIRED_MODULES_FUNCTIONALITIES in module_metadata:
             functionalities = module_metadata[REQUIRED_MODULES_FUNCTIONALITIES]

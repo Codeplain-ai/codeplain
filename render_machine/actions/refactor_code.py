@@ -26,15 +26,13 @@ class RefactorCode(BaseAction):
                 existing_files_content,
                 style=console.INPUT_STYLE,
             )
-        with console.status(
-            f"[{console.INFO_STYLE}]Refactoring the generated code for functionality {render_context.frid_context.frid}..."
-        ):
-            response_files = render_context.codeplain_api.refactor_source_files_if_needed(
-                frid=render_context.frid_context.frid,
-                files_to_check=render_context.frid_context.changed_files,
-                existing_files_content=existing_files_content,
-                run_state=render_context.run_state,
-            )
+
+        response_files = render_context.codeplain_api.refactor_source_files_if_needed(
+            frid=render_context.frid_context.frid,
+            files_to_check=render_context.frid_context.changed_files,
+            existing_files_content=existing_files_content,
+            run_state=render_context.run_state,
+        )
 
         if len(response_files) == 0:
             if render_context.verbose:

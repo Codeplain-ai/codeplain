@@ -20,18 +20,15 @@ class SummarizeConformanceTests(BaseAction):
             )
         )
 
-        with console.status(
-            f"[{console.INFO_STYLE}]Summarizing finished conformance tests for functionality {render_context.frid_context.frid}...\n"
-        ):
-            summary = render_context.codeplain_api.summarize_finished_conformance_tests(
-                frid=render_context.frid_context.frid,
-                plain_source_tree=render_context.plain_source_tree,
-                linked_resources=render_context.frid_context.linked_resources,
-                conformance_test_files_content=existing_conformance_test_files_content,
-                module_name=render_context.module_name,
-                required_modules=render_context.get_required_modules_functionalities(),
-                run_state=render_context.run_state,
-            )
+        summary = render_context.codeplain_api.summarize_finished_conformance_tests(
+            frid=render_context.frid_context.frid,
+            plain_source_tree=render_context.plain_source_tree,
+            linked_resources=render_context.frid_context.linked_resources,
+            conformance_test_files_content=existing_conformance_test_files_content,
+            module_name=render_context.module_name,
+            required_modules=render_context.get_required_modules_functionalities(),
+            run_state=render_context.run_state,
+        )
 
         render_context.conformance_tests_running_context.set_conformance_tests_summary(summary)
 

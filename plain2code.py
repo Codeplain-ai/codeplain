@@ -10,7 +10,6 @@ from typing import Optional
 
 import yaml
 from liquid2.exceptions import TemplateNotFoundError
-from requests.exceptions import RequestException
 
 import codeplain_REST_api as codeplain_api
 import file_utils
@@ -23,11 +22,8 @@ from plain2code_console import console
 from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
-    InternalClientError,
-    InternalServerError,
     InvalidAPIKey,
     InvalidFridArgument,
-    LLMInternalError,
     MissingAPIKey,
     MissingPreviousFunctionalitiesError,
     MissingResource,
@@ -58,15 +54,20 @@ RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 def print_exit_summary(
     run_state: RunState,
     spec_filename: str,
+    error_message: Optional[str] = None,
 ) -> None:
     console.quiet = False
     """Print render outcome after the TUI exits (terminal restored)."""
+
     msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
     msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
     msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
     msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or '-'}\n\n"
     msg += f"[#8E8F91]functionalities  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]used credits  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]render time  [#FFFFFF]{format_duration_hms(run_state.render_time_accumulated)}\n"
     console.info(msg)
+
+    if not run_state.render_succeeded and error_message:
+        console.error(error_message)
     console.quiet = True
 
 
@@ -104,12 +105,16 @@ def _get_frids_range(plain_source, start, end=None):
     start = str(start)
 
     if start not in frids:
-        raise InvalidFridArgument(f"Invalid start functionality ID: {start}. Valid IDs are: {frids}.")
+        raise InvalidFridArgument(
+            f"Invalid FRID argument: Invalid start functionality ID: {start}. Valid IDs are: {frids}.\n"
+        )
 
     if end is not None:
         end = str(end)
         if end not in frids:
-            raise InvalidFridArgument(f"Invalid end functionality ID: {end}. Valid IDs are: {frids}.")
+            raise InvalidFridArgument(
+                f"Invalid FRID argument: Invalid end functionality ID: {end}. Valid IDs are: {frids}.\n"
+            )
 
         end_idx = frids.index(end) + 1
     else:
@@ -117,7 +122,9 @@ def _get_frids_range(plain_source, start, end=None):
 
     start_idx = frids.index(start)
     if start_idx >= end_idx:
-        raise InvalidFridArgument(f"Start functionality ID: {start} must be before end functionality ID: {end}.")
+        raise InvalidFridArgument(
+            f"Invalid FRID argument: Start functionality ID: {start} must be before end functionality ID: {end}.\n"
+        )
 
     return frids[start_idx:end_idx]
 
@@ -185,16 +192,17 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
 
     if not response.get("api_key_valid", False):
         raise InvalidAPIKey(
-            "Provided API key is invalid. Please provide a valid API key using the CODEPLAIN_API_KEY environment variable "
-            "or the --api-key argument."
+            "Invalid API key: Provided API key is invalid. Please provide a valid API key using the CODEPLAIN_API_KEY environment variable "
+            "or the --api-key argument.\n"
         )
 
     if not response.get("client_version_valid", False):
         min_version = response.get("min_client_version", "unknown")
         raise OutdatedClientVersion(
+            "Outdated client version: "
             f"Your client version ({system_config.client_version}) is outdated. Minimum required version is {min_version}. "
             "Please update using:"
-            "  uv tool upgrade codeplain"
+            "  uv tool upgrade codeplain\n"
         )
 
 
@@ -316,84 +324,48 @@ def main():  # noqa: C901
     setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, args.headless)
 
     exc_info = None
+    error_message = None
+
     try:
         # Validate API key is present
         if not args.api_key:
             raise MissingAPIKey(
-                "API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument."
+                "Missing API key: API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
             )
         render(args, run_state, event_bus)
-    except InvalidFridArgument as e:
-        exc_info = sys.exc_info()
-        console.error(f"Invalid FRID argument: {str(e)}.\n")
-    except FileNotFoundError as e:
-        exc_info = sys.exc_info()
-        console.error(f"File not found: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except TemplateNotFoundError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Template not found: {str(e)}\n")
-        console.error(system_config.get_error_message("template_not_found"))
-    except PlainSyntaxError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Plain syntax error: {str(e)}\n")
-    except KeyboardInterrupt:
-        exc_info = sys.exc_info()
-        console.error("Keyboard interrupt")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except RequestException as e:
-        exc_info = sys.exc_info()
-        console.error(f"Error rendering plain code: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except MissingPreviousFunctionalitiesError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Error rendering plain code: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except MissingAPIKey as e:
-        console.error(f"Missing API key: {str(e)}\n")
-    except InvalidAPIKey as e:
-        console.error(f"Invalid API key: {str(e)}\n")
-    except OutdatedClientVersion as e:
-        console.error(f"Outdated client version: {str(e)}\n")
-    except (InternalServerError, InternalClientError):
-        exc_info = sys.exc_info()
-        console.error(
-            f"Internal server error.\n\nPlease report the error to support@codeplain.ai with the attached {args.log_file_name} file."
-        )
-        console.debug(f"Render ID: {run_state.render_id}")
-    except ConflictingRequirements as e:
-        exc_info = sys.exc_info()
-        console.error(f"Conflicting requirements: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except RenderingCreditBalanceTooLow as e:
-        exc_info = sys.exc_info()
-        console.error(f"Credit balance too low: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except LLMInternalError as e:
-        exc_info = sys.exc_info()
-        console.error(f"LLM internal error: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except MissingResource as e:
-        exc_info = sys.exc_info()
-        console.error(f"Missing resource: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except NetworkConnectionError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Connection error: {str(e)}\n")
-        console.error("Please check that your internet connection is working.")
-    except ModuleDoesNotExistError as e:
-        exc_info = sys.exc_info()
-        console.error(f"Module does not exist: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
-    except Exception as e:
-        exc_info = sys.exc_info()
-        console.error(f"Error rendering plain code: {str(e)}\n")
-        console.debug(f"Render ID: {run_state.render_id}")
+    except BaseException as e:
+        if isinstance(e, KeyboardInterrupt):
+            error_message = "Keyboard interrupt"
+        else:
+            error_message = str(e) if str(e) else repr(e)
+
+            if not isinstance(
+                e,
+                (
+                    InvalidFridArgument,
+                    FileNotFoundError,
+                    MissingResource,
+                    TemplateNotFoundError,
+                    PlainSyntaxError,
+                    MissingPreviousFunctionalitiesError,
+                    MissingAPIKey,
+                    InvalidAPIKey,
+                    OutdatedClientVersion,
+                    ConflictingRequirements,
+                    RenderingCreditBalanceTooLow,
+                    NetworkConnectionError,
+                    ModuleDoesNotExistError,
+                ),
+            ):
+                exc_info = sys.exc_info()
     finally:
-        print_exit_summary(run_state, args.filename)
+        print_exit_summary(
+            run_state,
+            args.filename,
+            error_message=error_message,
+        )
         if exc_info:
-            # Log traceback using the logging system
-            logging.error("Render crashed with exception:", exc_info=exc_info)
+            # Log traceback
             dump_crash_logs(args)
 
 
