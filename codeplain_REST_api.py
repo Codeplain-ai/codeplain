@@ -2,7 +2,7 @@ import time
 from typing import Optional
 
 import requests
-from requests.exceptions import ConnectionError, Timeout
+from requests.exceptions import ConnectionError, RequestException, Timeout
 
 import plain2code_exceptions
 from plain2code_state import RunState
@@ -76,9 +76,12 @@ class CodeplainAPI:
             if not silent:
                 self.console.error(f"Max retries ({num_retries}) exceeded. Last error: {error}")
             if is_connection_error:
-                raise plain2code_exceptions.NetworkConnectionError("Failed to connect to API server.")
-            else:
-                raise error
+                raise plain2code_exceptions.NetworkConnectionError(
+                    "Connection error: Failed to connect to API server.\n\nPlease check that your internet connection is working."
+                )
+            if isinstance(error, RequestException):
+                raise Exception(f"Error rendering plain code: {error}\n") from error
+            raise error
 
     def _raise_for_error_code(self, response_json):
         """Raise appropriate exception based on error code in response."""
@@ -86,13 +89,28 @@ class CodeplainAPI:
         if error_code not in ERROR_CODE_EXCEPTIONS:
             return
 
-        exception_class = ERROR_CODE_EXCEPTIONS[error_code]
         message = response_json.get("message", "")
 
-        # FunctionalRequirementTooComplex has an extra parameter
         if error_code == "FunctionalRequirementTooComplex":
-            raise exception_class(message, response_json.get("proposed_breakdown"))
-
+            raise plain2code_exceptions.FunctionalRequirementTooComplex(
+                message, response_json.get("proposed_breakdown")
+            )
+        if error_code == "MissingResource":
+            raise plain2code_exceptions.MissingResource(f"Missing resource: {message}\n")
+        if error_code == "ConflictingRequirements":
+            raise plain2code_exceptions.ConflictingRequirements(f"Conflicting requirements: {message}\n")
+        if error_code == "CreditBalanceTooLow":
+            raise plain2code_exceptions.RenderingCreditBalanceTooLow(f"Credit balance too low: {message}\n")
+        if error_code == "LLMInternalError":
+            raise plain2code_exceptions.LLMInternalError(f"LLM internal error: {message}\n")
+        if error_code == "PlainSyntaxError":
+            raise plain2code_exceptions.plain_syntax_error(message or "Unknown error")
+        if error_code == "InternalServerError":
+            raise plain2code_exceptions.InternalServerError(
+                "Internal server error.\n\n"
+                f"Please report the error to support@codeplain.ai with the attached {self.log_file_name} file."
+            )
+        exception_class = ERROR_CODE_EXCEPTIONS[error_code]
         raise exception_class(message)
 
     def post_request(
@@ -118,7 +136,7 @@ class CodeplainAPI:
                     response_json = response.json()
                 except requests.exceptions.JSONDecodeError as e:
                     self.console.debug(f"Failed to decode JSON response: {e}. Response text: {response.text}")
-                    raise
+                    raise Exception(f"Error rendering plain code: Failed to decode API response ({e}).\n") from e
 
                 if response.status_code == requests.codes.bad_request and "error_code" in response_json:
                     self._raise_for_error_code(response_json)

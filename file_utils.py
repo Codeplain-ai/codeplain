@@ -239,7 +239,7 @@ def load_linked_resources(template_dirs: list[str], resources_list):
         content = open_from(template_dirs, file_name)
 
         if content is None:
-            raise FileNotFoundError(f"""
+            raise FileNotFoundError(f"""File not found:
                 Resource file {file_name} not found. Resource files are searched in the following order (highest to lowest precedence):
 
                 1. The directory containing your .plain file
