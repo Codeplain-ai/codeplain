@@ -4,11 +4,14 @@ import time
 import uuid
 from typing import Optional
 
+from event_bus import EventBus
+from plain2code_events import LastRenderStartTimestampSet, RenderTimeSet
+
 
 class RunState:
     """Contains information about the identifiable state of the rendering process."""
 
-    def __init__(self, spec_filename: str, replay_with: Optional[str] = None):
+    def __init__(self, spec_filename: str, event_bus: EventBus, replay_with: Optional[str] = None):
         self.replay: bool = replay_with is not None
         self.render_succeeded: bool = False
         self.render_generated_code_path: Optional[str] = None
@@ -22,7 +25,8 @@ class RunState:
         self.unittest_batch_id: int = 0
         self.frid_render_anaysis: dict[str, str] = {}
         self.render_time_accumulated: int = 0
-        self.last_render_start_timestamp: float = time.monotonic()
+        self.last_render_start_timestamp: float | None = time.monotonic()
+        self.event_bus = event_bus
 
     def increment_call_count(self):
         self.call_count += 1
@@ -44,9 +48,13 @@ class RunState:
 
     def add_to_render_time(self):
         self.render_time_accumulated += int(time.monotonic() - self.last_render_start_timestamp)
+        self.event_bus.publish(RenderTimeSet(render_time_accumulated=self.render_time_accumulated))
 
-    def set_last_render_start_timestamp(self):
-        self.last_render_start_timestamp = time.monotonic()
+    def set_last_render_start_timestamp(self, finished_rendering: bool = False):
+        self.last_render_start_timestamp = time.monotonic() if finished_rendering is False else None
+        self.event_bus.publish(
+            LastRenderStartTimestampSet(last_render_start_timestamp=self.last_render_start_timestamp)
+        )
 
     def to_dict(self):
         return {

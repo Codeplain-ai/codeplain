@@ -307,7 +307,7 @@ def main():  # noqa: C901
     if not args.api:
         args.api = "https://api.codeplain.ai"
 
-    run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
+    run_state = RunState(spec_filename=args.filename, event_bus=event_bus, replay_with=args.replay_with)
 
     if args.headless:
         # Suppress Rich console output.

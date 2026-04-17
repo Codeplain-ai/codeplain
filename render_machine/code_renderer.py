@@ -47,7 +47,7 @@ class CodeRenderer:
                 self.render_context.run_state.add_to_render_time()
                 while self.render_context.enter_pause_event.is_set():
                     time.sleep(PAUSE_POLL_INTERVAL_SECONDS)
-                self.render_context.run_state.set_last_render_start_timestamp()
+                self.render_context.run_state.set_last_render_start_timestamp(finished_rendering=False)
 
             self.render_context.event_bus.publish(
                 RenderStateUpdated(

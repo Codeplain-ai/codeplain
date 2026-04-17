@@ -245,7 +245,7 @@ class Plain2CodeTUI(App):
 
         self._state_completion_handler.handle(segments, snapshot, previous_state_segments)
 
-    def on_render_paused(self, event: RenderPaused):
+    def on_render_paused(self, _event):
         footer = self.screen.query_one(CustomFooter)
         footer.update_footer_state("paused")
         transition_frid_progress(self, ProgressItem.PAUSING, ProgressItem.PAUSED)
