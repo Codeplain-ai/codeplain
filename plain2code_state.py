@@ -51,7 +51,7 @@ class RunState:
         self.event_bus.publish(RenderTimeSet(render_time_accumulated=self.render_time_accumulated))
 
     def set_last_render_start_timestamp(self, finished_rendering: bool = False):
-        self.last_render_start_timestamp = time.monotonic() if finished_rendering == False else None
+        self.last_render_start_timestamp = time.monotonic() if finished_rendering is False else None
         self.event_bus.publish(
             LastRenderStartTimestampSet(last_render_start_timestamp=self.last_render_start_timestamp)
         )
