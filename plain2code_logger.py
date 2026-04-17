@@ -4,8 +4,7 @@ import time
 from typing import Optional
 
 from event_bus import EventBus
-from plain2code_events import LogMessageEmitted
-from plain2code_state import RunState
+from plain2code_events import LastRenderStartTimestampSet, LogMessageEmitted, RenderTimeSet
 
 LOGGER_NAME = "codeplain"
 
@@ -21,16 +20,27 @@ class IndentedFormatter(logging.Formatter):
 
 
 class TuiLoggingHandler(logging.Handler):
-    def __init__(self, event_bus: EventBus, run_state: RunState):
+    def __init__(self, event_bus: EventBus):
         super().__init__()
         self.event_bus = event_bus
-        self.run_state = run_state
+        self.render_time_accumulated = 0
+        self.last_render_start_timestamp: float | None = time.monotonic()
+
+        self.event_bus.subscribe(RenderTimeSet, self.on_render_time_set)
+        self.event_bus.subscribe(LastRenderStartTimestampSet, self.on_last_render_start_timestamp_set)
+
+    def on_render_time_set(self, event: RenderTimeSet):
+        self.render_time_accumulated = event.render_time_accumulated
+
+    def on_last_render_start_timestamp_set(self, event: LastRenderStartTimestampSet):
+        self.last_render_start_timestamp = event.last_render_start_timestamp
 
     def emit(self, record):
         try:
-            offset_seconds = self.run_state.render_time_accumulated + int(
-                time.monotonic() - self.run_state.last_render_start_timestamp
-            )
+            if self.last_render_start_timestamp is None:
+                offset_seconds = self.render_time_accumulated
+            else:
+                offset_seconds = self.render_time_accumulated + int(time.monotonic() - self.last_render_start_timestamp)
 
             hours = offset_seconds // 3600
             minutes = (offset_seconds % 3600) // 60

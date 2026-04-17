@@ -66,3 +66,13 @@ class RenderModuleStarted(BaseEvent):
 @dataclass
 class RenderPaused(BaseEvent):
     pass
+
+
+@dataclass
+class RenderTimeSet(BaseEvent):
+    render_time_accumulated: int
+
+
+@dataclass
+class LastRenderStartTimestampSet(BaseEvent):
+    last_render_start_timestamp: float | None

@@ -451,7 +451,9 @@ class RenderContext:
     def start_render_completed(self):
         self.run_state.set_render_succeeded(True)
         self.run_state.add_to_render_time()
+        self.run_state.set_last_render_start_timestamp(finished_rendering=True)
 
     def start_render_failed(self):
         self.run_state.set_render_succeeded(False)
         self.run_state.add_to_render_time()
+        self.run_state.set_last_render_start_timestamp(finished_rendering=True)
