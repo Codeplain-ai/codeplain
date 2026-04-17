@@ -23,9 +23,8 @@ class ModuleRenderer:
     def __init__(
         self,
         codeplainAPI,
-        filename: str,
+        plain_module: PlainModule,
         render_range: list[str] | None,
-        template_dirs: list[str],
         args: argparse.Namespace,
         run_state: RunState,
         event_bus: EventBus,
@@ -33,9 +32,8 @@ class ModuleRenderer:
         enter_pause_event: threading.Event | None = None,
     ):
         self.codeplainAPI = codeplainAPI
-        self.filename = filename
+        self.plain_module = plain_module
         self.render_range = render_range
-        self.template_dirs = template_dirs
         self.args = args
         self.run_state = run_state
         self.event_bus = event_bus
@@ -44,21 +42,18 @@ class ModuleRenderer:
 
     def _build_render_context_for_module(
         self,
-        module_name: str,
+        plain_module: PlainModule,
         memory_manager: MemoryManager,
-        plain_source: dict,
-        required_modules: list[PlainModule],
-        template_dirs: list[str],
         render_range: list[str] | None,
     ) -> RenderContext:
         return RenderContext(
             self.codeplainAPI,
             memory_manager,
-            module_name,
-            plain_source,
-            required_modules,
-            template_dirs,
-            build_folder=os.path.join(self.args.build_folder, module_name),
+            plain_module.module_name,
+            plain_module.plain_source,
+            plain_module.all_required_modules,
+            plain_module.template_dirs,
+            build_folder=os.path.join(self.args.build_folder, plain_module.module_name),
             build_dest=self.args.build_dest,
             conformance_tests_folder=self.args.conformance_tests_folder,
             conformance_tests_dest=self.args.conformance_tests_dest,
@@ -120,11 +115,8 @@ class ModuleRenderer:
             ),
         )
         render_context = self._build_render_context_for_module(
-            plain_module.module_name,
+            plain_module,
             memory_manager,
-            plain_module.plain_source,
-            plain_module.all_required_modules,
-            self.template_dirs,
             render_range,
         )
 
@@ -150,20 +142,13 @@ class ModuleRenderer:
 
     def render_module(self) -> None:
         self.loaded_modules = list[PlainModule]()
-        plain_module = plain_modules.PlainModule(
-            self.filename,
-            self.args.build_folder,
-            self.args.conformance_tests_folder,
-            self.template_dirs,
-        )
-        _, rendering_failed = self._render_module(plain_module, self.render_range, True)
+        _, rendering_failed = self._render_module(self.plain_module, self.render_range, True)
         if not rendering_failed:
             # Get the last module that completed rendering
             if self.args.copy_build:
                 rendered_code_path = f"{self.args.build_dest}/"
             else:
-                last_module_name = self.filename.replace(plain_file.PLAIN_SOURCE_FILE_EXTENSION, "")
-                rendered_code_path = f"{os.path.join(self.args.build_folder, last_module_name)}/"
+                rendered_code_path = f"{os.path.join(self.args.build_folder, self.plain_module.module_name)}/"
 
             self.run_state.set_render_generated_code_path(rendered_code_path)
             self.event_bus.publish(RenderCompleted(rendered_code_path=rendered_code_path))

@@ -67,8 +67,20 @@ class PlainModule:
     def get_codeplain_folder(self):
         return os.path.join(self.module_build_folder, CODEPLAIN_METADATA_FOLDER)
 
-    def get_last_rendered_frid(self) -> str | None:
-        return git_utils.get_last_finished_frid(self.module_build_folder)
+    def get_last_rendered_frid(self) -> tuple[str, str | None]:
+        if len(self.required_modules) == 0:
+            return git_utils.get_last_finished_frid(self.module_build_folder)
+
+        module_name, frid = git_utils.get_last_finished_frid(self.module_build_folder)
+        if module_name is not None and frid is not None:
+            return module_name, frid
+
+        for module in reversed(self.required_modules):
+            last_rendered_module, last_rendered_frid = module.get_last_rendered_frid()
+            if last_rendered_module is not None and last_rendered_frid is not None:
+                return last_rendered_module, last_rendered_frid
+
+        return None, None
 
     def get_repo(self):
         try:

@@ -15,9 +15,11 @@ from requests.exceptions import RequestException
 import codeplain_REST_api as codeplain_api
 import file_utils
 import plain_file
+import plain_modules
 import plain_spec
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
+from partial_rendering import PartialRender, detect_partial_rendering
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
 from plain2code_events import RenderFailed
@@ -198,6 +200,49 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
         )
 
 
+def get_partial_render_choice(plain_module: plain_modules.PlainModule, partial_render: PartialRender | None) -> str:
+    print("--- Partial render detected ---")
+    print(f"Target module: {plain_module.module_name}")
+    print(f"Partially rendered module: {partial_render.module.module_name}")
+    if partial_render.frid is not None:
+        print(f"Last fully rendered FRID: {partial_render.frid}")
+    if partial_render.spec_change:
+        print("Spec change: Yes")
+    else:
+        print("Spec change: No")
+
+    if partial_render.code_change:
+        print("Code change: Yes")
+    else:
+        print("Code change: No")
+
+    choice_idx = 1
+    options = {f"{choice_idx}": "Re-render all"}
+    choice_idx += 1
+    if partial_render.frid is not None:
+        options[f"{choice_idx}"] = (
+            f"Continue from FRID {partial_render.frid} of module {partial_render.module.module_name}"
+        )
+        choice_idx += 1
+
+    if partial_render.spec_change:
+        options[f"{choice_idx}"] = f"Re-render {partial_render.module.module_name} from start"
+        choice_idx += 1
+
+    if partial_render.code_change:
+        options[f"{choice_idx}"] = f"Re-render {partial_render.module.module_name} from start"
+        choice_idx += 1
+
+    for key, value in options.items():
+        print(f"{key}. {value}")
+
+    while True:
+        selection = input("\nSelect an option: ").strip()
+        if selection in options:
+            return options[selection]
+        print("Invalid choice. Please try again.")
+
+
 def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
@@ -219,11 +264,25 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     enter_pause_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
+    plain_module = plain_modules.PlainModule(
+        args.filename,
+        args.build_folder,
+        args.conformance_tests_folder,
+        template_dirs,
+    )
+
+    partial_render = detect_partial_rendering(plain_module)
+    print("Partial render: ", partial_render)
+    if partial_render is not None:
+        choice = get_partial_render_choice(plain_module, partial_render)
+        print(f"You selected: {choice}")
+
+    exit()
+
     module_renderer = ModuleRenderer(
         codeplainAPI,
-        args.filename,
+        plain_module,
         render_range,
-        template_dirs,
         args,
         run_state,
         event_bus,
