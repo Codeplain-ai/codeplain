@@ -31,6 +31,7 @@ class RefactorCode(BaseAction):
         ):
             response_files = render_context.codeplain_api.refactor_source_files_if_needed(
                 frid=render_context.frid_context.frid,
+                module_name=render_context.module_name,
                 files_to_check=render_context.frid_context.changed_files,
                 existing_files_content=existing_files_content,
                 run_state=render_context.run_state,

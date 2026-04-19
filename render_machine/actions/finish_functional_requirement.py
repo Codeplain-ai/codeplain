@@ -12,6 +12,7 @@ class FinishFunctionalRequirement(CommitImplementationCodeChanges):
 
         render_context.codeplain_api.finish_functional_requirement(
             render_context.frid_context.frid,
+            module_name=render_context.module_name,
             run_state=render_context.run_state,
         )
 
