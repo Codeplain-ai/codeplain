@@ -38,6 +38,7 @@ class RenderConformanceTests(BaseAction):
             ):
                 fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
                     frid=render_context.conformance_tests_running_context.current_testing_frid,
+                    module_name=render_context.conformance_tests_running_context.current_testing_module_name,
                     functional_requirement=render_context.conformance_tests_running_context.current_testing_frid_specifications[
                         plain_spec.FUNCTIONAL_REQUIREMENTS
                     ][

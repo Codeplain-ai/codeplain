@@ -262,12 +262,15 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def refactor_source_files_if_needed(self, frid, files_to_check, existing_files_content, run_state: RunState):
+    def refactor_source_files_if_needed(
+        self, frid, module_name: str, files_to_check, existing_files_content, run_state: RunState
+    ):
         endpoint_url = f"{self.api_url}/refactor_source_files_if_needed"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
 
         payload = {
             "frid": frid,
+            "module_name": module_name,
             "files_to_check": list(files_to_check),
             "existing_files_content": existing_files_content,
         }
@@ -312,6 +315,7 @@ class CodeplainAPI:
     def generate_folder_name_from_functional_requirement(
         self,
         frid,
+        module_name: str,
         functional_requirement,
         existing_folder_names,
         run_state: RunState,
@@ -321,6 +325,7 @@ class CodeplainAPI:
 
         payload = {
             "frid": frid,
+            "module_name": module_name,
             "functional_requirement": functional_requirement,
             "existing_folder_names": existing_folder_names,
         }
@@ -454,22 +459,24 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def finish_functional_requirement(self, frid, run_state: RunState):
+    def finish_functional_requirement(self, frid, module_name: str, run_state: RunState):
         endpoint_url = f"{self.api_url}/finish_functional_requirement"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
 
         payload = {
             "frid": frid,
+            "module_name": module_name,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def fail_functional_requirement(self, frid, run_state: RunState):
+    def fail_functional_requirement(self, frid, module_name: str, run_state: RunState):
         endpoint_url = f"{self.api_url}/fail_functional_requirement"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
 
         payload = {
             "frid": frid,
+            "module_name": module_name,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
