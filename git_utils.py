@@ -429,6 +429,8 @@ def get_last_finished_frid(repo_path: Union[str, os.PathLike]) -> tuple[Optional
     if not commit_sha:
         return None, None
     commit_message = repo.commit(commit_sha).message
+    if isinstance(commit_message, bytes):
+        commit_message = commit_message.decode("utf-8")
     match = re.search(r"FRID\):(\S+) fully implemented", commit_message)
     frid = match.group(1) if match else None
 

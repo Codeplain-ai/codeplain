@@ -5,7 +5,7 @@ from typing import Optional
 
 from liquid2.filter import with_context
 
-from plain2code_exceptions import InvalidLiquidVariableName
+from plain2code_exceptions import InvalidFridArgument, InvalidLiquidVariableName
 
 DEFINITIONS = "definitions"
 NON_FUNCTIONAL_REQUIREMENTS = "implementation reqs"
@@ -378,3 +378,55 @@ def hash_text(text):
 
 def get_hash_value(specifications):
     return hash_text(json.dumps(specifications, indent=4))
+
+
+def get_render_range(render_range, plain_source):
+    render_range = render_range.split(",")
+    range_end = render_range[1] if len(render_range) == 2 else render_range[0]
+
+    return _get_frids_range(plain_source, render_range[0], range_end)
+
+
+def get_render_range_from(start, plain_source):
+    return _get_frids_range(plain_source, start)
+
+
+def compute_render_range(args, plain_source_tree):
+    """Compute render range from --render-range or --render-from arguments.
+
+    Args:
+        args: Parsed command line arguments
+        plain_source_tree: Parsed plain source tree
+
+    Returns:
+        List of FRIDs to render, or None to render all
+    """
+    if args.render_range:
+        return get_render_range(args.render_range, plain_source_tree)
+    elif args.render_from:
+        return get_render_range_from(args.render_from, plain_source_tree)
+    return None
+
+
+def _get_frids_range(plain_source, start, end=None):
+    frids = list(get_frids(plain_source))
+
+    start = str(start)
+
+    if start not in frids:
+        raise InvalidFridArgument(f"Invalid start functionality ID: {start}. Valid IDs are: {frids}.")
+
+    if end is not None:
+        end = str(end)
+        if end not in frids:
+            raise InvalidFridArgument(f"Invalid end functionality ID: {end}. Valid IDs are: {frids}.")
+
+        end_idx = frids.index(end) + 1
+    else:
+        end_idx = len(frids)
+
+    start_idx = frids.index(start)
+    if start_idx >= end_idx:
+        raise InvalidFridArgument(f"Start functionality ID: {start} must be before end functionality ID: {end}.")
+
+    return frids[start_idx:end_idx]

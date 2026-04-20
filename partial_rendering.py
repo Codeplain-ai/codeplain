@@ -1,38 +1,69 @@
 from dataclasses import dataclass
 
+from plain2code_exceptions import ModuleDoesNotExistError
 from plain_modules import PlainModule
 
 
 @dataclass
 class PartialRender:
-    module: PlainModule | None = None
+    module: PlainModule
     frid: str | None = None
     spec_change: bool = False
     code_change: bool = False
 
 
-def spec_change(plain_module: PlainModule) -> bool:
-    if len(plain_module.required_modules) == 0:
-        return plain_module if plain_module.has_plain_spec_changed() else None
-
-    for required_module in plain_module.required_modules:
-        sc = spec_change(required_module)
-        if sc is not None:
-            return sc
-
-    return plain_module if plain_module.has_plain_spec_changed() else None
+@dataclass
+class PartialRenderChoice:
+    module: PlainModule | None = None
+    render_range: list[str] | None = None
+    msg: str | None = None
 
 
-def code_change(plain_module: PlainModule) -> bool:
-    if len(plain_module.required_modules) == 0:
-        return plain_module if plain_module.has_required_modules_code_changed() else None
+def spec_change(plain_module: PlainModule) -> PlainModule | None:
+    for required_module in plain_module.all_required_modules:
+        module_metadata = required_module.load_module_metadata()
+        if (
+            module_metadata
+            and "source_hash" in module_metadata
+            and module_metadata["source_hash"] != required_module.get_module_source_hash()
+        ):
+            return required_module
 
-    for required_module in plain_module.required_modules:
-        cc = code_change(required_module)
-        if cc is not None:
-            return cc
+    module_metadata = plain_module.load_module_metadata()
+    if (
+        module_metadata
+        and "source_hash" in module_metadata
+        and module_metadata["source_hash"] != plain_module.get_module_source_hash()
+    ):
+        return plain_module
 
-    return plain_module if plain_module.has_required_modules_code_changed() else None
+    return None
+
+
+def code_change(plain_module: PlainModule) -> PlainModule | None:
+    for required_module in plain_module.all_required_modules:
+        if len(required_module.required_modules) == 0:
+            continue
+
+        module_metadata = required_module.load_module_metadata()
+        previous_module = required_module.required_modules[-1]
+        if (
+            module_metadata
+            and "required_modules_code_hash" in module_metadata
+            and module_metadata["required_modules_code_hash"] != previous_module.get_module_code_hash()
+        ):
+            return required_module
+
+    module_metadata = plain_module.load_module_metadata()
+    previous_module = plain_module.required_modules[-1]
+    if (
+        module_metadata
+        and "required_modules_code_hash" in module_metadata
+        and module_metadata["required_modules_code_hash"] != previous_module.get_module_code_hash()
+    ):
+        return plain_module
+
+    return None
 
 
 def module_comes_before(
@@ -40,6 +71,7 @@ def module_comes_before(
     module1: PlainModule,
     module2: PlainModule,
 ) -> bool:
+
     for module in all_required_modules:
         if module.module_name == module1.module_name:
             return True
@@ -62,6 +94,11 @@ def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
         if required_module.module_name == last_rendered_module:
             module = required_module
 
+    if module is None:
+        raise ModuleDoesNotExistError(
+            f"Last rendered module {last_rendered_module} not found in {all_required_modules}"
+        )
+
     pr = PartialRender(
         module=module,
         frid=last_rendered_frid,
@@ -72,17 +109,16 @@ def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
     if sc is None and cc is None:
         return pr
 
-    if sc is not None:
-        if module_comes_before(all_required_modules, sc, pr.module):
-            pr.module = sc
-            pr.spec_change = True
-            pr.frid = None
+    if sc is not None and module_comes_before(all_required_modules, sc, pr.module):
+        pr.module = sc
+        pr.spec_change = True
+        pr.code_change = False
+        pr.frid = None
 
-    if cc is not None:
-        if module_comes_before(all_required_modules, cc, pr.module):
-            pr.module = cc
-            pr.code_change = True
-            pr.spec_change = False
-            pr.frid = None
+    if cc is not None and module_comes_before(all_required_modules, cc, pr.module):
+        pr.module = cc
+        pr.code_change = True
+        pr.spec_change = False
+        pr.frid = None
 
     return pr
