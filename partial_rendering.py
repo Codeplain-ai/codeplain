@@ -14,11 +14,11 @@ class PartialRender:
 @dataclass
 class PartialRenderChoice:
     module: PlainModule | None = None
-    frid: str | None = None
+    render_range: list[str] | None = None
     msg: str | None = None
 
 
-def spec_change(plain_module: PlainModule) -> bool:
+def spec_change(plain_module: PlainModule) -> PlainModule | None:
     if len(plain_module.required_modules) == 0:
         return plain_module if plain_module.has_plain_spec_changed() else None
 
@@ -30,7 +30,7 @@ def spec_change(plain_module: PlainModule) -> bool:
     return plain_module if plain_module.has_plain_spec_changed() else None
 
 
-def code_change(plain_module: PlainModule) -> bool:
+def code_change(plain_module: PlainModule) -> PlainModule | None:
     if len(plain_module.required_modules) == 0:
         return plain_module if plain_module.has_required_modules_code_changed() else None
 

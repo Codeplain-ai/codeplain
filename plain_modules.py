@@ -112,24 +112,23 @@ class PlainModule:
         self,
     ) -> bool:
         if self.required_modules is None or len(self.required_modules) == 0:
-            return False
+            return None
 
         module_metadata = self.load_module_metadata()
 
         if not module_metadata or "required_modules_code_hash" not in module_metadata:
-            return True
+            return None
 
         previous_module = self.required_modules[-1]
         return module_metadata["required_modules_code_hash"] != previous_module.get_module_code_hash()
 
     def has_plain_spec_changed(self) -> bool:
         module_metadata = self.load_module_metadata()
-
         if not module_metadata:
-            return True
+            return None
 
         if "source_hash" not in module_metadata:
-            return True
+            return None
 
         return module_metadata["source_hash"] != self.get_module_source_hash()
 
@@ -265,7 +264,7 @@ class PlainModule:
             return
 
         # Ensure the module folders exist
-        self._ensure_module_folders_exist(first_render_frid)
+        self._ensure_module_folders_exist(first_render_frid, render_conformance_tests)
 
         # Verify commits exist for all previous FRIDs
         for prev_frid in previous_frids:
