@@ -350,6 +350,7 @@ class CodeplainAPI:
         implementation_fix_count,
         conformance_tests_folder_name,
         current_testing_frid_high_level_implementation_plan: Optional[str],
+        conflicting_requirements_count: int,
         run_state: RunState,
     ):
         endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
@@ -371,6 +372,7 @@ class CodeplainAPI:
             "implementation_fix_count": implementation_fix_count,
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "current_testing_frid_high_level_implementation_plan": current_testing_frid_high_level_implementation_plan,
+            "conflicting_requirements_count": conflicting_requirements_count,
         }
 
         if acceptance_tests is not None:

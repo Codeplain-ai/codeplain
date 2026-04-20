@@ -32,6 +32,9 @@ class ConformanceTestsRunningContext:
         current_testing_frid_specifications: Optional[dict[str, list]],
         conformance_test_phase_index: int,
         should_prepare_testing_environment: bool,
+        conflicting_requirement_count: int = 0,
+        conflicting_module_name: Optional[str] = None,
+        conflicting_frid: Optional[str] = None,
     ):
         self.current_testing_module_name = current_testing_module_name
         self.current_testing_frid = current_testing_frid
@@ -41,7 +44,9 @@ class ConformanceTestsRunningContext:
         self.current_testing_frid_specifications = current_testing_frid_specifications
         self.conformance_test_phase_index = conformance_test_phase_index
         self.should_prepare_testing_environment = should_prepare_testing_environment
-
+        self.conflicting_requirement_count = conflicting_requirement_count
+        self.conflicting_module_name = conflicting_module_name
+        self.conflicting_frid = conflicting_frid
         # will be propagated only when:
         # - current_testing_frid == frid  noqa: E800
         # - conformance_test_phase_index == 0 (conformance tests phase)
