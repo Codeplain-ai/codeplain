@@ -270,3 +270,35 @@ class PlainModule:
         # Verify commits exist for all previous FRIDs
         for prev_frid in previous_frids:
             self._ensure_frid_commit_exists(prev_frid, first_render_frid, render_conformance_tests)
+
+    def get_module_by_name(self, module_name: str) -> PlainModule:
+        for module in self.all_required_modules:
+            if module.module_name == module_name:
+                return module
+
+        raise ModuleDoesNotExistError(f"Module {module_name} does not exist")
+
+    def get_next_module(self, module_name: str) -> PlainModule | None:
+        for idx, module in enumerate(self.all_required_modules):
+            if module.module_name == module_name and idx < len(self.all_required_modules) - 1:
+                return self.all_required_modules[idx + 1]
+
+        return None
+
+    def get_next_frid(self, frid: str, module_name: str) -> tuple[str, PlainModule]:
+        module = self.get_module_by_name(module_name)
+        next_frid = plain_spec.get_next_frid(module.plain_source, frid)
+
+        if next_frid is None:
+            next_module = self.get_next_module(module_name)
+            return plain_spec.get_first_frid(next_module.plain_source), next_module
+
+        return next_frid, module
+
+    def is_module_fully_rendered(self) -> bool:
+        frids = list(plain_spec.get_frids(self.plain_source))
+        last_rendered_module, last_rendered_frid = git_utils.get_last_finished_frid(self.module_build_folder)
+        if last_rendered_module is None or last_rendered_frid is None:
+            return False
+
+        return last_rendered_frid == frids[-1]

@@ -11,6 +11,13 @@ class PartialRender:
     code_change: bool = False
 
 
+@dataclass
+class PartialRenderChoice:
+    module: PlainModule | None = None
+    frid: str | None = None
+    msg: str | None = None
+
+
 def spec_change(plain_module: PlainModule) -> bool:
     if len(plain_module.required_modules) == 0:
         return plain_module if plain_module.has_plain_spec_changed() else None

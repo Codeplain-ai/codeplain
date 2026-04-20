@@ -19,7 +19,7 @@ import plain_modules
 import plain_spec
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
-from partial_rendering import PartialRender, detect_partial_rendering
+from partial_rendering import PartialRender, PartialRenderChoice, detect_partial_rendering
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
 from plain2code_events import RenderFailed
@@ -200,12 +200,18 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
         )
 
 
-def get_partial_render_choice(plain_module: plain_modules.PlainModule, partial_render: PartialRender | None) -> str:
+def get_partial_render_choice(
+    plain_module: plain_modules.PlainModule, partial_render: PartialRender | None
+) -> PartialRenderChoice:
+    choices = dict[str, PartialRenderChoice | None]()
     print("--- Partial render detected ---")
     print(f"Target module: {plain_module.module_name}")
-    print(f"Partially rendered module: {partial_render.module.module_name}")
-    if partial_render.frid is not None:
+    if partial_render.module.is_module_fully_rendered():
+        print(f"Last fully rendered module: {partial_render.module.module_name}")
+    else:
+        print(f"Partially rendered module: {partial_render.module.module_name}")
         print(f"Last fully rendered FRID: {partial_render.frid}")
+
     if partial_render.spec_change:
         print("Spec change: Yes")
     else:
@@ -216,30 +222,44 @@ def get_partial_render_choice(plain_module: plain_modules.PlainModule, partial_r
     else:
         print("Code change: No")
 
-    choice_idx = 1
-    options = {f"{choice_idx}": "Re-render all"}
+    choice_idx = 0
+    first_module = plain_module.all_required_modules[0]
+    choices[f"{choice_idx}"] = PartialRenderChoice(
+        module=first_module,
+        frid=None,
+        msg=f"Re-render all (start from first module: {first_module.module_name})",
+    )
     choice_idx += 1
     if partial_render.frid is not None:
-        options[f"{choice_idx}"] = (
-            f"Continue from FRID {partial_render.frid} of module {partial_render.module.module_name}"
+        next_frid, next_module = plain_module.get_next_frid(partial_render.frid, partial_render.module.module_name)
+        choices[f"{choice_idx}"] = PartialRenderChoice(
+            module=next_module,
+            frid=next_frid,
+            msg=f"Continue from FRID {next_frid} of module {next_module.module_name}",
         )
         choice_idx += 1
 
     if partial_render.spec_change:
-        options[f"{choice_idx}"] = f"Re-render {partial_render.module.module_name} from start"
+        choices[f"{choice_idx}"] = PartialRenderChoice(
+            module=partial_render.module, frid=None, msg=f"Re-render {partial_render.module.module_name} from start"
+        )
         choice_idx += 1
 
     if partial_render.code_change:
-        options[f"{choice_idx}"] = f"Re-render {partial_render.module.module_name} from start"
+        choices[f"{choice_idx}"] = PartialRenderChoice(
+            module=partial_render.module, frid=None, msg=f"Re-render {partial_render.module.module_name} from start"
+        )
         choice_idx += 1
 
-    for key, value in options.items():
-        print(f"{key}. {value}")
+    choices[f"{choice_idx}"] = PartialRenderChoice(module=None, frid=None, msg="Quit")
+    for key, pr_choice in choices.items():
+        print(f"{key}. {pr_choice.msg}")
 
     while True:
         selection = input("\nSelect an option: ").strip()
-        if selection in options:
-            return options[selection]
+        if selection in choices:
+            return choices[selection]
+
         print("Invalid choice. Please try again.")
 
 
@@ -272,12 +292,10 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     )
 
     partial_render = detect_partial_rendering(plain_module)
-    print("Partial render: ", partial_render)
     if partial_render is not None:
         choice = get_partial_render_choice(plain_module, partial_render)
-        print(f"You selected: {choice}")
-
-    exit()
+        if choice.module is None and choice.frid is None and choice.msg == "Quit":
+            exit()
 
     module_renderer = ModuleRenderer(
         codeplainAPI,
