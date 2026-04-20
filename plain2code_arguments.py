@@ -1,6 +1,5 @@
 import argparse
 import os
-from ntpath import isabs
 from typing import Any
 
 from plain2code_console import console
