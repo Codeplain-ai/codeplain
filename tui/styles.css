@@ -424,3 +424,43 @@ CustomFooter.footer-state-paused {
   text-align: right;
 }
 
+/* Partial Render TUI Styles */
+#info-panel {
+    height: auto;
+    border: solid #e0ff6e;
+    padding: 1 2;
+    margin: 1 2;
+}
+#info-panel .highlight {
+    color: #79fc96;
+    margin-bottom: 1;
+}
+#info-panel-columns {
+    height: auto;
+}
+#info-panel-left {
+    width: auto;
+    height: auto;
+    margin-right: 8;
+}
+#info-panel-left Label {
+    color: $text-muted;
+}
+#info-panel-right {
+    width: auto;
+    height: auto;
+}
+#info-panel-right Label {
+    color: $text-muted;
+}
+ListView {
+    margin: 0 2;
+    height: auto;
+}
+ListItem {
+    padding: 0 1;
+}
+.partial-render-question {
+    margin: 1 2;
+    height: auto;
+}

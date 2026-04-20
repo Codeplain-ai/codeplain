@@ -18,7 +18,7 @@ import plain_modules
 import plain_spec
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
-from partial_rendering import PartialRender, detect_partial_rendering
+from partial_rendering import detect_partial_rendering
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
 from plain2code_events import RenderFailed
@@ -48,6 +48,7 @@ from plain2code_logger import (
 from plain2code_state import RunState
 from plain2code_utils import format_duration_hms, print_dry_run_output
 from system_config import system_config
+from tui.partial_render_tui import PartialRenderTUI
 from tui.plain2code_tui import Plain2CodeTUI
 
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
@@ -72,58 +73,6 @@ def print_exit_summary(
     if not run_state.render_succeeded and error_message:
         console.error(error_message)
     console.quiet = True
-
-
-def get_render_range(render_range, plain_source):
-    render_range = render_range.split(",")
-    range_end = render_range[1] if len(render_range) == 2 else render_range[0]
-
-    return _get_frids_range(plain_source, render_range[0], range_end)
-
-
-def get_render_range_from(start, plain_source):
-    return _get_frids_range(plain_source, start)
-
-
-def compute_render_range(args, plain_source_tree):
-    """Compute render range from --render-range or --render-from arguments.
-
-    Args:
-        args: Parsed command line arguments
-        plain_source_tree: Parsed plain source tree
-
-    Returns:
-        List of FRIDs to render, or None to render all
-    """
-    if args.render_range:
-        return get_render_range(args.render_range, plain_source_tree)
-    elif args.render_from:
-        return get_render_range_from(args.render_from, plain_source_tree)
-    return None
-
-
-def _get_frids_range(plain_source, start, end=None):
-    frids = list(plain_spec.get_frids(plain_source))
-
-    start = str(start)
-
-    if start not in frids:
-        raise InvalidFridArgument(f"Invalid start functionality ID: {start}. Valid IDs are: {frids}.\n")
-
-    if end is not None:
-        end = str(end)
-        if end not in frids:
-            raise InvalidFridArgument(f"Invalid end functionality ID: {end}. Valid IDs are: {frids}.\n")
-
-        end_idx = frids.index(end) + 1
-    else:
-        end_idx = len(frids)
-
-    start_idx = frids.index(start)
-    if start_idx >= end_idx:
-        raise InvalidFridArgument(f"Start functionality ID: {start} must be before end functionality ID: {end}.\n")
-
-    return frids[start_idx:end_idx]
 
 
 def setup_logging(
@@ -200,51 +149,8 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
             "Outdated client version: "
             f"Your client version ({system_config.client_version}) is outdated. Minimum required version is {min_version}. "
             "Please update using:"
-            "  uv tool upgrade codeplain\n"
+            "  uv tool upgrade codeplain"
         )
-
-
-def get_partial_render_choice(plain_module: plain_modules.PlainModule, partial_render: PartialRender | None) -> str:
-    print("--- Partial render detected ---")
-    print(f"Target module: {plain_module.module_name}")
-    print(f"Partially rendered module: {partial_render.module.module_name}")
-    if partial_render.frid is not None:
-        print(f"Last fully rendered FRID: {partial_render.frid}")
-    if partial_render.spec_change:
-        print("Spec change: Yes")
-    else:
-        print("Spec change: No")
-
-    if partial_render.code_change:
-        print("Code change: Yes")
-    else:
-        print("Code change: No")
-
-    choice_idx = 1
-    options = {f"{choice_idx}": "Re-render all"}
-    choice_idx += 1
-    if partial_render.frid is not None:
-        options[f"{choice_idx}"] = (
-            f"Continue from FRID {partial_render.frid} of module {partial_render.module.module_name}"
-        )
-        choice_idx += 1
-
-    if partial_render.spec_change:
-        options[f"{choice_idx}"] = f"Re-render {partial_render.module.module_name} from start"
-        choice_idx += 1
-
-    if partial_render.code_change:
-        options[f"{choice_idx}"] = f"Re-render {partial_render.module.module_name} from start"
-        choice_idx += 1
-
-    for key, value in options.items():
-        print(f"{key}. {value}")
-
-    while True:
-        selection = input("\nSelect an option: ").strip()
-        if selection in options:
-            return options[selection]
-        print("Invalid choice. Please try again.")
 
 
 def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
@@ -255,7 +161,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     if args.render_range or args.render_from:
         # Parse the plain file to get the plain_source for FRID extraction
         _, plain_source, _ = plain_file.plain_file_parser(args.filename, template_dirs)
-        render_range = compute_render_range(args, plain_source)
+        render_range = plain_spec.compute_render_range(args, plain_source)
 
     codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
     codeplainAPI.verbose = args.verbose
@@ -275,17 +181,30 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         template_dirs,
     )
 
-    partial_render = detect_partial_rendering(plain_module)
-    print("Partial render: ", partial_render)
-    if partial_render is not None:
-        choice = get_partial_render_choice(plain_module, partial_render)
-        print(f"You selected: {choice}")
+    partial_render_choice = None
+    if render_range is None:
+        partial_render = detect_partial_rendering(plain_module)
+        if partial_render is not None:
+            app = PartialRenderTUI(
+                plain_module,
+                partial_render,
+                css_path="styles.css",
+            )
+            partial_render_choice = app.run()
+            if partial_render_choice is None or (
+                partial_render_choice.module is None
+                and partial_render_choice.render_range is None
+                and partial_render_choice.msg == "Quit"
+            ):
+                exit()
 
-    exit()
+    # We can't have both partial render choice and render range
+    assert not (partial_render_choice is not None and render_range is not None)
 
     module_renderer = ModuleRenderer(
         codeplainAPI,
         plain_module,
+        partial_render_choice,
         render_range,
         args,
         run_state,
@@ -355,7 +274,7 @@ def main():  # noqa: C901
             if args.dry_run:
                 console.info("Printing dry run output...\n")
                 _, plain_source_tree, _ = plain_file.plain_file_parser(args.filename, template_dirs)
-                render_range = compute_render_range(args, plain_source_tree)
+                render_range = plain_spec.compute_render_range(args, plain_source_tree)
                 print_dry_run_output(plain_source_tree, render_range)
                 return
         except Exception as e:
