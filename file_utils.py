@@ -240,8 +240,7 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
             )
 
         if content is None:
-            raise FileNotFoundError(
-                f"""
+            raise FileNotFoundError(f"""
                 Resource file {file_name} not found. Resource files are searched in the following order (highest to lowest precedence):
 
                 1. The directory containing your .plain file
@@ -249,8 +248,7 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
                 3. The built-in 'standard_template_library' directory
 
                 Please ensure that the resource exists in one of these locations, or specify the correct --template-dir if using custom templates.
-                """
-            )
+                """)
 
         linked_resources[file_name] = content
 

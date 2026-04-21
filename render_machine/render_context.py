@@ -35,10 +35,7 @@ class RenderContext:
         self,
         codeplain_api,
         memory_manager,
-        module_name: str,
-        plain_source_tree: dict,
-        required_modules: list[PlainModule],
-        template_dirs: list[str],
+        plain_module: PlainModule,
         build_folder: str,
         build_dest: str,
         conformance_tests_folder: str,
@@ -60,10 +57,11 @@ class RenderContext:
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
-        self.plain_source_tree = plain_source_tree
-        self.module_name = module_name
-        self.template_dirs = template_dirs
-        self.required_modules = required_modules
+        self.plain_module = plain_module
+        self.plain_source_tree = plain_module.plain_source
+        self.module_name = plain_module.module_name
+        self.template_dirs = plain_module.template_dirs
+        self.required_modules = plain_module.required_modules
         self.build_folder = build_folder
         self.build_dest = build_dest
         self.conformance_tests_folder = conformance_tests_folder
@@ -132,6 +130,7 @@ class RenderContext:
         )
 
     def get_required_modules_functionalities(self):
+        print(f"Getting required modules functionalities for {self.module_name}...")
         required_modules_functionalities = {}
         if self.required_modules is not None and len(self.required_modules) > 0:
             for required_module in self.required_modules:

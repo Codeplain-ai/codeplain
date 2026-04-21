@@ -36,23 +36,24 @@ class PartialRenderTUI(App):
         left.mount(Label("[#e0ff6e]Current state:[/]"))
         left.mount(Label(f"Target module: [{'#79fc96'}]{pm.module_name}[/]"))
 
-        if pr.spec_change:
-            left.mount(Label(f"Detected spec change of module [{'#79fc96'}]{pr.module.module_name}[/]"))
-        elif pr.code_change:
-            left.mount(Label(f"Detected code change of module [{'#79fc96'}]{pr.module.module_name}[/]"))
-        elif pr.frid is None or pr.module.is_module_fully_rendered():
-            left.mount(Label(f"Last fully rendered module: [{'#79fc96'}]{pr.module.module_name}[/]"))
-        else:
-            left.mount(Label(f"Partially rendered module: [{'#79fc96'}]{pr.module.module_name}[/]"))
-            left.mount(Label(f"Last fully rendered functionality: [{'#79fc96'}]{pr.frid}[/]"))
+        if pr.change_type == "spec_change":
+            left.mount(Label(f"Detected spec change of module [{'#79fc96'}]{pr.last_render_module.module_name}[/]"))
+        elif pr.change_type == "code_change":
+            left.mount(Label(f"Detected code change of module [{'#79fc96'}]{pr.last_render_module.module_name}[/]"))
 
-        # left.mount(Label(f"Spec change:  [{'#79fc96'}]{'Yes' if pr.spec_change else 'No'}[/]"))
-        # left.mount(Label(f"Code change:  [{'#79fc96'}]{'Yes' if pr.code_change else 'No'}[/]"))
+        if pr.last_render_frid is None or pr.last_render_module.is_module_fully_rendered():
+            left.mount(Label(f"Module [{'#79fc96'}]{pr.last_render_module.module_name}[/] was fully rendered."))
+        else:
+            left.mount(
+                Label(
+                    f"Module [{'#79fc96'}]{pr.last_render_module.module_name}[/] is partially rendered. Last fully rendered functionality was [{'#79fc96'}]{pr.last_render_frid}[/]"
+                )
+            )
 
         # Build choices (same logic as original)
         choice_idx = 1
-        if pr.frid is not None:
-            next_frid, next_module = pm.get_next_frid(pr.frid, pr.module.module_name)
+        if pr.last_render_frid is not None:
+            next_frid, next_module = pm.get_next_frid(pr.last_render_frid, pr.last_render_module.module_name)
 
             functionality = next_module.plain_source[plain_spec.FUNCTIONAL_REQUIREMENTS][int(next_frid) - 1]
             # Placeholder — right side
@@ -76,29 +77,25 @@ class PartialRenderTUI(App):
             )
             choice_idx += 1
 
-        if pr.spec_change:
+        if pr.change:
+            reason = "spec change" if pr.change_type == "spec_change" else "code change"
             self.choices[str(choice_idx)] = PartialRenderChoice(
-                module=pr.module,
+                module=pr.change,
                 render_range=None,
-                msg=f"Re-render {pr.module.module_name} from start",
-            )
-            choice_idx += 1
-
-        if pr.code_change:
-            self.choices[str(choice_idx)] = PartialRenderChoice(
-                module=pr.module,
-                render_range=None,
-                msg=f"Re-render {pr.module.module_name} from start",
+                msg=f"Re-render {pr.change.module_name} from start due to {reason}",
             )
             choice_idx += 1
 
         first_module = pm.all_required_modules[0]
-        self.choices[str(choice_idx)] = PartialRenderChoice(
-            module=first_module,
-            render_range=None,
-            msg=f"Re-render all (start from: {first_module.module_name})",
-        )
-        choice_idx += 1
+        if first_module.module_name != pr.last_render_module.module_name and (
+            pr.change is not None and first_module.module_name != pr.change.module_name
+        ):
+            self.choices[str(choice_idx)] = PartialRenderChoice(
+                module=first_module,
+                render_range=None,
+                msg=f"Re-render all (start from: {first_module.module_name})",
+            )
+            choice_idx += 1
 
         self.choices[str(choice_idx)] = PartialRenderChoice(module=None, render_range=None, msg="Quit")
 

@@ -12,6 +12,7 @@ from git_utils import (
     REFACTORED_CODE_COMMIT_MESSAGE,
     add_all_files_and_commit,
     diff,
+    get_last_finished_frid,
     init_git_repo,
     revert_changes,
     revert_to_commit_with_frid,
@@ -63,8 +64,7 @@ def test_single_file_change(temp_repo):
     result = diff(temp_repo, "1.1")
 
     assert "test.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- a/test.txt
         +++ b/test.txt
         @@ -1,3 +1,3 @@
@@ -72,8 +72,7 @@ def test_single_file_change(temp_repo):
         +modified content
          line2
          line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff
 
 
@@ -98,8 +97,7 @@ def test_multiple_file_changes(temp_repo):
 
     # Check first file
     assert "test.txt" in result
-    expected_diff1 = dedent(
-        """
+    expected_diff1 = dedent("""
         --- a/test.txt
         +++ b/test.txt
         @@ -1,3 +1,2 @@
@@ -107,22 +105,19 @@ def test_multiple_file_changes(temp_repo):
         +file1 modified
          line2
         -line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff1
 
     # Check second file
     assert "file2.txt" in result
-    expected_diff2 = dedent(
-        """
+    expected_diff2 = dedent("""
         --- /dev/null
         +++ b/file2.txt
         @@ -0,0 +1,2 @@
         +file2 modified
         +line2
         \\ No newline at end of file
-    """
-    ).strip()
+    """).strip()
     assert result["file2.txt"] == expected_diff2
 
 
@@ -157,8 +152,7 @@ def test_multiple_commits_diff(temp_repo):
 
     # Check first file
     assert "test.txt" in result
-    expected_diff1 = dedent(
-        """
+    expected_diff1 = dedent("""
         --- a/test.txt
         +++ b/test.txt
         @@ -1,3 +1,2 @@
@@ -166,35 +160,30 @@ def test_multiple_commits_diff(temp_repo):
         +file1 frid1.2 refactored version
          line2
         -line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff1
 
     # Check second file
     assert "file2.txt" in result
-    expected_diff2 = dedent(
-        """
+    expected_diff2 = dedent("""
         --- a/file2.txt
         +++ b/file2.txt
         @@ -1,2 +1,2 @@
         -file2 frid1.1 refactored version
         +file2 frid1.2 version
          line2
-    """
-    ).strip()
+    """).strip()
     assert result["file2.txt"] == expected_diff2
 
     # Check third file
     assert "file3.txt" in result
-    expected_diff3 = dedent(
-        """
+    expected_diff3 = dedent("""
         --- /dev/null
         +++ b/file3.txt
         @@ -0,0 +1,2 @@
         +file3 frid1.2 new file
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["file3.txt"] == expected_diff3
 
 
@@ -213,27 +202,23 @@ def test_diff_without_previous_frid_and_no_base_folder(empty_repo):
     result = diff(empty_repo)
 
     assert "new.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- /dev/null
         +++ b/new.txt
         @@ -0,0 +1,2 @@
         +new file content
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["new.txt"] == expected_diff
 
     assert "new2.txt" in result
-    expected_diff2 = dedent(
-        """
+    expected_diff2 = dedent("""
         --- /dev/null
         +++ b/new2.txt
         @@ -0,0 +1,2 @@
         +new file content
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["new2.txt"] == expected_diff2
 
 
@@ -251,16 +236,14 @@ def test_diff_without_previous_frid_and_base_folder(temp_repo):
     result = diff(temp_repo)
 
     assert "new.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- a/new.txt
         +++ b/new.txt
         @@ -1,2 +1,2 @@
         -base folder content
         +updated base folder content
          line2
-    """
-    ).strip()
+    """).strip()
     assert result["new.txt"] == expected_diff
 
 
@@ -276,15 +259,13 @@ def test_new_file(temp_repo):
     result = diff(temp_repo, "1.1")
 
     assert "new.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- /dev/null
         +++ b/new.txt
         @@ -0,0 +1,2 @@
         +new file content
         +line2
-    """
-    ).strip()
+    """).strip()
     assert result["new.txt"] == expected_diff
 
 
@@ -300,16 +281,14 @@ def test_deleted_file(temp_repo):
     result = diff(temp_repo, "1.1")
 
     assert "test.txt" in result
-    expected_diff = dedent(
-        """
+    expected_diff = dedent("""
         --- a/test.txt
         +++ /dev/null
         @@ -1,3 +0,0 @@
         -initial content
         -line2
         -line3
-    """
-    ).strip()
+    """).strip()
     assert result["test.txt"] == expected_diff
 
 
@@ -456,3 +435,73 @@ def test_revert_to_base_folder_no_commit(temp_repo):
     assert repo.active_branch.name == "main"
     assert len(list(repo.iter_commits())) == 1  # initial commit
     assert not file_path.exists()
+
+
+def test_get_last_finished_frid_non_existent_path():
+    """Return (None, None) when the repo path doesn't exist."""
+    assert get_last_finished_frid("/path/that/does/not/exist") == (None, None)
+
+
+def test_get_last_finished_frid_empty_repo(empty_repo):
+    """Return (None, None) when no FRID-finished commit exists."""
+    assert get_last_finished_frid(empty_repo) == (None, None)
+
+
+def test_get_last_finished_frid_returns_latest(empty_repo):
+    """Return the module name and frid from the most recent finished-frid commit."""
+    file_path = Path(empty_repo) / "a.txt"
+    file_path.write_text("v1")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
+        module_name="module_a",
+        frid="1",
+    )
+
+    file_path.write_text("v2")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("2"),
+        module_name="module_a",
+        frid="2",
+    )
+
+    assert get_last_finished_frid(empty_repo) == ("module_a", "2")
+
+
+def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
+    """Commits that aren't finished-frid checkpoints must be skipped."""
+    file_path = Path(empty_repo) / "a.txt"
+    file_path.write_text("v1")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
+        module_name="module_a",
+        frid="1",
+    )
+
+    # A refactor commit (not a finished-frid checkpoint) comes after.
+    file_path.write_text("v2")
+    add_all_files_and_commit(
+        empty_repo,
+        REFACTORED_CODE_COMMIT_MESSAGE.format("2"),
+        module_name="module_a",
+        frid="2",
+    )
+
+    # The last *finished* FRID is still 1
+    assert get_last_finished_frid(empty_repo) == ("module_a", "1")
+
+
+def test_get_last_finished_frid_without_module_name(empty_repo):
+    """If the commit omits the module name line, return None for the module."""
+    file_path = Path(empty_repo) / "a.txt"
+    file_path.write_text("v1")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("7"),
+        module_name=None,
+        frid="7",
+    )
+
+    assert get_last_finished_frid(empty_repo) == (None, "7")

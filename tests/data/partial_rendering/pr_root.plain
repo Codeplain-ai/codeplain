@@ -1,0 +1,14 @@
+---
+requires:
+  - pr_middle
+---
+
+***implementation reqs***
+
+- Root implementation requirement.
+
+***functional specs***
+
+- Root functionality one.
+
+- Root functionality two.
