@@ -26,6 +26,27 @@ DEFAULT_LOG_FILE_NAME = "codeplain.log"
 PREPARE_ENVIRONMENT_SCRIPT_NAME = "prepare_environment_script"
 
 
+def _resolve_path_arg(
+    arg_name: str,
+    args,
+    cwd: str,
+    config_dir: Optional[str],
+    spec_dir: str,
+) -> Optional[str]:
+    """Resolve a path-valued argument on ``args`` in-place using its recorded source.
+
+    Returns the resolved absolute path, or ``None`` if the argument is unset.
+    """
+    original_value = getattr(args, arg_name, None)
+    if original_value is None:
+        return None
+
+    source = getattr(args, ARGUMENT_SOURCES, {}).get(arg_name, "default")
+    resolved = resolve_path(original_value, source, cwd=cwd, config_dir=config_dir, spec_dir=spec_dir)
+    setattr(args, arg_name, resolved)
+    return resolved
+
+
 def _resolve_script_path(
     script_arg_name: str,
     args,
@@ -33,24 +54,20 @@ def _resolve_script_path(
     config_dir: Optional[str],
     spec_dir: str,
 ) -> None:
-    """Resolve a script-path argument on ``args`` in-place using its recorded source.
+    """Resolve a script-path argument and verify the script exists on disk.
 
-    Does nothing if the argument is unset. Raises ``FileNotFoundError`` if the
-    resolved path does not exist.
+    Scripts are expected to exist at parse time because we are about to execute
+    them; missing directories, by contrast, are created on demand.
     """
     original_value = getattr(args, script_arg_name, None)
-    if original_value is None:
+    resolved = _resolve_path_arg(script_arg_name, args, cwd, config_dir, spec_dir)
+    if resolved is None:
         return
-
-    source = getattr(args, ARGUMENT_SOURCES, {}).get(script_arg_name, "default")
-    resolved = resolve_path(original_value, source, cwd=cwd, config_dir=config_dir, spec_dir=spec_dir)
 
     if not os.path.exists(resolved):
         raise FileNotFoundError(
             f"File not found: Path for {script_arg_name} not found: {original_value} (resolved to {resolved})."
         )
-
-    setattr(args, script_arg_name, resolved)
 
 
 def non_empty_string(s):
@@ -372,6 +389,23 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
     cli_provided = _detect_cli_provided_keys(command_line)
     args = update_args_with_config(args, parser, cli_provided)
 
+    cwd = os.getcwd()
+    spec_dir = os.path.dirname(os.path.abspath(args.filename))
+    # args.config_name is the resolved absolute path when a config file was found,
+    # otherwise it is still just the lookup name (e.g. "config.yaml").
+    config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
+
+    folder_arg_names = [
+        "base_folder",
+        "build_folder",
+        "conformance_tests_folder",
+        "build_dest",
+        "conformance_tests_dest",
+        "template_dir",
+    ]
+    for folder_name in folder_arg_names:
+        _resolve_path_arg(folder_name, args, cwd, config_dir, spec_dir)
+
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
     if args.conformance_tests_folder == args.conformance_tests_dest:
@@ -387,12 +421,6 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
 
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")
-
-    cwd = os.getcwd()
-    spec_dir = os.path.dirname(os.path.abspath(args.filename))
-    # args.config_name is the resolved absolute path when a config file was found,
-    # otherwise it is still just the lookup name (e.g. "config.yaml").
-    config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
 
     script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME, PREPARE_ENVIRONMENT_SCRIPT_NAME]
     for script_name in script_arg_names:

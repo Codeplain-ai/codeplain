@@ -32,7 +32,7 @@ def test_default_when_neither_cli_nor_config(project):
 def test_cli_value_is_marked_as_cli(project):
     args = parse_arguments([os.path.join(project, "module.plain"), "--build-folder", "out"])
     assert _sources(args)["build_folder"] == "cli"
-    assert args.build_folder == "out"
+    assert args.build_folder == os.path.join(project, "out")
 
 
 def test_cli_value_equal_to_default_is_still_cli(project):
@@ -45,14 +45,14 @@ def test_config_value_is_marked_as_config(project):
     (Path(project) / "config.yaml").write_text("build-folder: from_config\n")
     args = parse_arguments([os.path.join(project, "module.plain")])
     assert _sources(args)["build_folder"] == "config"
-    assert args.build_folder == "from_config"
+    assert args.build_folder == os.path.join(project, "from_config")
 
 
 def test_cli_wins_over_config(project):
     (Path(project) / "config.yaml").write_text("build-folder: from_config\n")
     args = parse_arguments([os.path.join(project, "module.plain"), "--build-folder", "from_cli"])
     assert _sources(args)["build_folder"] == "cli"
-    assert args.build_folder == "from_cli"
+    assert args.build_folder == os.path.join(project, "from_cli")
 
 
 def test_boolean_flag_provenance(project):
