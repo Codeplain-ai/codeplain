@@ -130,7 +130,7 @@ class StateMachineConfig:
             RunConformanceTests.FAILED_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_FAILED,
             RunConformanceTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
             FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED: triggers.MARK_CONFORMANCE_TESTS_READY,
-            FixConformanceTest.IMPLEMENTATION_CODE_UPDATED: triggers.MARK_UNIT_TESTS_READY,
+            FixConformanceTest.IMPLEMENTATION_CODE_UPDATED: triggers.MARK_CONFORMANCE_TESTS_READY,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED: triggers.PROCEED_FRID_PROCESSING,
             SummarizeConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
@@ -396,6 +396,12 @@ class StateMachineConfig:
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
                 "trigger": triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
+                "trigger": triggers.MOVE_TO_NEXT_CONFORMANCE_TEST,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}",
+                "conditions": ["should_run_unit_tests", "implementation_code_was_updated_in_conformance_tests"],
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
