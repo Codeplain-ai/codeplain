@@ -159,10 +159,7 @@ class ModuleRenderer:
         return RenderContext(
             self.codeplainAPI,
             memory_manager,
-            plain_module.module_name,
-            plain_module.plain_source,
-            plain_module.all_required_modules,
-            plain_module.template_dirs,
+            plain_module,
             build_folder=os.path.join(self.args.build_folder, plain_module.module_name),
             build_dest=self.args.build_dest,
             conformance_tests_folder=self.args.conformance_tests_folder,
@@ -206,18 +203,18 @@ class ModuleRenderer:
 
                 if rendering_failed:
                     return False, True
-        console.debug(f"{plain_module.module_name=}, {force_render=}, {has_any_required_module_changed=}")
-        console.debug(
-            f"{plain_module.get_repo()=}, {plain_module.has_plain_spec_changed()=}, {plain_module.has_required_modules_code_changed()=}"
-        )
+
         if (
-            ((not force_render) or any(module.name == plain_module.name for module in self.loaded_modules))
+            (
+                (not force_render)
+                or any(module.module_name == plain_module.module_name for module in self.loaded_modules)
+            )
             and plain_module.get_repo() is not None
-            and not plain_module.has_plain_spec_changed()
-            and not plain_module.has_required_modules_code_changed()
             and not has_any_required_module_changed
         ):
             return False, False
+
+        # plain_module.save_module_metadata(only_hashes=True)
 
         memory_manager = MemoryManager(
             self.codeplainAPI,

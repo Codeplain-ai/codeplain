@@ -1,0 +1,14 @@
+---
+requires:
+  - pr_leaf
+---
+
+***implementation reqs***
+
+- Middle implementation requirement.
+
+***functional specs***
+
+- Middle functionality one.
+
+- Middle functionality two.

@@ -141,33 +141,40 @@ class PlainModule:
         return module_functional_requirements
 
     def get_functionalities(self) -> dict[str, list[str]]:
-        module_metadata = self.load_module_metadata()
-        if module_metadata is None:
-            raise ModuleDoesNotExistError(f"Module {self.name} does not exist or has no metadata.\n")
+        functionalities = {}
+        for required_module in self.required_modules:
+            functionalities.update(required_module.get_functionalities())
 
-        if REQUIRED_MODULES_FUNCTIONALITIES in module_metadata:
-            functionalities = module_metadata[REQUIRED_MODULES_FUNCTIONALITIES]
-        else:
-            functionalities = {}
-
-        functionalities[self.module_name] = module_metadata[MODULE_FUNCTIONALITIES]
+        functionalities[self.module_name] = self._get_module_functional_requirements()
 
         return functionalities
 
-    def save_module_metadata(
-        self,
-    ):
+    def module_metadata_path(self, for_git_repo: bool = False) -> str:
+        if for_git_repo:
+            return os.path.join(CODEPLAIN_METADATA_FOLDER, MODULE_METADATA_FILENAME)
+
+        return os.path.join(self.get_codeplain_folder(), MODULE_METADATA_FILENAME)
+
+    def get_hashes(self) -> dict[str, str]:
+        hashes = {"source_hash": self.get_module_source_hash()}
+        if len(self.required_modules) > 0:
+            hashes["required_modules_code_hash"] = self.required_modules[-1].get_module_code_hash()
+        return hashes
+
+    def save_module_metadata(self, only_hashes: bool = False):
         codeplain_folder = self.get_codeplain_folder()
         os.makedirs(codeplain_folder, exist_ok=True)
 
-        module_metadata = {
-            "source_hash": self.get_module_source_hash(),
-            MODULE_FUNCTIONALITIES: self._get_module_functional_requirements(),
-        }
+        module_metadata = self.get_hashes()
 
-        if self.required_modules is not None and len(self.required_modules) > 0:
-            previous_module = self.required_modules[-1]
-            module_metadata["required_modules_code_hash"] = previous_module.get_module_code_hash()
+        metadata_path = self.module_metadata_path()
+
+        if only_hashes:
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(module_metadata, f, indent=4)
+            return
+
+        module_metadata[MODULE_FUNCTIONALITIES] = (self._get_module_functional_requirements(),)
 
         required_modules_functionalities = {}
         for required_module in self.required_modules:
@@ -176,7 +183,6 @@ class PlainModule:
         if required_modules_functionalities:
             module_metadata[REQUIRED_MODULES_FUNCTIONALITIES] = required_modules_functionalities
 
-        metadata_path = os.path.join(codeplain_folder, MODULE_METADATA_FILENAME)
         with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(module_metadata, f, indent=4)
 

@@ -1,15 +1,16 @@
 from dataclasses import dataclass
 
+import plain_spec
 from plain2code_exceptions import ModuleDoesNotExistError
 from plain_modules import PlainModule
 
 
 @dataclass
 class PartialRender:
-    module: PlainModule
-    frid: str | None = None
-    spec_change: bool = False
-    code_change: bool = False
+    last_render_module: PlainModule
+    last_render_frid: str | None
+    change: PlainModule | None = None
+    change_type: str | None = None
 
 
 @dataclass
@@ -55,13 +56,14 @@ def code_change(plain_module: PlainModule) -> PlainModule | None:
             return required_module
 
     module_metadata = plain_module.load_module_metadata()
-    previous_module = plain_module.required_modules[-1]
-    if (
-        module_metadata
-        and "required_modules_code_hash" in module_metadata
-        and module_metadata["required_modules_code_hash"] != previous_module.get_module_code_hash()
-    ):
-        return plain_module
+    if len(plain_module.required_modules) > 0:
+        previous_module = plain_module.required_modules[-1]
+        if (
+            module_metadata
+            and "required_modules_code_hash" in module_metadata
+            and module_metadata["required_modules_code_hash"] != previous_module.get_module_code_hash()
+        ):
+            return plain_module
 
     return None
 
@@ -94,31 +96,38 @@ def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
         if required_module.module_name == last_rendered_module:
             module = required_module
 
+    if last_rendered_module == plain_module.module_name:
+        if (
+            last_rendered_frid is None
+            or plain_spec.get_next_frid(plain_module.plain_source, last_rendered_frid) is not None
+        ):
+            module = plain_module
+        else:
+            return None
+
     if module is None:
         raise ModuleDoesNotExistError(
-            f"Last rendered module {last_rendered_module} not found in {all_required_modules}"
+            f"Last rendered module {last_rendered_module} not found in {[rmodule.module_name for rmodule in all_required_modules]}"
         )
 
     pr = PartialRender(
-        module=module,
-        frid=last_rendered_frid,
-        spec_change=False,
-        code_change=False,
+        last_render_module=module,
+        last_render_frid=last_rendered_frid,
+        change=None,
+        change_type=None,
     )
 
     if sc is None and cc is None:
         return pr
 
-    if sc is not None and module_comes_before(all_required_modules, sc, pr.module):
-        pr.module = sc
-        pr.spec_change = True
-        pr.code_change = False
-        pr.frid = None
+    if sc is not None:
+        pr.change = sc
+        pr.change_type = "spec_change"
 
-    if cc is not None and module_comes_before(all_required_modules, cc, pr.module):
-        pr.module = cc
-        pr.code_change = True
-        pr.spec_change = False
-        pr.frid = None
+    if cc is not None and (
+        pr.change is None or (pr.change is not None and module_comes_before(all_required_modules, cc, pr.change))
+    ):
+        pr.change = cc
+        pr.change_type = "code_change"
 
     return pr
