@@ -1,10 +1,15 @@
 import argparse
 import os
-from typing import Any
+from typing import Any, Optional, Sequence
 
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
 from plain2code_read_config import get_args_from_config
+
+# Attribute on the parsed Namespace mapping each argument dest to its source:
+# "cli" (explicit on the command line), "config" (from config.yaml), or
+# "default" (neither -- the argparse default was used).
+ARGUMENT_SOURCES = "argument_sources"
 
 CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
 
@@ -119,45 +124,60 @@ def resolve_config_file(config_name: str, plain_file_path: str):
     return None
 
 
-def update_args_with_config(args, parser):
+def _detect_cli_provided_keys(command_line: Optional[Sequence[str]] = None) -> set[str]:
+    """Return the set of argument dests that were explicitly provided on the command line.
+
+    Uses a second parser with every default replaced by ``argparse.SUPPRESS``, so
+    any dest that ends up on the resulting namespace must have come from the
+    command line.
+    """
+    tracker = create_parser()
+    for action in tracker._actions:
+        action.default = argparse.SUPPRESS
+    tracked_ns, _ = tracker.parse_known_args(command_line)
+    return set(vars(tracked_ns).keys())
+
+
+def update_args_with_config(args, parser, cli_provided: set[str]):
+    """Merge config.yaml values into ``args`` and record the source of each value.
+
+    CLI-supplied values always win. Anything the CLI did not supply is taken
+    from config.yaml if present, else left at its argparse default. The mapping
+    from dest to source ("cli" / "config" / "default") is attached to ``args``
+    as ``arg_sources`` so downstream code can resolve paths against the right
+    base directory.
+    """
+    action_dests = {action.dest for action in parser._actions}
+    sources: dict[str, str] = {dest: ("cli" if dest in cli_provided else "default") for dest in action_dests}
+
     try:
         resolved_config = resolve_config_file(args.config_name, args.filename)
 
         if resolved_config is None:
             console.info(f"No config file '{args.config_name}' found. Proceeding without one.")
+            setattr(args, ARGUMENT_SOURCES, sources)
             return args
 
         args.config_name = resolved_config
         config_args = get_args_from_config(resolved_config, parser)
 
-        # Get all action types from the parser
-        action_types = {action.dest: action for action in parser._actions}
-
-        # Update args with config values, but command line args take precedence
         for key, value in vars(config_args).items():
-            # Skip if the argument was provided on command line
-            if key in vars(args):
-                arg_action = action_types.get(key)
-                if arg_action and isinstance(arg_action, argparse._StoreAction):
-                    # For regular arguments, only skip if explicitly provided
-                    if getattr(args, key) is not None and (arg_action.default is None or value == arg_action.default):
-                        continue
-                elif arg_action and isinstance(arg_action, argparse._StoreTrueAction):
-                    # For boolean flags, skip if True (explicitly set)
-                    if getattr(args, key):
-                        continue
-
-            # Set the value from config
-            if key in action_types:
-                setattr(args, key, value)
-            else:
+            if key not in action_dests:
                 parser.error(f"Invalid argument: {key}")
+
+            # CLI takes precedence over config.
+            if key in cli_provided:
+                continue
+
+            setattr(args, key, value)
+            sources[key] = "config"
 
     except AmbiguousConfigFileError as e:
         parser.error(str(e))
     except Exception as e:
         parser.error(f"Error reading config file: {str(e)}")
 
+    setattr(args, ARGUMENT_SOURCES, sources)
     return args
 
 
@@ -349,11 +369,12 @@ def create_parser():
     return parser
 
 
-def parse_arguments():
+def parse_arguments(command_line: Optional[Sequence[str]] = None):
     parser = create_parser()
 
-    args = parser.parse_args()
-    args = update_args_with_config(args, parser)
+    args = parser.parse_args(command_line)
+    cli_provided = _detect_cli_provided_keys(command_line)
+    args = update_args_with_config(args, parser, cli_provided)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
