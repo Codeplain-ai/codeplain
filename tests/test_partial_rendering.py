@@ -6,17 +6,18 @@ real ``PlainModule``. The ``FakeModule`` exposes the small surface the module
 under test relies on: ``module_name``, ``required_modules``,
 ``all_required_modules``, ``load_module_metadata``, ``get_module_source_hash``,
 ``get_module_code_hash`` and (for ``detect_partial_rendering``)
-``get_last_rendered_frid``.
+``get_module_render_status``.
 """
 
 import pytest
 
-# Import ``plain_file`` first — it pulls in ``file_utils`` which transitively
-# imports ``plain_modules``; starting the import graph at ``plain_file``
-# sidesteps a circular-import failure that occurs when tests import
-# ``partial_rendering`` (and therefore ``plain_modules``) first.
-import plain_file  # noqa: F401
-from partial_rendering import PartialRender, code_change, detect_partial_rendering, module_comes_before, spec_change
+from partial_rendering import (
+    PartialRender,
+    code_change,
+    detect_partial_rendering,
+    module_comes_before_or_equal,
+    spec_change,
+)
 from plain2code_exceptions import ModuleDoesNotExistError
 
 
@@ -55,7 +56,7 @@ class FakeModule:
     def get_module_code_hash(self):
         return self._code_hash
 
-    def get_last_rendered_frid(self):
+    def get_module_render_status(self):
         return self._last_rendered
 
 
@@ -78,9 +79,9 @@ def test_module_comes_before_first_module_wins():
     b = FakeModule("b")
     c = FakeModule("c")
 
-    assert module_comes_before([a, b, c], a, b) is True
-    assert module_comes_before([a, b, c], b, a) is False
-    assert module_comes_before([a, b, c], b, c) is True
+    assert module_comes_before_or_equal([a, b, c], a, b) is True
+    assert module_comes_before_or_equal([a, b, c], b, a) is False
+    assert module_comes_before_or_equal([a, b, c], b, c) is True
 
 
 def test_module_comes_before_raises_when_neither_found():
@@ -90,7 +91,7 @@ def test_module_comes_before_raises_when_neither_found():
     missing2 = FakeModule("missing2")
 
     with pytest.raises(Exception, match="not found"):
-        module_comes_before([a, b], missing1, missing2)
+        module_comes_before_or_equal([a, b], missing1, missing2)
 
 
 # -------------------------
@@ -170,7 +171,7 @@ def test_code_change_detects_change_in_top_module():
     root._metadata = {"required_modules_code_hash": "stale-code-hash"}
 
     result = code_change(root)
-    assert result is root
+    assert result is leaf
 
 
 def test_code_change_returns_none_when_hashes_match():
@@ -196,7 +197,7 @@ def test_code_change_skips_leaf_modules_in_iteration():
     root._metadata = {"required_modules_code_hash": "stale"}
 
     result = code_change(root)
-    assert result is root
+    assert result is middle
 
 
 def test_code_change_prefers_earliest_required_module():
@@ -205,12 +206,13 @@ def test_code_change_prefers_earliest_required_module():
     root = FakeModule("root", required_modules=[middle])
 
     # ``middle`` has a stale code hash; so does ``root``.  ``middle`` comes
-    # first in ``all_required_modules`` so it wins.
+    # first in ``all_required_modules``, so ``middle``'s previous module
+    # (``leaf``) is reported as the changed code.
     middle._metadata = {"required_modules_code_hash": "stale-middle-code"}
     root._metadata = {"required_modules_code_hash": "stale-root-code"}
 
     result = code_change(root)
-    assert result is middle
+    assert result is leaf
 
 
 # -------------------------
@@ -253,7 +255,7 @@ def test_detect_partial_rendering_raises_when_last_rendered_module_unknown():
 def test_detect_partial_rendering_spec_change_on_earlier_module_wins():
     """A spec change on an earlier (required) module is reported via
     ``change``/``change_type``; ``last_render_module`` and ``last_render_frid``
-    remain the ones reported by ``get_last_rendered_frid``."""
+    remain the ones reported by ``get_module_render_status``."""
     root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
     leaf._metadata = {"source_hash": "stale-leaf"}  # leaf's spec changed
 
@@ -279,7 +281,7 @@ def test_detect_partial_rendering_spec_change_on_top_module_is_reported():
 
 
 def test_detect_partial_rendering_code_change_wins_over_last_rendered():
-    root, middle, _leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
     middle._metadata = {
         "source_hash": middle.get_module_source_hash(),
         "required_modules_code_hash": "stale-code",
@@ -287,20 +289,21 @@ def test_detect_partial_rendering_code_change_wins_over_last_rendered():
 
     pr = detect_partial_rendering(root)
     assert pr.last_render_module is middle
-    assert pr.change is middle
+    assert pr.change is leaf
     assert pr.change_type == "code_change"
     assert pr.last_render_frid == "1"
 
 
 def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive():
     """When both a spec change and a code change are detected, the
-    ``code_change`` branch only overrides if ``cc`` comes before the current
-    ``pr.change``. Here leaf (spec) precedes middle (code) in
-    ``all_required_modules``, so the spec change on leaf wins."""
+    ``code_change`` branch overrides if ``cc`` comes before (or equals) the
+    current ``pr.change``. Here both point at ``leaf`` — spec_change returns
+    the module whose spec is stale; code_change returns the previous module
+    whose code has changed — so the code_change branch wins the tie."""
     root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
     # Leaf has a spec change.
     leaf._metadata = {"source_hash": "stale-leaf"}
-    # Middle has a code change.
+    # Middle records a stale code hash for its required module (leaf).
     middle._metadata = {
         "source_hash": middle.get_module_source_hash(),
         "required_modules_code_hash": "stale-middle-code",
@@ -309,5 +312,5 @@ def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive()
     pr = detect_partial_rendering(root)
     assert pr.last_render_module is middle
     assert pr.change is leaf
-    assert pr.change_type == "spec_change"
+    assert pr.change_type == "code_change"
     assert pr.last_render_frid == "1"

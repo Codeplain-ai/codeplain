@@ -12,10 +12,6 @@ from pathlib import Path
 
 import pytest
 
-# Import ``plain_file`` first to avoid a circular-import failure if this
-# file is the entry point into the module graph. (See the note in
-# test_partial_rendering.py.)
-import plain_file  # noqa: F401
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from plain2code_exceptions import ModuleDoesNotExistError
 from plain_modules import CODEPLAIN_METADATA_FOLDER, MODULE_METADATA_FILENAME, PlainModule
@@ -158,18 +154,25 @@ def test_has_required_modules_code_changed_true_when_hash_differs(root_module):
 
 
 # --------------------------------------------------------------------------
-# get_module_by_name
+# get_required_module_by_name
 # --------------------------------------------------------------------------
 
 
-def test_get_module_by_name_finds_required_module(root_module):
-    leaf = root_module.get_module_by_name("pr_leaf")
+def test_get_required_module_by_name_finds_required_module(root_module):
+    leaf = root_module.get_required_module_by_name("pr_leaf")
     assert leaf.module_name == "pr_leaf"
 
 
-def test_get_module_by_name_raises_for_unknown(root_module):
+def test_get_required_module_by_name_raises_for_unknown(root_module):
     with pytest.raises(ModuleDoesNotExistError, match="phantom"):
-        root_module.get_module_by_name("phantom")
+        root_module.get_required_module_by_name("phantom")
+
+
+def test_get_required_module_by_name_raises_for_self(root_module):
+    """Unlike the previous ``get_module_by_name``, the required-only lookup
+    does not match the top module itself."""
+    with pytest.raises(ModuleDoesNotExistError, match="pr_root"):
+        root_module.get_required_module_by_name("pr_root")
 
 
 # --------------------------------------------------------------------------
@@ -183,20 +186,23 @@ def test_get_next_module_returns_next_in_sequence(root_module):
     assert nxt.module_name == "pr_middle"
 
 
-def test_get_next_module_returns_self_when_at_last(root_module):
+def test_get_next_module_returns_top_module_when_at_last_required_module(root_module):
     """When the given module is the last required module, ``get_next_module``
-    falls back to the top-level module itself — callers then progress to the
-    root's first FRID."""
+    returns the top-level module — callers then progress to the root's first FRID."""
     nxt = root_module.get_next_module("pr_middle")
     assert nxt is root_module
 
 
-def test_get_next_module_returns_self_when_module_not_found(root_module):
-    """Unknown module names no longer raise — they return the top-level
-    module. This is a pre-existing behaviour that callers rely on when the
-    tree has been fully traversed."""
-    nxt = root_module.get_next_module("unknown")
-    assert nxt is root_module
+def test_get_next_module_returns_none_when_asked_for_next_after_top_module(root_module):
+    """There is no module after the top-level module — ``get_next_module``
+    signals that by returning ``None`` (callers fall back explicitly)."""
+    assert root_module.get_next_module("pr_root") is None
+
+
+def test_get_next_module_raises_when_module_not_found(root_module):
+    """Unknown module names raise ``ModuleDoesNotExistError``."""
+    with pytest.raises(ModuleDoesNotExistError, match="unknown"):
+        root_module.get_next_module("unknown")
 
 
 # --------------------------------------------------------------------------
@@ -226,44 +232,44 @@ def test_get_next_frid_from_last_required_module_progresses_to_root(root_module)
 
 
 # --------------------------------------------------------------------------
-# get_last_rendered_frid
+# get_module_render_status
 # --------------------------------------------------------------------------
 
 
-def test_get_last_rendered_frid_no_rendering(root_module):
-    assert root_module.get_last_rendered_frid() == (None, None)
+def test_get_module_render_status_no_rendering(root_module):
+    assert root_module.get_module_render_status() == (None, None)
 
 
-def test_get_last_rendered_frid_returns_from_leaf_when_only_leaf_rendered(root_module):
-    leaf = root_module.get_module_by_name("pr_leaf")
+def test_get_module_render_status_returns_from_leaf_when_only_leaf_rendered(root_module):
+    leaf = root_module.get_required_module_by_name("pr_leaf")
     _init_build_repo_with_finished_frid(leaf, "1")
 
-    module_name, frid = root_module.get_last_rendered_frid()
+    module_name, frid = root_module.get_module_render_status()
     assert module_name == "pr_leaf"
     assert frid == "1"
 
 
-def test_get_last_rendered_frid_prefers_most_progressed_module(root_module):
+def test_get_module_render_status_prefers_most_progressed_module(root_module):
     """The scan walks required_modules in reverse order — the right-most
     rendered module wins."""
-    leaf = root_module.get_module_by_name("pr_leaf")
-    middle = root_module.get_module_by_name("pr_middle")
+    leaf = root_module.get_required_module_by_name("pr_leaf")
+    middle = root_module.get_required_module_by_name("pr_middle")
     _init_build_repo_with_finished_frid(leaf, "2")
     _init_build_repo_with_finished_frid(middle, "1")
 
-    module_name, frid = root_module.get_last_rendered_frid()
+    module_name, frid = root_module.get_module_render_status()
     assert module_name == "pr_middle"
     assert frid == "1"
 
 
-def test_get_last_rendered_frid_returns_root_when_root_has_checkpoint(root_module):
+def test_get_module_render_status_returns_root_when_root_has_checkpoint(root_module):
     """A checkpoint in the root's own build folder takes precedence over
     required-module checkpoints."""
-    leaf = root_module.get_module_by_name("pr_leaf")
+    leaf = root_module.get_required_module_by_name("pr_leaf")
     _init_build_repo_with_finished_frid(leaf, "1")
     _init_build_repo_with_finished_frid(root_module, "2")
 
-    module_name, frid = root_module.get_last_rendered_frid()
+    module_name, frid = root_module.get_module_render_status()
     assert module_name == "pr_root"
     assert frid == "2"
 

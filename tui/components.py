@@ -13,18 +13,59 @@ from .spinner import Spinner
 class CustomFooter(Horizontal):
     """A custom footer with keyboard shortcuts and render ID."""
 
-    FOOTER_BASE_TEXT = "ctrl+c: copy  *  ctrl+d: quit  *  ctrl+l: toggle logs"
-    FOOTER_RENDERING_TEXT = FOOTER_BASE_TEXT + "  *  ctrl+p: pause"
-    RENDER_PAUSING_TEXT = FOOTER_BASE_TEXT + "  *  pausing ..."
-    RENDER_PAUSED_TEXT = FOOTER_BASE_TEXT + "  *  ctrl+p: resume"
-    RENDER_FINISHED_TEXT = "enter: exit  *  ctrl+c: copy  *  ctrl+l: toggle logs"
+    KEYBOARD_SHORTCUTS = ["ctrl+c", "ctrl+d", "ctrl+l", "ctrl+p", "enter"]
 
-    def __init__(self, render_id: str = "", **kwargs):
+    KEYBOARD_SHORTCUTS_EFFECTS = {
+        "default": {
+            "ctrl+c": "copy",
+            "ctrl+d": "quit",
+            "ctrl+l": "toggle logs",
+            "ctrl+p": "pause",
+        },
+        "pausing": {
+            "ctrl+c": "copy",
+            "ctrl+d": "quit",
+            "ctrl+l": "toggle logs",
+        },
+        "paused": {
+            "ctrl+c": "copy",
+            "ctrl+d": "quit",
+            "ctrl+l": "toggle logs",
+            "ctrl+p": "resume",
+        },
+        "finished": {
+            "enter": "exit",
+            "ctrl+c": "copy",
+            "ctrl+l": "toggle logs",
+        },
+    }
+
+    APPENDING_TEXT = {
+        "pausing": "pausing ...",
+    }
+
+    DELIMITER = "  *  "
+
+    def __init__(self, render_id: str = "", use_logs_shortcut: bool = True, use_pause_shortcut: bool = True, **kwargs):
         super().__init__(**kwargs)
         self.render_id = render_id
+        self.use_logs_shortcut = use_logs_shortcut
+        self.use_pause_shortcut = use_pause_shortcut
+        self.available_keyboard_shortcuts = self.KEYBOARD_SHORTCUTS[:]
+        if not self.use_logs_shortcut:
+            self.available_keyboard_shortcuts.remove("ctrl+l")
+        if not self.use_pause_shortcut:
+            self.available_keyboard_shortcuts.remove("ctrl+p")
 
     def compose(self):
-        self._footer_text_widget = Static(self.FOOTER_RENDERING_TEXT, classes="custom-footer-text")
+        footer_rendering_text = self.DELIMITER.join(
+            [
+                f"{shortcut}: {effect}"
+                for shortcut, effect in self.KEYBOARD_SHORTCUTS_EFFECTS["default"].items()
+                if shortcut in self.available_keyboard_shortcuts
+            ]
+        )
+        self._footer_text_widget = Static(footer_rendering_text, classes="custom-footer-text")
         yield self._footer_text_widget
         if self.render_id:
             yield Static(f"render id: {self.render_id} ", classes="custom-footer-render-id")
@@ -33,18 +74,35 @@ class CustomFooter(Horizontal):
         self.remove_class("footer-state-default")
         self.remove_class("footer-state-paused")
 
+        if state in self.KEYBOARD_SHORTCUTS_EFFECTS:
+            state_dict = self.KEYBOARD_SHORTCUTS_EFFECTS[state]
+        else:
+            state_dict = self.KEYBOARD_SHORTCUTS_EFFECTS["default"]
+
+        footer_rendering_text = self.DELIMITER.join(
+            [
+                f"{shortcut}: {effect}"
+                for shortcut, effect in state_dict.items()
+                if shortcut in self.available_keyboard_shortcuts
+            ]
+        )
+
+        appending_text = self.APPENDING_TEXT.get(state, "")
+        if not appending_text.strip() == "":
+            footer_rendering_text = f"{footer_rendering_text}  *  {appending_text}"
+
         if self._footer_text_widget is not None:
             if state == "rendering":
-                self._footer_text_widget.update(self.FOOTER_RENDERING_TEXT)
+                self._footer_text_widget.update(footer_rendering_text)
                 self.add_class("footer-state-default")
             elif state == "pausing":
-                self._footer_text_widget.update(self.RENDER_PAUSING_TEXT)
+                self._footer_text_widget.update(footer_rendering_text)
                 self.add_class("footer-state-paused")
             elif state == "paused":
-                self._footer_text_widget.update(self.RENDER_PAUSED_TEXT)
+                self._footer_text_widget.update(footer_rendering_text)
                 self.add_class("footer-state-paused")
             elif state == "finished":
-                self._footer_text_widget.update(self.RENDER_FINISHED_TEXT)
+                self._footer_text_widget.update(footer_rendering_text)
                 self.add_class("footer-state-default")
 
 

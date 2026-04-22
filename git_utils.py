@@ -64,7 +64,7 @@ def init_git_repo(
     path_to_repo: Union[str, os.PathLike],
     module_name: Optional[str] = None,
     render_id: Optional[str] = None,
-    additional_files: Optional[dict[str, str]] = None,
+    initial_files: Optional[dict[str, str]] = None,
 ) -> Repo:
     """
     Initializes a new git repository in the given path.
@@ -79,8 +79,8 @@ def init_git_repo(
     repo = Repo.init(path_to_repo)
     _ensure_git_config(repo)
 
-    if additional_files:
-        file_utils.store_response_files(path_to_repo, additional_files, [])
+    if initial_files:
+        file_utils.store_response_files(path_to_repo, initial_files, [])
         repo.git.add(".")
 
     repo.git.commit(
@@ -95,12 +95,12 @@ def clone_repo(
     new_repo_path: str,
     module_name: Optional[str] = None,
     render_id: Optional[str] = None,
-    additional_files: Optional[dict[str, str]] = None,
+    initial_files: Optional[dict[str, str]] = None,
 ) -> Repo:
     repo = Repo.clone_from(source_repo_path, new_repo_path)
 
-    if additional_files:
-        file_utils.store_response_files(new_repo_path, additional_files, [])
+    if initial_files:
+        file_utils.store_response_files(new_repo_path, initial_files, [])
         repo.git.add(".")
 
     repo.git.commit(
@@ -435,7 +435,7 @@ def get_repo_info(repo_path: Union[str, os.PathLike]) -> dict:
     return info
 
 
-def get_last_finished_frid(repo_path: Union[str, os.PathLike]) -> tuple[Optional[str], Optional[str]]:
+def get_last_rendered_functionality(repo_path: Union[str, os.PathLike]) -> tuple[Optional[str], Optional[str]]:
     if not os.path.exists(repo_path):
         return None, None
 
@@ -443,14 +443,43 @@ def get_last_finished_frid(repo_path: Union[str, os.PathLike]) -> tuple[Optional
     grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
     grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
     commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
+
     if not commit_sha:
-        return None, None
+        # Repo was interrupted during the first functionality, fallback to initial commit and provide only module name
+        grep_pattern = INITIAL_COMMIT_MESSAGE
+        grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
+        commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
+        if not commit_sha:
+            raise InvalidGitRepositoryError("Git repository is in an invalid state. Initial commit could not be found.")
+
+        commit_message = repo.commit(commit_sha).message
+        if isinstance(commit_message, bytes):
+            commit_message = commit_message.decode("utf-8")
+
+        match = re.search(r"Module name:\s*(\S+)\n", commit_message)
+        if not match:
+            raise InvalidGitRepositoryError(
+                "Git repository is in an invalid state. Could not find module name in initial commit."
+            )
+
+        module_name = match.group(1)
+        return module_name, None
+
     commit_message = repo.commit(commit_sha).message
     if isinstance(commit_message, bytes):
         commit_message = commit_message.decode("utf-8")
+
     match = re.search(r"FRID\):(\S+) fully implemented", commit_message)
-    frid = match.group(1) if match else None
+    if not match:
+        raise InvalidGitRepositoryError(
+            "Git repository is in an invalid state. Could not find frid in finished commit."
+        )
+    frid = match.group(1)
 
     match = re.search(r"Module name:\s*(\S+)\n", commit_message)
-    module_name = match.group(1) if match else None
+    if not match:
+        raise InvalidGitRepositoryError(
+            "Git repository is in an invalid state. Could not find module name in finished commit."
+        )
+    module_name = match.group(1)
     return module_name, frid

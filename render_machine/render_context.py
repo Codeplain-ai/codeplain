@@ -130,7 +130,6 @@ class RenderContext:
         )
 
     def get_required_modules_functionalities(self):
-        print(f"Getting required modules functionalities for {self.module_name}...")
         required_modules_functionalities = {}
         if self.required_modules is not None and len(self.required_modules) > 0:
             for required_module in self.required_modules:
