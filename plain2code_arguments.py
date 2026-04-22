@@ -196,8 +196,8 @@ def update_args_with_config(args, parser, cli_provided: set[str]):
 
 def create_parser():
     """Create the argument parser without parsing arguments."""
-    parser_kwargs = {
-        "description": (
+    parser = argparse.ArgumentParser(
+        description=(
             "Render plain code to target code. "
             "Path arguments resolve based on where they were written: "
             "values given on the command line are resolved against the current working "
@@ -205,9 +205,7 @@ def create_parser():
             "file's directory, and defaults are resolved against the directory containing "
             "the plain file. Absolute paths (and paths starting with '~') are used as-is."
         ),
-    }
-
-    parser = argparse.ArgumentParser(**parser_kwargs)
+    )
 
     parser.add_argument(
         "filename",
