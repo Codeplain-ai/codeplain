@@ -395,16 +395,19 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
     # otherwise it is still just the lookup name (e.g. "config.yaml").
     config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
 
-    folder_arg_names = [
+    # Path-valued arguments that do not need to exist at parse time: directories
+    # are created on demand and the logging config file is optional.
+    path_arg_names = [
         "base_folder",
         "build_folder",
         "conformance_tests_folder",
         "build_dest",
         "conformance_tests_dest",
         "template_dir",
+        "logging_config_path",
     ]
-    for folder_name in folder_arg_names:
-        _resolve_path_arg(folder_name, args, cwd, config_dir, spec_dir)
+    for arg_name in path_arg_names:
+        _resolve_path_arg(arg_name, args, cwd, config_dir, spec_dir)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
