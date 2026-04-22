@@ -396,7 +396,7 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
     config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
 
     # Path-valued arguments that do not need to exist at parse time: directories
-    # are created on demand and the logging config file is optional.
+    # are created on demand and the logging-related files are optional.
     path_arg_names = [
         "base_folder",
         "build_folder",
@@ -405,6 +405,7 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
         "conformance_tests_dest",
         "template_dir",
         "logging_config_path",
+        "log_file_name",
     ]
     for arg_name in path_arg_names:
         _resolve_path_arg(arg_name, args, cwd, config_dir, spec_dir)
@@ -419,7 +420,7 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
     if not args.render_conformance_tests and args.copy_conformance_tests:
         parser.error("--copy-conformance-tests requires --conformance-tests-script to be set")
 
-    if not args.log_to_file and args.log_file_name != DEFAULT_LOG_FILE_NAME:
+    if not args.log_to_file and args.argument_sources.get("log_file_name") != "default":
         parser.error("--log-file-name cannot be used when --log-to-file is False.")
 
     if args.full_plain and args.dry_run:
