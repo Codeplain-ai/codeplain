@@ -26,9 +26,7 @@ else
     exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
-current_dir=$(pwd)
-
-PYTHON_BUILD_SUBFOLDER=python_$1
+PYTHON_BUILD_SUBFOLDER="$(dirname "$1")/python_$(basename "$1")"
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing Python build subfolder: $PYTHON_BUILD_SUBFOLDER\n"
@@ -63,7 +61,7 @@ fi
 # Execute all Python conformance tests in the build folder
 printf "Running Python conformance tests...\n\n"
 
-output=$($PYTHON_CMD -m unittest discover -b -s "$current_dir/$2" 2>&1)
+output=$($PYTHON_CMD -m unittest discover -b -s "$2" 2>&1)
 exit_code=$?
 
 # Echo the original output
