@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 
 from path_resolution import resolve_path
 from plain2code_console import console
@@ -196,8 +196,15 @@ def update_args_with_config(args, parser, cli_provided: set[str]):
 
 def create_parser():
     """Create the argument parser without parsing arguments."""
-    parser_kwargs: dict[str, Any] = {
-        "description": "Render plain code to target code.",
+    parser_kwargs = {
+        "description": (
+            "Render plain code to target code. "
+            "Path arguments resolve based on where they were written: "
+            "values given on the command line are resolved against the current working "
+            "directory, values read from config.yaml are resolved against the config "
+            "file's directory, and defaults are resolved against the directory containing "
+            "the plain file. Absolute paths (and paths starting with '~') are used as-is."
+        ),
     }
 
     parser = argparse.ArgumentParser(**parser_kwargs)
@@ -224,9 +231,8 @@ def create_parser():
         "--log-file-name",
         type=str,
         default=DEFAULT_LOG_FILE_NAME,
-        help=f"Name of the log file. Defaults to '{DEFAULT_LOG_FILE_NAME}'."
-        "Always resolved relative to the plain file directory."
-        "If file on this path already exists, the already existing log file will be overwritten by the current logs.",
+        help=f"Name of the log file. Defaults to '{DEFAULT_LOG_FILE_NAME}'. "
+        "If a file already exists at the resolved path, it will be overwritten by the current logs.",
     )
 
     # Add config file arguments
