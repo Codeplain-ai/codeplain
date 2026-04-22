@@ -4,7 +4,6 @@ import pytest
 
 from path_resolution import resolve_path
 
-
 CWD = "/work/cwd"
 CONFIG_DIR = "/work/project/config"
 SPEC_DIR = "/work/project/spec"

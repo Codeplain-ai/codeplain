@@ -47,9 +47,7 @@ def layout():
 
 def test_cli_script_path_resolves_against_cwd(layout):
     with patch("os.getcwd", return_value=str(layout["cwd"])):
-        args = parse_arguments(
-            [layout["plain_file"], "--unittests-script", "script_in_cwd.sh"]
-        )
+        args = parse_arguments([layout["plain_file"], "--unittests-script", "script_in_cwd.sh"])
     assert args.unittests_script == str(layout["cwd"] / "script_in_cwd.sh")
 
 
@@ -75,9 +73,7 @@ def test_cli_script_path_does_not_fall_back_to_config_dir(layout):
 def test_cli_script_with_dotdot_resolves_against_cwd(layout):
     """Tab-completion-style relative path like ../config_dir/script.sh works from CWD."""
     with patch("os.getcwd", return_value=str(layout["cwd"])):
-        args = parse_arguments(
-            [layout["plain_file"], "--unittests-script", "../config_dir/script_in_config.sh"]
-        )
+        args = parse_arguments([layout["plain_file"], "--unittests-script", "../config_dir/script_in_config.sh"])
     assert args.unittests_script == str(layout["config"] / "script_in_config.sh")
 
 

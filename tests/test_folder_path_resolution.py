@@ -104,9 +104,7 @@ def test_cli_template_dir_resolves_against_cwd(layout):
 
 def test_cli_dotdot_folder_resolves_against_cwd(layout):
     with patch("os.getcwd", return_value=str(layout["cwd"])):
-        args = parse_arguments(
-            [layout["plain_file"], "--build-folder", "../spec_dir/custom_out"]
-        )
+        args = parse_arguments([layout["plain_file"], "--build-folder", "../spec_dir/custom_out"])
     assert args.build_folder == str(layout["spec"] / "custom_out")
 
 
@@ -129,10 +127,7 @@ def test_config_build_folder_resolves_against_config_dir(layout):
 
 def test_config_all_output_folders_resolve_against_config_dir(layout):
     (layout["config"] / "config.yaml").write_text(
-        "build-folder: b\n"
-        "conformance-tests-folder: ct\n"
-        "build-dest: d\n"
-        "conformance-tests-dest: cd\n"
+        "build-folder: b\n" "conformance-tests-folder: ct\n" "build-dest: d\n" "conformance-tests-dest: cd\n"
     )
     with patch("os.getcwd", return_value=str(layout["config"])):
         args = parse_arguments([layout["plain_file"]])
@@ -162,10 +157,7 @@ def test_cli_overrides_config_and_uses_cwd_anchor(layout):
 
 def test_build_folder_and_build_dest_equality_detected_after_resolution(layout, capsys):
     """Two different relative paths that resolve to the same absolute path must trip the check."""
-    (layout["config"] / "config.yaml").write_text(
-        "build-folder: same\n"
-        "build-dest: same\n"
-    )
+    (layout["config"] / "config.yaml").write_text("build-folder: same\n" "build-dest: same\n")
     with patch("os.getcwd", return_value=str(layout["config"])):
         with pytest.raises(SystemExit):
             parse_arguments([layout["plain_file"]])

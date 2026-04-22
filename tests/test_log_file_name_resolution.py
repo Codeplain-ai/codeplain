@@ -67,9 +67,7 @@ def test_cli_absolute_log_file_name_preserved(layout):
 def test_log_file_name_with_no_log_to_file_errors_when_cli_supplied(layout, capsys):
     with patch("os.getcwd", return_value=str(layout["cwd"])):
         with pytest.raises(SystemExit):
-            parse_arguments(
-                [layout["plain_file"], "--log-file-name", "my.log", "--no-log-to-file"]
-            )
+            parse_arguments([layout["plain_file"], "--log-file-name", "my.log", "--no-log-to-file"])
     err = capsys.readouterr().err
     assert "--log-file-name cannot be used when --log-to-file is False" in err
 

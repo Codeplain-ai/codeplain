@@ -42,9 +42,7 @@ def test_default_logging_config_path_resolves_next_to_spec(layout):
 
 def test_cli_logging_config_path_resolves_against_cwd(layout):
     with patch("os.getcwd", return_value=str(layout["cwd"])):
-        args = parse_arguments(
-            [layout["plain_file"], "--logging-config-path", "custom_logging.yaml"]
-        )
+        args = parse_arguments([layout["plain_file"], "--logging-config-path", "custom_logging.yaml"])
     assert args.logging_config_path == str(layout["cwd"] / "custom_logging.yaml")
 
 
