@@ -18,7 +18,7 @@ import plain_modules
 import plain_spec
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
-from partial_rendering import detect_partial_rendering
+from partial_rendering import detect_partial_rendering, get_choices
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
 from plain2code_events import RenderFailed
@@ -185,21 +185,29 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
     if render_range is None:
         partial_render = detect_partial_rendering(plain_module)
         if partial_render is not None:
-            app = PartialRenderTUI(
-                plain_module,
-                partial_render,
-                css_path="styles.css",
-            )
-            partial_render_choice = app.run()
-            if partial_render_choice is None or (
-                partial_render_choice.module is None
-                and partial_render_choice.render_range is None
-                and partial_render_choice.msg == "Quit"
-            ):
-                exit()
+            choices = get_choices(plain_module, partial_render, args.force_render)
+            if len(choices) > 2:
+                app = PartialRenderTUI(
+                    plain_module,
+                    partial_render,
+                    choices,
+                    system_config.client_version,
+                    run_state.render_id,
+                    css_path="styles.css",
+                )
+                partial_render_choice = app.run()
+                if partial_render_choice is None or (
+                    partial_render_choice.module is None
+                    and partial_render_choice.render_range is None
+                    and partial_render_choice.msg == "Quit"
+                ):
+                    sys.exit(0)
+            else:
+                # Last choice is Quit, first choice is the only other actionable choice
+                partial_render_choice = choices[list(choices.keys())[0]]
 
-    # We can't have both partial render choice and render range
-    assert not (partial_render_choice is not None and render_range is not None)
+    if partial_render_choice is not None and render_range is not None:
+        raise Exception("Partial rendering and render range cannot be used together")
 
     module_renderer = ModuleRenderer(
         codeplainAPI,

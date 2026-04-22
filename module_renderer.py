@@ -2,11 +2,15 @@ import argparse
 import os
 import threading
 
+import git_utils
+import plain_file
+import plain_spec
 from event_bus import EventBus
 from memory_management import MemoryManager
 from partial_rendering import PartialRenderChoice
 from plain2code_console import console
 from plain2code_events import RenderCompleted, RenderFailed
+from plain2code_exceptions import MissingPreviousFunctionalitiesError
 from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine.code_renderer import CodeRenderer
@@ -188,19 +192,28 @@ class ModuleRenderer:
         Returns:
             tuple[bool, bool]: (Whether the module was rendered and whether the rendering failed)
         """
+        is_partial_render_choice_module = (
+            self.partial_render_choice is not None
+            and self.partial_render_choice.module is not None
+            and self.partial_render_choice.module.module_name == plain_module.module_name
+        )
+
+        if is_partial_render_choice_module:
+            render_range = self.partial_render_choice.render_range
+
         if render_range is not None:
             plain_module.ensure_previous_frid_commits_exist(render_range, self.args.render_conformance_tests)
 
         has_any_required_module_changed = False
-        if not self.args.render_machine_graph and plain_module.required_modules:
+        if not self.args.render_machine_graph and plain_module.required_modules and not is_partial_render_choice_module:
             console.debug(f"Analyzing required modules of module {plain_module.module_name}...")
             for required_module in plain_module.required_modules:
-                has_any_required_module_changed, rendering_failed = self._render_module(
+                has_module_changed, rendering_failed = self._render_module(
                     required_module,
                     None,
                     self.args.force_render,
                 )
-
+                has_any_required_module_changed |= has_module_changed
                 if rendering_failed:
                     return False, True
 
@@ -211,10 +224,11 @@ class ModuleRenderer:
             )
             and plain_module.get_repo() is not None
             and not has_any_required_module_changed
+            and not plain_module.has_plain_spec_changed()
+            and not plain_module.has_required_modules_code_changed()
+            and not is_partial_render_choice_module
         ):
             return False, False
-
-        # plain_module.save_module_metadata(only_hashes=True)
 
         memory_manager = MemoryManager(
             self.codeplainAPI,
@@ -250,10 +264,19 @@ class ModuleRenderer:
         return True, False
 
     def render_module(self) -> None:
-        self.loaded_modules = list[PlainModule]()
-        if self.partial_render_choice is not None and self.partial_render_choice.module is not None:
-            self._render_module(self.partial_render_choice.module, self.partial_render_choice.render_range, True)
+        if self.partial_render_choice is not None and self.partial_render_choice.wipe_later_modules:
+            later_module = False
+            all_modules = self.plain_module.all_required_modules + [self.plain_module]
+            for module in all_modules:
+                if module.module_name == self.partial_render_choice.module.module_name:
+                    later_module = True
+                    continue
 
+                if later_module:
+                    console.info(f"Wiping module {module.module_name}...")
+                    module.wipe_module()
+
+        self.loaded_modules = list[PlainModule]()
         _, rendering_failed = self._render_module(self.plain_module, self.render_range, True)
         if not rendering_failed:
             # Get the last module that completed rendering

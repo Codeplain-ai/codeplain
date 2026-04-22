@@ -35,7 +35,7 @@ class PrepareRepositories(BaseAction):
 
         else:
             module_hashes = render_context.plain_module.get_hashes()
-            additional_files = {
+            initial_files = {
                 render_context.plain_module.module_metadata_path(for_git_repo=True): json.dumps(module_hashes)
             }
 
@@ -50,7 +50,7 @@ class PrepareRepositories(BaseAction):
                     render_context.build_folder,
                     render_context.module_name,
                     render_context.run_state.render_id,
-                    additional_files,
+                    initial_files,
                 )
             else:
                 if render_context.verbose:
@@ -60,7 +60,7 @@ class PrepareRepositories(BaseAction):
                     render_context.build_folder,
                     render_context.module_name,
                     render_context.run_state.render_id,
-                    additional_files,
+                    initial_files,
                 )
 
                 if render_context.base_folder:
@@ -78,7 +78,7 @@ class PrepareRepositories(BaseAction):
                     render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
                     render_context.module_name,
                     render_context.run_state.render_id,
-                    additional_files,
+                    initial_files,
                 )
 
         return self.SUCCESSFUL_OUTCOME, None

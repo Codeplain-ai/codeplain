@@ -12,11 +12,12 @@ from git_utils import (
     REFACTORED_CODE_COMMIT_MESSAGE,
     add_all_files_and_commit,
     diff,
-    get_last_finished_frid,
+    get_last_rendered_functionality,
     init_git_repo,
     revert_changes,
     revert_to_commit_with_frid,
 )
+from plain2code_exceptions import InvalidGitRepositoryError
 
 
 @pytest.fixture
@@ -439,12 +440,13 @@ def test_revert_to_base_folder_no_commit(temp_repo):
 
 def test_get_last_finished_frid_non_existent_path():
     """Return (None, None) when the repo path doesn't exist."""
-    assert get_last_finished_frid("/path/that/does/not/exist") == (None, None)
+    assert get_last_rendered_functionality("/path/that/does/not/exist") == (None, None)
 
 
 def test_get_last_finished_frid_empty_repo(empty_repo):
-    """Return (None, None) when no FRID-finished commit exists."""
-    assert get_last_finished_frid(empty_repo) == (None, None)
+    """Raise InvalidGitRepositoryError when no FRID-finished commit exists and the initial commit has no module name."""
+    with pytest.raises(InvalidGitRepositoryError, match="Could not find module name in initial commit"):
+        get_last_rendered_functionality(empty_repo)
 
 
 def test_get_last_finished_frid_returns_latest(empty_repo):
@@ -466,7 +468,7 @@ def test_get_last_finished_frid_returns_latest(empty_repo):
         frid="2",
     )
 
-    assert get_last_finished_frid(empty_repo) == ("module_a", "2")
+    assert get_last_rendered_functionality(empty_repo) == ("module_a", "2")
 
 
 def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
@@ -490,11 +492,11 @@ def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
     )
 
     # The last *finished* FRID is still 1
-    assert get_last_finished_frid(empty_repo) == ("module_a", "1")
+    assert get_last_rendered_functionality(empty_repo) == ("module_a", "1")
 
 
 def test_get_last_finished_frid_without_module_name(empty_repo):
-    """If the commit omits the module name line, return None for the module."""
+    """Raise InvalidGitRepositoryError when the finished commit omits the module name line."""
     file_path = Path(empty_repo) / "a.txt"
     file_path.write_text("v1")
     add_all_files_and_commit(
@@ -504,4 +506,5 @@ def test_get_last_finished_frid_without_module_name(empty_repo):
         frid="7",
     )
 
-    assert get_last_finished_frid(empty_repo) == (None, "7")
+    with pytest.raises(InvalidGitRepositoryError, match="Could not find module name in finished commit"):
+        get_last_rendered_functionality(empty_repo)

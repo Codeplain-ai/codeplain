@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+from functools import cached_property
 
 from git.exc import NoSuchPathError
 
 import git_utils
 import plain_file
 import plain_spec
+from plain2code_console import console
 from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 
@@ -45,7 +48,7 @@ class PlainModule:
                 for module_name in required_modules_names
             ]
 
-    @property
+    @cached_property
     def all_required_modules(self) -> list[PlainModule]:
         all_required_modules = []
         for required_module in self.required_modules:
@@ -67,18 +70,18 @@ class PlainModule:
     def get_codeplain_folder(self):
         return os.path.join(self.module_build_folder, CODEPLAIN_METADATA_FOLDER)
 
-    def get_last_rendered_frid(self) -> tuple[str, str | None]:
+    def get_module_render_status(self) -> tuple[str | None, str | None]:
         if len(self.required_modules) == 0:
-            return git_utils.get_last_finished_frid(self.module_build_folder)
+            return git_utils.get_last_rendered_functionality(self.module_build_folder)
 
-        module_name, frid = git_utils.get_last_finished_frid(self.module_build_folder)
-        if module_name is not None and frid is not None:
+        module_name, frid = git_utils.get_last_rendered_functionality(self.module_build_folder)
+        if module_name is not None and module_name == self.module_name:
             return module_name, frid
 
         for module in reversed(self.required_modules):
-            last_rendered_module, last_rendered_frid = module.get_last_rendered_frid()
-            if last_rendered_module is not None and last_rendered_frid is not None:
-                return last_rendered_module, last_rendered_frid
+            last_rendered_module_name, last_rendered_frid = module.get_module_render_status()
+            if last_rendered_module_name is not None:
+                return last_rendered_module_name, last_rendered_frid
 
         return None, None
 
@@ -161,20 +164,13 @@ class PlainModule:
             hashes["required_modules_code_hash"] = self.required_modules[-1].get_module_code_hash()
         return hashes
 
-    def save_module_metadata(self, only_hashes: bool = False):
+    def save_module_metadata(self):
         codeplain_folder = self.get_codeplain_folder()
         os.makedirs(codeplain_folder, exist_ok=True)
 
         module_metadata = self.get_hashes()
-
         metadata_path = self.module_metadata_path()
-
-        if only_hashes:
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                json.dump(module_metadata, f, indent=4)
-            return
-
-        module_metadata[MODULE_FUNCTIONALITIES] = (self._get_module_functional_requirements(),)
+        module_metadata[MODULE_FUNCTIONALITIES] = self._get_module_functional_requirements()
 
         required_modules_functionalities = {}
         for required_module in self.required_modules:
@@ -186,7 +182,7 @@ class PlainModule:
         with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(module_metadata, f, indent=4)
 
-    def _ensure_module_folders_exist(self, first_render_frid: str, render_conformance_tests: bool) -> tuple[str, str]:
+    def _ensure_module_folders_exist(self, first_render_frid: str, render_conformance_tests: bool):
         """
         Ensure that build and conformance test folders exist for the module.
 
@@ -276,34 +272,73 @@ class PlainModule:
         for prev_frid in previous_frids:
             self._ensure_frid_commit_exists(prev_frid, first_render_frid, render_conformance_tests)
 
-    def get_module_by_name(self, module_name: str) -> PlainModule:
+    def get_required_module_by_name(self, module_name: str) -> PlainModule:
         for module in self.all_required_modules:
             if module.module_name == module_name:
                 return module
 
         raise ModuleDoesNotExistError(f"Module {module_name} does not exist")
 
-    def get_next_module(self, module_name: str) -> PlainModule | None:
-        for idx, module in enumerate(self.all_required_modules):
-            if module.module_name == module_name and idx < len(self.all_required_modules) - 1:
-                return self.all_required_modules[idx + 1]
+    def get_next_module(self, module_name: str) -> PlainModule:
+        all_modules = self.all_required_modules + [self]
+        for idx, module in enumerate(all_modules):
+            if module.module_name == module_name and idx < len(all_modules) - 1:
+                return all_modules[idx + 1]
 
-        return self
+        if module_name == self.module_name:
+            return None
+
+        raise ModuleDoesNotExistError(f"Module {module_name} does not exist")
 
     def get_next_frid(self, frid: str, module_name: str) -> tuple[str, PlainModule]:
-        module = self.get_module_by_name(module_name)
+        if module_name != self.module_name:
+            module = self.get_required_module_by_name(module_name)
+        else:
+            module = self
+
         next_frid = plain_spec.get_next_frid(module.plain_source, frid)
 
         if next_frid is None:
             next_module = self.get_next_module(module_name)
+            if next_module is None:
+                next_module = self
             return plain_spec.get_first_frid(next_module.plain_source), next_module
 
         return next_frid, module
 
     def is_module_fully_rendered(self) -> bool:
         frids = list(plain_spec.get_frids(self.plain_source))
-        last_rendered_module, last_rendered_frid = git_utils.get_last_finished_frid(self.module_build_folder)
-        if last_rendered_module is None or last_rendered_frid is None:
-            return False
+        last_rendered_module_name, last_rendered_frid = git_utils.get_last_rendered_functionality(
+            self.module_build_folder
+        )
+        if (
+            last_rendered_module_name is not None
+            and last_rendered_module_name == self.module_name
+            and last_rendered_frid is not None
+            and last_rendered_frid == frids[-1]
+        ):
+            return True
 
-        return last_rendered_frid == frids[-1]
+        return False
+
+    def is_initial_module(self) -> bool:
+        last_rendered_module_name, last_rendered_frid = git_utils.get_last_rendered_functionality(
+            self.module_build_folder
+        )
+        if (
+            last_rendered_module_name is not None
+            and last_rendered_module_name == self.module_name
+            and last_rendered_frid is None
+        ):
+            return True
+
+        return False
+
+    def wipe_module(self) -> None:
+        if os.path.exists(self.module_build_folder):
+            console.warning(f"Wiping module {self.module_build_folder}...")
+            shutil.rmtree(self.module_build_folder)
+
+        if os.path.exists(self.module_conformance_tests_folder):
+            console.warning(f"Wiping conformance tests for module {self.module_conformance_tests_folder}...")
+            shutil.rmtree(self.module_conformance_tests_folder)

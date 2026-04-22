@@ -14,8 +14,7 @@ Screen {
 
 /* Codeplain Header Box - *codeplain (version)*/
 #codeplain-header {
-  dock: top;
-  margin: 1 0;
+  margin: 1 0 0 0;
   width: auto;
   height: auto;
 }
@@ -426,41 +425,40 @@ CustomFooter.footer-state-paused {
 
 /* Partial Render TUI Styles */
 #info-panel {
-    height: auto;
-    border: solid #e0ff6e;
-    padding: 1 2;
-    margin: 1 2;
-}
-#info-panel .highlight {
-    color: #79fc96;
-    margin-bottom: 1;
-}
-#info-panel-columns {
+    margin-top: 1;
     height: auto;
 }
-#info-panel-left {
-    width: auto;
+
+ListView {    
     height: auto;
-    margin-right: 8;
+    background: transparent;
 }
-#info-panel-left Label {
-    color: $text-muted;
+ListView:focus {
+    background: transparent;
 }
-#info-panel-right {
-    width: auto;
-    height: auto;
+ListItem {    
+    background: transparent;
+    color: #fff;
 }
-#info-panel-right Label {
-    color: $text-muted;
+ListItem:hover {
+    background: transparent;
 }
-ListView {
-    margin: 0 2;
-    height: auto;
+ListItem.-highlight {
+    background: #333;
+    color: #fff;
 }
-ListItem {
-    padding: 0 1;
-}
+
 .partial-render-question {
-    margin: 1 2;
+    margin: 0 1;
+    height: auto;
+}
+
+.change-box {
+    margin: 1 1;
+    height: auto;
+}
+
+#choice-list {
+    margin: 0 1;
     height: auto;
 }
