@@ -279,6 +279,7 @@ class RenderContext:
     def start_unittests_processing_in_conformance_tests(self):
         self.start_unittests_processing()
         self.conformance_tests_running_context.implementation_code_was_updated = False
+        self.conformance_tests_running_context.regression_run_started = True
         self.conformance_tests_running_context = self.get_first_conformance_tests_running_context()
 
     def finish_unittests_processing(self):
@@ -352,10 +353,13 @@ class RenderContext:
 
     def start_conformance_tests_processing(self):
         console.info("Implementing conformance tests...")
+        current_frid_specifications, _ = plain_spec.get_specifications_for_frid(
+            self.plain_source_tree, self.frid_context.frid
+        )
         self.conformance_tests_running_context = ConformanceTestsRunningContext(
             current_testing_module_name=self.module_name,
-            current_testing_frid=None,
-            current_testing_frid_specifications=None,
+            current_testing_frid=self.frid_context.frid,
+            current_testing_frid_specifications=current_frid_specifications,
             conformance_test_phase_index=0,
             fix_attempts=0,
             conformance_tests_json=self.conformance_tests.get_conformance_tests_json(self.module_name),
@@ -370,10 +374,6 @@ class RenderContext:
         return self.conformance_tests_running_context.implementation_code_was_updated
 
     def start_conformance_tests_for_frid(self):
-        if self.conformance_tests_running_context.implementation_code_was_updated:
-            self.conformance_tests_running_context.implementation_code_was_updated = False
-            self.conformance_tests_running_context.current_testing_frid = None
-
         if self.conformance_tests_running_context.regenerating_conformance_tests:
             if self.verbose:
                 console.info(
@@ -390,35 +390,59 @@ class RenderContext:
             self.conformance_tests_running_context.fix_attempts = 0
             self.conformance_tests_running_context.regenerating_conformance_tests = False
         else:
-            # This block is now only executed for the main (last) module. This means that no conformance tests
-            # postprocessing is taking place. Maybe it should?
-            if (
-                self.conformance_tests_running_context.current_testing_module_name == self.module_name
+            if self.conformance_tests_running_context.implementation_code_was_updated:
+                self.conformance_tests_running_context.implementation_code_was_updated = False
+                self.conformance_tests_running_context.regression_run_started = True
+                self.conformance_tests_running_context.current_testing_frid = None
+
+            # This block handles phase-based rendering for the current FRID being implemented.
+            # Only runs before regression starts — during regression the current FRID is treated
+            # as an existing test like any other.
+            elif (
+                not self.conformance_tests_running_context.regression_run_started
+                and self.conformance_tests_running_context.current_testing_module_name == self.module_name
                 and self.conformance_tests_running_context.current_testing_frid == self.frid_context.frid
             ):
+                if not self.conformance_tests_running_context.current_conformance_tests_exist():
+                    # No entry yet — RenderConformanceTests will create it on this action cycle
+                    return
+
                 if not self.frid_context.specifications.get(
                     plain_spec.ACCEPTANCE_TESTS
                 ) or self.conformance_tests_running_context.conformance_test_phase_index == len(
                     self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS]
                 ):
-                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
-                    return
-                if self.conformance_tests_running_context.conformance_test_phase_index == 0:
-                    self.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = None
+                    # All phases done — start regression run over earlier FRIDs
+                    self.conformance_tests_running_context.regression_run_started = True
+                    self.conformance_tests_running_context.current_testing_frid = None
+                    # fall through to get_first below
+                else:
+                    if self.conformance_tests_running_context.conformance_test_phase_index == 0:
+                        self.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = None
 
-                self.conformance_tests_running_context.conformance_test_phase_index += 1
-                current_acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-                    : self.conformance_tests_running_context.conformance_test_phase_index
-                ]
-                self.conformance_tests_running_context.get_conformance_tests_json(
-                    self.conformance_tests_running_context.current_testing_module_name
-                )[self.frid_context.frid][plain_spec.ACCEPTANCE_TESTS] = current_acceptance_tests
-                return
+                    self.conformance_tests_running_context.conformance_test_phase_index += 1
+                    current_acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
+                        : self.conformance_tests_running_context.conformance_test_phase_index
+                    ]
+                    self.conformance_tests_running_context.get_conformance_tests_json(
+                        self.conformance_tests_running_context.current_testing_module_name
+                    )[self.frid_context.frid][plain_spec.ACCEPTANCE_TESTS] = current_acceptance_tests
+                    return
 
             if self.conformance_tests_running_context.current_testing_frid is None:
                 self.conformance_tests_running_context = self.get_first_conformance_tests_running_context()
             else:
                 self.conformance_tests_running_context = self.get_next_conformance_tests_running_context()
+
+            # Detect regression completion: we've reached the current FRID (don't re-run it)
+            if self.conformance_tests_running_context.regression_run_started:
+                current = self.conformance_tests_running_context.current_testing_frid
+                if self.conformance_tests_running_context.current_testing_module_name == self.module_name and (
+                    current is None or current == self.frid_context.frid
+                ):
+                    self.conformance_tests_running_context.current_testing_frid = self.frid_context.frid
+                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+                    return
 
             if self.conformance_tests_running_context.current_testing_module_name == self.module_name:
                 self.conformance_tests_running_context.current_testing_frid_specifications, _ = (
