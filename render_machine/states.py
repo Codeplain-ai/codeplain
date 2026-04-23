@@ -23,6 +23,7 @@ class States(Enum):
     STEP_COMPLETED = "stepCompleted"
 
     # FRID implementation states
+    PREPARE_IMPLEMENTATION_INFORMATION = "prepareImplementationInformation"
     READY_FOR_FRID_IMPLEMENTATION = "readyForFridImplementation"
     FRID_FULLY_IMPLEMENTED = "fridFullyImplemented"
 

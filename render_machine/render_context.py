@@ -43,6 +43,7 @@ class RenderContext:
         unittests_script: str,
         conformance_tests_script: str,
         prepare_environment_script: str,
+        prepare_implementation_script: str,
         copy_build: bool,
         copy_conformance_tests: bool,
         render_range: list[str] | None,
@@ -69,6 +70,7 @@ class RenderContext:
         self.unittests_script = unittests_script
         self.conformance_tests_script = conformance_tests_script
         self.prepare_environment_script = prepare_environment_script
+        self.prepare_implementation_script = prepare_implementation_script
         self.copy_build = copy_build
         self.copy_conformance_tests = copy_conformance_tests
         self.render_range = render_range
@@ -342,6 +344,10 @@ class RenderContext:
 
     def finish_refactoring_code(self):
         pass
+
+    def start_prepare_implementation_information(self):
+        if self.prepare_implementation_script is None:
+            self.machine.dispatch(triggers.MARK_IMPLEMENTATION_INFORMATION_PREPARED)
 
     def start_testing_environment_preparation(self):
         if (

@@ -161,6 +161,36 @@ class CodeplainAPI:
         }
         return self.post_request(endpoint_url, headers, payload, None, num_retries=0, silent=True)
 
+    def prepare_implementation(
+        self,
+        frid: str,
+        plain_source_tree: dict,
+        linked_resources: dict,
+        existing_files_content: dict,
+        memory_files_content: dict,
+        module_name: str,
+        required_modules: dict,
+        include_unittests: bool,
+        run_state: RunState,
+        prepare_implementation_script: str,
+    ) -> dict:
+        endpoint_url = f"{self.api_url}/prepare_implementation"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": frid,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+            "include_unittests": include_unittests,
+            "prepare_implementation_script": prepare_implementation_script,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
     def render_functional_requirement(
         self,
         frid: str,
@@ -172,6 +202,7 @@ class CodeplainAPI:
         required_modules: dict,
         include_unittests: bool,
         run_state: RunState,
+        implementation_information: Optional[str] = None,
     ) -> dict[str, str]:
         """
         Renders the content of a functionality based on the provided ID,
@@ -212,6 +243,9 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "include_unittests": include_unittests,
         }
+
+        if implementation_information is not None:
+            payload["implementation_information"] = implementation_information
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 

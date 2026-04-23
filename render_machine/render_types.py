@@ -46,6 +46,7 @@ class FridContext:
     functional_requirement_render_attempts: int = 0
     changed_files: set[str] = field(default_factory=set)
     refactoring_iteration: int = 0
+    implementation_information: Optional[str] = None
 
 
 @dataclass
@@ -155,6 +156,7 @@ class ScriptExecutionHistory:
     latest_unit_test_output_path: Optional[str] = None
     latest_conformance_test_output_path: Optional[str] = None
     latest_testing_environment_output_path: Optional[str] = None
+    latest_prepare_implementation_output_path: Optional[str] = None
     should_update_script_outputs: bool = False
 
 

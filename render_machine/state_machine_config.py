@@ -19,6 +19,7 @@ from render_machine.actions.finish_functional_requirement import FinishFunctiona
 from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.actions.prepare_repositories import PrepareRepositories
+from render_machine.actions.prepare_implementation_information import PrepareImplementationInformation
 from render_machine.actions.prepare_testing_environment import PrepareTestingEnvironment
 from render_machine.actions.refactor_code import RefactorCode
 from render_machine.actions.render_conformance_tests import RenderConformanceTests
@@ -77,6 +78,7 @@ class StateMachineConfig:
         """Get the mapping of states to their corresponding actions."""
         return {
             States.RENDER_INITIALISED.value: PrepareRepositories(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PREPARE_IMPLEMENTATION_INFORMATION.value}": PrepareImplementationInformation(),
             f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}": RenderFunctionalRequirement(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
@@ -112,6 +114,8 @@ class StateMachineConfig:
         """Get the mapping of action outcomes to state machine triggers."""
         return {
             PrepareRepositories.SUCCESSFUL_OUTCOME: triggers.START_RENDER,
+            PrepareImplementationInformation.SUCCESSFUL_OUTCOME: triggers.MARK_IMPLEMENTATION_INFORMATION_PREPARED,
+            PrepareImplementationInformation.FAILED_OUTCOME: triggers.HANDLE_ERROR,
             RenderFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.RENDER_FUNCTIONAL_REQUIREMENT,
             RenderFunctionalRequirement.FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME: triggers.HANDLE_ERROR,
             RunUnitTests.SUCCESSFUL_OUTCOME: triggers.MARK_UNIT_TESTS_PASSED,
@@ -221,11 +225,15 @@ class StateMachineConfig:
             States.RENDER_INITIALISED.value,
             {
                 "name": States.IMPLEMENTING_FRID.value,
-                "initial": States.READY_FOR_FRID_IMPLEMENTATION.value,
+                "initial": States.PREPARE_IMPLEMENTATION_INFORMATION.value,
                 "on_enter": "start_implementing_frid",
                 "on_exit": "finish_implementing_frid",
                 "children": [
                     {"name": States.STEP_COMPLETED.value, "on_exit": "finish_frid_implementation_step"},
+                    {
+                        "name": States.PREPARE_IMPLEMENTATION_INFORMATION.value,
+                        "on_enter": "start_prepare_implementation_information",
+                    },
                     {"name": States.READY_FOR_FRID_IMPLEMENTATION.value, "on_enter": "check_frid_iteration_limit"},
                     self.get_processing_unit_tests_states(UnitTestsConfig.for_implementation(render_context)),
                     refactoring_code_states,
@@ -248,6 +256,11 @@ class StateMachineConfig:
                 "source": States.RENDER_INITIALISED.value,
                 "trigger": triggers.START_RENDER,
                 "dest": States.IMPLEMENTING_FRID.value,
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PREPARE_IMPLEMENTATION_INFORMATION.value}",
+                "trigger": triggers.MARK_IMPLEMENTATION_INFORMATION_PREPARED,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}",
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}",
