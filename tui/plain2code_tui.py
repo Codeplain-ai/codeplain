@@ -37,6 +37,7 @@ from .state_handlers import (
     ConformanceTestsHandler,
     FridFullyImplementedHandler,
     FridReadyHandler,
+    PrepareImplementationInformationHandler,
     RefactoringHandler,
     RenderErrorHandler,
     RenderSuccessHandler,
@@ -86,6 +87,9 @@ class Plain2CodeTUI(App):
 
         # Initialize state handlers
         self._state_handlers: dict[str, StateHandler] = {
+            States.PREPARE_IMPLEMENTATION_INFORMATION.value: PrepareImplementationInformationHandler(
+                self, self.unittests_script, self.conformance_tests_script
+            ),
             States.READY_FOR_FRID_IMPLEMENTATION.value: FridReadyHandler(
                 self, self.unittests_script, self.conformance_tests_script
             ),

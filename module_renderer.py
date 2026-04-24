@@ -57,6 +57,7 @@ class ModuleRenderer:
             prepare_environment_script=self.args.prepare_environment_script,
             prepare_implementation_script=self.args.prepare_implementation_script,
             copy_build=self.args.copy_build,
+            prepare_conformance_test_fix_script=self.args.prepare_conformance_test_fix_script,
             copy_conformance_tests=self.args.copy_conformance_tests,
             render_range=render_range,
             render_conformance_tests=self.args.render_conformance_tests,

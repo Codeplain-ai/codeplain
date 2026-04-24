@@ -112,6 +112,7 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
             render_context.conformance_tests_running_context.conflicting_requirement_count,
             run_state=render_context.run_state,
+            conformance_test_fix_information=render_context.conformance_tests_running_context.conformance_test_fix_information,
         )
         code_diff_files_content = {}
 

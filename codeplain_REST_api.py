@@ -384,6 +384,54 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
+    def prepare_conformance_test_fix(
+        self,
+        frid,
+        functional_requirement_id,
+        plain_source_tree,
+        linked_resources,
+        existing_files_content,
+        memory_files_content,
+        module_name: str,
+        conformance_tests_module_name: str,
+        required_modules,
+        code_diff,
+        conformance_tests_files,
+        acceptance_tests,
+        conformance_tests_issue,
+        implementation_fix_count,
+        conformance_tests_folder_name,
+        current_testing_frid_high_level_implementation_plan: Optional[str],
+        run_state: RunState,
+        prepare_conformance_test_fix_script: str,
+    ) -> dict:
+        endpoint_url = f"{self.api_url}/prepare_conformance_test_fix"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": frid,
+            "functional_requirement_id": functional_requirement_id,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "conformance_tests_module_name": conformance_tests_module_name,
+            "required_modules": required_modules,
+            "code_diff": code_diff,
+            "conformance_tests_files": conformance_tests_files,
+            "conformance_tests_issue": conformance_tests_issue,
+            "implementation_fix_count": implementation_fix_count,
+            "conformance_tests_folder_name": conformance_tests_folder_name,
+            "current_testing_frid_high_level_implementation_plan": current_testing_frid_high_level_implementation_plan,
+            "prepare_conformance_test_fix_script": prepare_conformance_test_fix_script,
+        }
+
+        if acceptance_tests is not None:
+            payload["acceptance_tests"] = acceptance_tests
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
     def fix_conformance_tests_issue(
         self,
         frid,
@@ -404,6 +452,7 @@ class CodeplainAPI:
         current_testing_frid_high_level_implementation_plan: Optional[str],
         conflicting_requirements_count: int,
         run_state: RunState,
+        conformance_test_fix_information: Optional[str] = None,
     ):
         endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -429,6 +478,9 @@ class CodeplainAPI:
 
         if acceptance_tests is not None:
             payload["acceptance_tests"] = acceptance_tests
+
+        if conformance_test_fix_information is not None:
+            payload["conformance_test_fix_information"] = conformance_test_fix_information
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 

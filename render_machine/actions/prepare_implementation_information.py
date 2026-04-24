@@ -1,10 +1,7 @@
-import os
-import tempfile
 from typing import Any
 
 import render_machine.render_utils as render_utils
 from memory_management import MemoryManager
-from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -16,12 +13,6 @@ class PrepareImplementationInformation(BaseAction):
     FAILED_OUTCOME = "implementation_information_preparation_failed"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
-        if render_context.verbose:
-            console.info(
-                f"Running prepare_implementation_script {render_context.prepare_implementation_script} "
-                f"for FRID {render_context.frid_context.frid}."
-            )
-
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
 
@@ -42,36 +33,27 @@ class PrepareImplementationInformation(BaseAction):
         )
         instructions = api_response.get("instructions", "")
 
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
-                tmp.write(instructions)
-                tmp_path = tmp.name
+        exit_code, implementation_information, script_output_path = render_utils.execute_script(
+            render_context.prepare_implementation_script,
+            [instructions],
+            render_context.verbose,
+            "Prepare Implementation Information",
+            timeout=render_context.test_script_timeout,
+            stop_event=render_context.stop_event,
+        )
 
-            exit_code, implementation_information, script_output_path = render_utils.execute_script(
-                render_context.prepare_implementation_script,
-                [tmp_path],
-                render_context.verbose,
-                "Prepare Implementation Information",
-                timeout=render_context.test_script_timeout,
-                stop_event=render_context.stop_event,
-            )
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-        if exit_code == 0:
+        if exit_code == 0 or exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE:
             render_context.frid_context.implementation_information = implementation_information
             render_context.script_execution_history.latest_prepare_implementation_output_path = script_output_path
             render_context.script_execution_history.should_update_script_outputs = True
             return self.SUCCESSFUL_OUTCOME, None
-        else:
-            return (
-                self.FAILED_OUTCOME,
-                RenderError.encode(
-                    message="Prepare implementation information failed. Please check the prepare_implementation_script.",
-                    error_type="PREPARE_IMPLEMENTATION_ERROR",
-                    exit_code=exit_code,
-                    script=render_context.prepare_implementation_script,
-                ).to_payload(),
-            )
+
+        return (
+            self.FAILED_OUTCOME,
+            RenderError.encode(
+                message="Prepare implementation information failed. Please check the prepare_implementation_script.",
+                error_type="PREPARE_IMPLEMENTATION_ERROR",
+                exit_code=exit_code,
+                script=render_context.prepare_implementation_script,
+            ).to_payload(),
+        )

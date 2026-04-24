@@ -41,6 +41,7 @@ class States(Enum):
     CONFORMANCE_TESTING_INITIALISED = "conformanceTestingInitialised"
     CONFORMANCE_TEST_GENERATED = "conformanceTestGenerated"
     CONFORMANCE_TEST_ENV_PREPARED = "conformanceTestEnvironmentPrepared"
+    PREPARE_CONFORMANCE_TEST_FIX = "prepareConformanceTestFix"
     CONFORMANCE_TEST_FAILED = "conformanceTestFailed"
 
     # Postprocessing conformance tests states

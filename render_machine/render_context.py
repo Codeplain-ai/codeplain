@@ -55,6 +55,7 @@ class RenderContext:
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
         enter_pause_event: Optional[threading.Event] = None,
+        prepare_conformance_test_fix_script: Optional[str] = None,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -71,6 +72,7 @@ class RenderContext:
         self.conformance_tests_script = conformance_tests_script
         self.prepare_environment_script = prepare_environment_script
         self.prepare_implementation_script = prepare_implementation_script
+        self.prepare_conformance_test_fix_script = prepare_conformance_test_fix_script
         self.copy_build = copy_build
         self.copy_conformance_tests = copy_conformance_tests
         self.render_range = render_range
@@ -348,6 +350,10 @@ class RenderContext:
     def start_prepare_implementation_information(self):
         if self.prepare_implementation_script is None:
             self.machine.dispatch(triggers.MARK_IMPLEMENTATION_INFORMATION_PREPARED)
+
+    def start_prepare_conformance_test_fix(self):
+        if self.prepare_conformance_test_fix_script is None:
+            self.machine.dispatch(triggers.MARK_CONFORMANCE_TEST_FIX_PREPARED)
 
     def start_testing_environment_preparation(self):
         if (

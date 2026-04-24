@@ -53,6 +53,36 @@ class StateHandler(ABC):
         pass
 
 
+class PrepareImplementationInformationHandler(StateHandler):
+    """Handler for PREPARE_IMPLEMENTATION_INFORMATION state."""
+
+    def __init__(self, tui, unittests_script: Optional[str], conformance_tests_script: Optional[str]):
+        self.tui = tui
+        self.unittests_script = unittests_script
+        self.conformance_tests_script = conformance_tests_script
+
+    def handle(self, _: list[str], snapshot: RenderContextSnapshot, _previous_state_segments: list[str]) -> None:
+        """Handle PREPARE_IMPLEMENTATION_INFORMATION state."""
+        rendering_functionality_text = f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{snapshot.frid_context.frid}: {snapshot.frid_context.functional_requirement_text}"
+        frid_progress = get_frid_progress(self.tui)
+        self.tui.call_later(frid_progress.update_functionality_text, rendering_functionality_text)
+
+        update_progress_item_status(self.tui, TUIComponents.FRID_PROGRESS_RENDER_FR.value, ProgressItem.PROCESSING)
+        if self.conformance_tests_script is not None:
+            update_progress_item_status(
+                self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, ProgressItem.PENDING
+            )
+        if self.unittests_script is not None:
+            update_progress_item_status(self.tui, TUIComponents.FRID_PROGRESS_UNIT_TEST.value, ProgressItem.PENDING)
+        update_progress_item_status(self.tui, TUIComponents.FRID_PROGRESS_REFACTORING.value, ProgressItem.PENDING)
+
+        update_progress_item_substates(
+            self.tui,
+            TUIComponents.FRID_PROGRESS_RENDER_FR.value,
+            [Substate("Preparing implementation information")],
+        )
+
+
 class FridReadyHandler(StateHandler):
     """Handler for READY_FOR_FRID_IMPLEMENTATION state."""
 
@@ -69,9 +99,9 @@ class FridReadyHandler(StateHandler):
     def handle(self, _: list[str], snapshot: RenderContextSnapshot, _previous_state_segments: list[str]) -> None:
         """Handle READY_FOR_FRID_IMPLEMENTATION state."""
         # Update FRID text
-
         rendering_functionality_text = f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{snapshot.frid_context.frid}: {snapshot.frid_context.functional_requirement_text}"
-        get_frid_progress(self.tui).update_functionality_text(rendering_functionality_text)
+        frid_progress = get_frid_progress(self.tui)
+        self.tui.call_later(frid_progress.update_functionality_text, rendering_functionality_text)
 
         # Set progress states
         update_progress_item_status(self.tui, TUIComponents.FRID_PROGRESS_RENDER_FR.value, ProgressItem.PROCESSING)
@@ -229,6 +259,16 @@ class ConformanceTestsHandler(StateHandler):
 
                 update_progress_item_substates(
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(running_text)]
+                )
+            elif segments[2] == States.PREPARE_CONFORMANCE_TEST_FIX.value:
+                prepare_fix_text = f"Preparing conformance test fix for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
+                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
+                    prepare_fix_text += (
+                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
+                    )
+
+                update_progress_item_substates(
+                    self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(prepare_fix_text)]
                 )
             elif segments[2] == States.CONFORMANCE_TEST_FAILED.value:
                 fixing_text = f"Fixing conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"

@@ -19,6 +19,7 @@ CONFORMANCE_TESTS_SCRIPT_NAME = "conformance_tests_script"
 DEFAULT_LOG_FILE_NAME = "codeplain.log"
 PREPARE_ENVIRONMENT_SCRIPT_NAME = "prepare_environment_script"
 PREPARE_IMPLEMENTATION_SCRIPT_NAME = "prepare_implementation_script"
+PREPARE_CONFORMANCE_TEST_FIX_SCRIPT_NAME = "prepare_conformance_test_fix_script"
 
 
 def process_test_script_path(script_arg_name, config):
@@ -264,6 +265,14 @@ def create_parser():
     )
 
     parser.add_argument(
+        "--prepare-conformance-test-fix-script",
+        type=str,
+        help="Path to a shell script that queries an LLM to produce additional information before fixing a conformance test. "
+        "The script receives a path to a file containing LLM query instructions as its first argument "
+        "and should print the LLM response to stdout.",
+    )
+
+    parser.add_argument(
         "--test-script-timeout",
         type=int,
         default=None,
@@ -382,7 +391,13 @@ def parse_arguments():
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")
 
-    script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME, PREPARE_ENVIRONMENT_SCRIPT_NAME, PREPARE_IMPLEMENTATION_SCRIPT_NAME]
+    script_arg_names = [
+        UNIT_TESTS_SCRIPT_NAME,
+        CONFORMANCE_TESTS_SCRIPT_NAME,
+        PREPARE_ENVIRONMENT_SCRIPT_NAME,
+        PREPARE_IMPLEMENTATION_SCRIPT_NAME,
+        PREPARE_CONFORMANCE_TEST_FIX_SCRIPT_NAME,
+    ]
     for script_name in script_arg_names:
         args = process_test_script_path(script_name, args)
 
