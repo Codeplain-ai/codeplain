@@ -33,8 +33,14 @@ class MemoryManager:
     ):
 
         current_conformance_tests_issue_frid = render_context.conformance_tests_running_context.current_testing_frid
+        current_conformance_tests_issue_module = (
+            render_context.conformance_tests_running_context.current_testing_module_name
+        )
         old_conformance_tests_issue_frid = (
             render_context.conformance_tests_running_context.previous_conformance_tests_issue_frid
+        )
+        old_conformance_tests_issue_module = (
+            render_context.conformance_tests_running_context.previous_conformance_tests_issue_module
         )
 
         old_conformance_tests_issue = (
@@ -42,9 +48,14 @@ class MemoryManager:
         )
 
         is_first_time_running_conformance_tests = (
-            old_conformance_tests_issue_frid is None or old_conformance_tests_issue_frid == ""
+            old_conformance_tests_issue_frid is None
+            or old_conformance_tests_issue_frid == ""
+            or old_conformance_tests_issue_module != current_conformance_tests_issue_module
         )
-        is_same_frid_as_previous_failing_test = current_conformance_tests_issue_frid == old_conformance_tests_issue_frid
+        is_same_frid_as_previous_failing_test = (
+            current_conformance_tests_issue_frid == old_conformance_tests_issue_frid
+            and current_conformance_tests_issue_module == old_conformance_tests_issue_module
+        )
         is_conformance_test_failed = exit_code != CONFORMANCE_TESTS_SUCCESS_EXIT_CODE
 
         should_create_memory = not is_first_time_running_conformance_tests and (
