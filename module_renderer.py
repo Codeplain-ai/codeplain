@@ -276,8 +276,7 @@ class ModuleRenderer:
             if self.args.copy_build:
                 rendered_code_path = f"{self.args.build_dest}/"
             else:
-                last_module_name = self.filename.replace(plain_file.PLAIN_SOURCE_FILE_EXTENSION, "")
-                rendered_code_path = f"{os.path.join(self.args.build_folder, last_module_name)}/"
+                rendered_code_path = self.args.build_folder
 
             self.run_state.set_render_generated_code_path(rendered_code_path)
             self.event_bus.publish(RenderCompleted(rendered_code_path=rendered_code_path))

@@ -19,7 +19,7 @@
 
 - All Cypress test files (*.cy.ts) must be placed in the same directory as cypress.config.ts.
 
-- The cypress.config.ts file's 'specPattern' option must be set to '*.cy.ts' so Cypress finds the test files in the project root (alongside cypress.config.ts).
+- The cypress.config.ts file's 'specPattern' option must be set to '*.cy.ts'.
 
 - The following configuration should be added:
   - The appropriate include section should be added to tsconfig.json file.
