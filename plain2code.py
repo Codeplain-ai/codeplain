@@ -42,7 +42,7 @@ from plain2code_logger import (
     LOGGER_NAME,
     CrashLogHandler,
     IndentedFormatter,
-    TuiLoggingHandler,
+    LoggingHandler,
     dump_crash_logs,
     get_log_file_path,
 )
@@ -125,6 +125,7 @@ def _get_frids_range(plain_source, start, end=None):
 def setup_logging(
     args,
     event_bus: EventBus,
+    run_state: RunState,
     log_to_file: bool,
     log_file_name: str,
     plain_file_path: Optional[str],
@@ -150,7 +151,7 @@ def setup_logging(
             console.warning(f"Failed to load logging configuration from {args.logging_config_path}: {str(e)}")
 
     # The IndentedFormatter provides better multiline log readability.
-    # We add the TuiLoggingHandler to the root logger.
+    # We add the LoggingHandler to the root logger.
     root_logger = logging.getLogger(LOGGER_NAME)
     configured_log_level = root_logger.level
     root_logger.setLevel(logging.DEBUG)  # Capture all logs; handlers will filter levels as needed
@@ -158,7 +159,7 @@ def setup_logging(
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
 
     if not headless:
-        handler = TuiLoggingHandler(event_bus)
+        handler = LoggingHandler(event_bus, run_state)
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
 
@@ -313,7 +314,7 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    setup_logging(args, event_bus, args.log_to_file, args.log_file_name, args.filename, args.headless)
+    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless)
 
     exc_info = None
     try:
