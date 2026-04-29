@@ -76,6 +76,8 @@ class CodeRenderer:
             next_trigger = self.action_result_triggers_map[outcome]
             self.machine.dispatch(next_trigger)
 
+        self.render_context.run_state.add_to_render_time()
+
     def generate_render_machine_graph(self):
         """Generate a visual diagram of the state machine."""
         self.render_context.get_graph().draw("render_machine_diagram.png", prog="dot")
