@@ -272,7 +272,6 @@ class ModuleRenderer:
         self.loaded_modules = list[PlainModule]()
         _, _, rendering_failed = self._render_module(self.filename, self.render_range, True)
         if not rendering_failed:
-            # Get the last module that completed rendering
             if self.args.copy_build:
                 rendered_code_path = f"{self.args.build_dest}/"
             else:
