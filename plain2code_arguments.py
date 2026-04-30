@@ -157,7 +157,7 @@ def update_args_with_config(args, parser, cli_provided: set[str]):
     CLI-supplied values always win. Anything the CLI did not supply is taken
     from config.yaml if present, else left at its argparse default. The mapping
     from dest to source ("cli" / "config" / "default") is attached to ``args``
-    as ``arg_sources`` so downstream code can resolve paths against the right
+    as ``ARGUMENT_SOURCES`` so downstream code can resolve paths against the right
     base directory.
     """
     action_dests = {action.dest for action in parser._actions}
@@ -194,6 +194,13 @@ def update_args_with_config(args, parser, cli_provided: set[str]):
     return args
 
 
+def _add_arg(parser, *args, path=False, **kwargs):
+    """Add an argument; tag as path-valued when ``path=True`` so ``parse_arguments`` resolves it."""
+    action = parser.add_argument(*args, **kwargs)
+    if path:
+        action._is_path = True
+
+
 def create_parser():
     """Create the argument parser without parsing arguments."""
     parser = argparse.ArgumentParser(
@@ -207,35 +214,45 @@ def create_parser():
         ),
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "filename",
         type=str,
         help="Path to the plain file to render. The directory containing this file has highest precedence for template loading, "
         "so you can place custom templates here to override the defaults. See --template-dir for more details about template loading.",
     )
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
-    parser.add_argument("--base-folder", type=str, help="Base folder for the build files")
-    parser.add_argument(
-        "--build-folder", type=non_empty_string, default=DEFAULT_BUILD_FOLDER, help="Folder for build files"
+    _add_arg(parser, "--verbose", "-v", action="store_true", help="Enable verbose output")
+    _add_arg(parser, "--base-folder", type=str, help="Base folder for the build files", path=True)
+    _add_arg(
+        parser,
+        "--build-folder",
+        type=non_empty_string,
+        default=DEFAULT_BUILD_FOLDER,
+        help="Folder for build files",
+        path=True,
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--log-to-file",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable logging to a file. Defaults to True. Set to False to disable.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--log-file-name",
         type=str,
         default=DEFAULT_LOG_FILE_NAME,
         help=f"Name of the log file. Defaults to '{DEFAULT_LOG_FILE_NAME}'. "
         "If a file already exists at the resolved path, it will be overwritten by the current logs.",
+        path=True,
     )
 
     # Add config file arguments
     config_group = parser.add_argument_group("configuration")
-    config_group.add_argument(
+    _add_arg(
+        config_group,
         "--config-name",
         type=non_empty_string,
         default="config.yaml",
@@ -243,39 +260,46 @@ def create_parser():
     )
 
     render_range_group = parser.add_mutually_exclusive_group()
-    render_range_group.add_argument(
+    _add_arg(
+        render_range_group,
         "--render-range",
         type=frid_range_string,
         help="Specify a range of functionalities to render (e.g. `1` , `2`, `3`). "
         "Use comma to separate start and end IDs. If only one functionality ID is provided, only that functionality is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
-    render_range_group.add_argument(
+    _add_arg(
+        render_range_group,
         "--render-from",
         type=frid_string,
         help="Continue generation starting from this specific functionality (e.g. `2`). "
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--force-render",
         action="store_true",
         default=False,
         help="Force re-render of all the required modules.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--unittests-script",
         type=str,
         help="Shell script to run unit tests on generated code. Receives the build folder path as its first argument (default: 'plain_modules').",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--conformance-tests-folder",
         type=non_empty_string,
         default=DEFAULT_CONFORMANCE_TESTS_FOLDER,
         help="Folder for conformance test files",
+        path=True,
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--conformance-tests-script",
         type=str,
         help="Path to conformance tests shell script. Every conformance test script should accept two arguments: "
@@ -283,51 +307,59 @@ def create_parser():
         "2) Path to a subfolder of the conformance tests folder (e.g. `conformance_tests/subfoldername`) containing test files.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--prepare-environment-script",
         type=str,
         help="Path to a shell script that prepares the testing environment. The script should accept the source code folder path as its first argument.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--test-script-timeout",
         type=int,
         default=None,
         help="Timeout for test scripts in seconds. If not provided, the default timeout of 120 seconds is used.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--api",
         type=str,
         nargs="?",
         const="https://api.codeplain.ai",
         help="Alternative base URL for the API. Default: `https://api.codeplain.ai`",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--api-key",
         type=str,
         default=CODEPLAIN_API_KEY,
         help="API key used to access the API. If not provided, the `CODEPLAIN_API_KEY` environment variable is used.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--full-plain",
         action="store_true",
         help="Full preview ***plain specification before code generation."
         "Use when you want to preview context of all ***plain primitives that are going to be included in order to render the given module.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--dry-run",
         action="store_true",
         help="Dry run preview of the code generation (without actually making any changes).",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--replay-with",
         type=str,
         default=None,
         help="",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--template-dir",
         type=str,
         default=None,
@@ -335,47 +367,58 @@ def create_parser():
         "1) Directory containing the plain file, "
         "2) Custom template directory (if provided through this argument), "
         "3) Built-in standard_template_library directory",
+        path=True,
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--copy-build",
         action="store_true",
         default=True,
         help="If set, copy the rendered contents of code in `--base-folder` folder to `--build-dest` folder after successful rendering.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--build-dest",
         type=non_empty_string,
         default=DEFAULT_BUILD_DEST,
         help="Target folder to copy rendered contents of code to (used only if --copy-build is set).",
+        path=True,
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--copy-conformance-tests",
         action="store_true",
         default=False,
         help="If set, copy the conformance tests of code in `--conformance-tests-folder` folder to `--conformance-tests-dest` folder successful rendering. Requires --conformance-tests-script.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--conformance-tests-dest",
         type=non_empty_string,
         default=DEFAULT_CONFORMANCE_TESTS_DEST,
         help="Target folder to copy conformance tests of code to (used only if --copy-conformance-tests is set).",
+        path=True,
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--render-machine-graph",
         action="store_true",
         default=False,
         help="If set, render the state machine graph.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--logging-config-path",
         type=str,
         default="logging_config.yaml",
         help="Path to the logging configuration file.",
+        path=True,
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--headless",
         action="store_true",
         default=False,
@@ -399,20 +442,9 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
     # otherwise it is still just the lookup name (e.g. "config.yaml").
     config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
 
-    # Path-valued arguments that do not need to exist at parse time: directories
-    # are created on demand and the logging-related files are optional.
-    path_arg_names = [
-        "base_folder",
-        "build_folder",
-        "conformance_tests_folder",
-        "build_dest",
-        "conformance_tests_dest",
-        "template_dir",
-        "logging_config_path",
-        "log_file_name",
-    ]
-    for arg_name in path_arg_names:
-        _resolve_path_arg(arg_name, args, cwd, config_dir, spec_dir)
+    for action in parser._actions:
+        if getattr(action, "_is_path", False):
+            _resolve_path_arg(action.dest, args, cwd, config_dir, spec_dir)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
