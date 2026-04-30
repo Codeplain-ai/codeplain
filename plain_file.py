@@ -629,7 +629,11 @@ def plain_file_parser(  # noqa: C901
             f"Invalid plain file extension: {plain_source_file_path.suffix}. Expected: {PLAIN_SOURCE_FILE_EXTENSION}."
         )
 
-    module_name = plain_source_file_path.stem
+    module_name = (
+        plain_source_file_path.stem
+        if plain_source_file_path.is_absolute()
+        else plain_source_file_path.with_suffix("").as_posix()
+    )
 
     code_variables = {}
 
