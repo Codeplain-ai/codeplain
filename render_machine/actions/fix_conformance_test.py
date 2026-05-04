@@ -18,6 +18,7 @@ class FixConformanceTest(BaseAction):
     ISSUE_REASON_CODE_CONFORMANCE_TESTS = 0
     ISSUE_REASON_CODE_IMPLEMENTATION_CODE = 1
     ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS = 2
+    ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS = 3
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         console.info(
@@ -114,7 +115,10 @@ class FixConformanceTest(BaseAction):
             )
         code_diff_files_content = {}
 
-        if issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS:
+        if (
+            issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS
+            or issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS
+        ):
             render_context.conformance_tests_running_context.conflicting_requirement_count += 1
             render_context.conformance_tests_running_context.conflicting_module_name = current_testing_module_name
             render_context.conformance_tests_running_context.conflicting_frid = current_testing_frid
