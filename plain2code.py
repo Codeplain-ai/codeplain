@@ -305,7 +305,7 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless)
+    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.headless)
 
     exc_info = None
     error_message = None
