@@ -42,6 +42,7 @@ We might need those at some point, so just commenting them out for now.
 }
 
 #render-status-widget {
+  margin-top: 1;
   height: auto;
 }
 
@@ -137,7 +138,7 @@ TestScriptsContainer {
   height: auto;
   color: #888;
   border: solid #888;
-  padding: 0 1;
+  padding-top: 1;
 }
 
 .test-scripts-title {
