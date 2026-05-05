@@ -28,7 +28,6 @@ from .components import (
     LogLevelFilter,
     ProgressItem,
     RenderingInfoBox,
-    ScriptOutputType,
     StructuredLogView,
     TestScriptsContainer,
     TUIComponents,
@@ -109,21 +108,6 @@ class Plain2CodeTUI(App):
             self, self.unittests_script, self.conformance_tests_script
         )
 
-    def get_active_script_types(self) -> list[ScriptOutputType]:
-        """Get the list of active script output types based on which scripts exist.
-
-        Returns:
-            List of ScriptOutputType enum members for scripts that are configured
-        """
-        active_types = []
-        if self.unittests_script is not None:
-            active_types.append(ScriptOutputType.UNIT_TEST_OUTPUT_TEXT)
-        if self.conformance_tests_script is not None:
-            active_types.append(ScriptOutputType.CONFORMANCE_TEST_OUTPUT_TEXT)
-        if self.prepare_environment_script is not None:
-            active_types.append(ScriptOutputType.TESTING_ENVIRONMENT_OUTPUT_TEXT)
-        return active_types
-
     def on_mount(self) -> None:
         """Called when the app is mounted."""
         self.event_bus.subscribe(RenderStateUpdated, self.on_render_state_updated)
@@ -153,12 +137,17 @@ class Plain2CodeTUI(App):
                     )
 
                     # Test scripts container with border
-                    yield TestScriptsContainer(
-                        id=TUIComponents.TEST_SCRIPTS_CONTAINER.value,
-                        show_unit_test=self.unittests_script is not None,
-                        show_conformance_test=self.conformance_tests_script is not None,
-                        show_testing_env=self.prepare_environment_script is not None,
-                    )
+                    if (
+                        self.unittests_script is not None
+                        or self.conformance_tests_script is not None
+                        or self.prepare_environment_script is not None
+                    ):
+                        yield TestScriptsContainer(
+                            id=TUIComponents.TEST_SCRIPTS_CONTAINER.value,
+                            show_unit_test=self.unittests_script is not None,
+                            show_conformance_test=self.conformance_tests_script is not None,
+                            show_testing_env=self.prepare_environment_script is not None,
+                        )
                     yield Static(
                         "[#FFFFFF]Rendering in progress...[/#FFFFFF]",
                         id=TUIComponents.RENDER_STATUS_WIDGET.value,
