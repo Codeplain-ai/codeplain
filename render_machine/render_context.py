@@ -418,7 +418,9 @@ class RenderContext:
                     # fall through to get_first below
                 else:
                     if self.conformance_tests_running_context.conformance_test_phase_index == 0:
-                        self.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = None
+                        self.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
+                            None
+                        )
 
                     self.conformance_tests_running_context.conformance_test_phase_index += 1
                     current_acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
