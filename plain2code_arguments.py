@@ -302,7 +302,7 @@ def create_parser():
     parser.add_argument(
         "--copy-build",
         action="store_true",
-        default=False,
+        default=True,
         help="If set, copy the rendered contents of code in `--base-folder` folder to `--build-dest` folder after successful rendering.",
     )
     parser.add_argument(
