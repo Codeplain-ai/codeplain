@@ -92,27 +92,26 @@ class FixConformanceTest(BaseAction):
                 style=console.INPUT_STYLE,
             )
 
-        with console.status(console_message):
-            [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
-                render_context.frid_context.frid,
-                render_context.conformance_tests_running_context.current_testing_frid,
-                render_context.plain_source_tree,
-                render_context.frid_context.linked_resources,
-                existing_files_content,
-                memory_files_content,
-                render_context.module_name,
-                render_context.conformance_tests_running_context.current_testing_module_name,
-                render_context.get_required_modules_functionalities(),
-                previous_frid_code_diff,
-                existing_conformance_test_files_content,
-                render_context.conformance_tests_running_context.get_current_acceptance_tests(),
-                previous_conformance_tests_issue,
-                render_context.conformance_tests_running_context.fix_attempts,
-                render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
-                render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
-                render_context.conformance_tests_running_context.conflicting_requirement_count,
-                run_state=render_context.run_state,
-            )
+        [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
+            render_context.frid_context.frid,
+            render_context.conformance_tests_running_context.current_testing_frid,
+            render_context.plain_source_tree,
+            render_context.frid_context.linked_resources,
+            existing_files_content,
+            memory_files_content,
+            render_context.module_name,
+            render_context.conformance_tests_running_context.current_testing_module_name,
+            render_context.get_required_modules_functionalities(),
+            previous_frid_code_diff,
+            existing_conformance_test_files_content,
+            render_context.conformance_tests_running_context.get_current_acceptance_tests(),
+            previous_conformance_tests_issue,
+            render_context.conformance_tests_running_context.fix_attempts,
+            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
+            render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
+            render_context.conformance_tests_running_context.conflicting_requirement_count,
+            run_state=render_context.run_state,
+        )
         code_diff_files_content = {}
 
         if (
