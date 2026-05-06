@@ -176,7 +176,7 @@ def test_duplicate_specification_heading(get_test_data_path):
 def test_missing_non_functional_requirements(get_test_data_path):
     with pytest.raises(
         Exception,
-        match="Syntax error: functionality with no implementation reqs specified.",
+        match="Plain syntax error: functionality with no implementation reqs specified.",
     ):
         plain_file.plain_file_parser(
             "missing_non_functional_requirements.plain",
@@ -187,7 +187,7 @@ def test_missing_non_functional_requirements(get_test_data_path):
 def test_without_non_functional_requirement(get_test_data_path):
     with pytest.raises(
         Exception,
-        match="Syntax error: functionality with no implementation reqs specified.",
+        match="Plain syntax error: functionality with no implementation reqs specified.",
     ):
         plain_file.plain_file_parser(
             "without_non_functional_requirement.plain",

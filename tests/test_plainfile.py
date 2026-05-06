@@ -258,7 +258,7 @@ def test_psart_with_duplicate_acceptance_test_heading():
     ]
 
     # Call the function under test and expect a PlainSyntaxError about duplicate headings
-    expected_error_message = f"Syntax error at line {mock_at_heading_paragraph2.line_number}: Duplicate 'acceptance tests' heading found within the same functionality. Only one block of acceptance tests is allowed per functionality."
+    expected_error_message = f"Plain syntax error: Syntax error at line {mock_at_heading_paragraph2.line_number}: Duplicate 'acceptance tests' heading found within the same functionality. Only one block of acceptance tests is allowed per functionality."
 
     with pytest.raises(PlainSyntaxError) as exc_info:
         plain_file._process_single_acceptance_test_requirement(functional_requirement_mock)

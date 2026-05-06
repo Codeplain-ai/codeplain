@@ -61,16 +61,18 @@ class ModuleRenderer:
 
         if not os.path.exists(build_folder_path):
             raise MissingPreviousFunctionalitiesError(
+                "Error rendering plain code: "
                 f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the source code folder does not exist.\n\n"
                 f"To fix this, please render the module from the beginning by running:\n"
-                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
+                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}\n"
             )
 
         if not os.path.exists(conformance_tests_path) and self.args.render_conformance_tests:
             raise MissingPreviousFunctionalitiesError(
+                "Error rendering plain code: "
                 f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the conformance tests folder does not exist.\n\n"
                 f"To fix this, please render the module from the beginning by running:\n"
-                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
+                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}\n"
             )
 
         return build_folder_path, conformance_tests_path
@@ -99,18 +101,20 @@ class ModuleRenderer:
         # Check in build folder
         if not git_utils.has_commit_for_frid(build_folder_path, frid, module_name):
             raise MissingPreviousFunctionalitiesError(
+                "Error rendering plain code: "
                 f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the implementation of the previous functionality ({frid}) hasn't been completed yet.\n\n"
                 f"To fix this, please render the missing functionality ({frid}) first by running:\n"
-                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
+                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}\n"
             )
 
         # Check in conformance tests folder (only if conformance tests are enabled)
         if self.args.render_conformance_tests:
             if not git_utils.has_commit_for_frid(conformance_tests_path, frid, module_name):
                 raise MissingPreviousFunctionalitiesError(
+                    "Error rendering plain code: "
                     f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the conformance tests for the previous functionality ({frid}) haven't been completed yet.\n\n"
                     f"To fix this, please render the missing functionality ({frid}) first by running:\n"
-                    f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
+                    f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}\n"
                 )
 
     def _ensure_previous_frid_commits_exist(
