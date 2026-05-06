@@ -18,6 +18,9 @@ from render_machine.actions.exit_with_error import ExitWithError
 from render_machine.actions.finish_functional_requirement import FinishFunctionalRequirement
 from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
+from render_machine.actions.prepare_conformance_implementation_information import (
+    PrepareConformanceImplementationInformation,
+)
 from render_machine.actions.prepare_conformance_test_fix import PrepareConformanceTestFix
 from render_machine.actions.prepare_implementation_information import PrepareImplementationInformation
 from render_machine.actions.prepare_repositories import PrepareRepositories
@@ -92,7 +95,8 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.STEP_COMPLETED.value}": CommitImplementationCodeChanges(
                 git_utils.REFACTORED_CODE_COMMIT_MESSAGE
             ),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}": RenderConformanceTests(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}": PrepareConformanceImplementationInformation(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PREPARE_CONFORMANCE_IMPLEMENTATION_INFORMATION.value}": RenderConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}": RunConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PREPARE_CONFORMANCE_TEST_FIX.value}": PrepareConformanceTestFix(),
@@ -129,6 +133,8 @@ class StateMachineConfig:
             CommitImplementationCodeChanges.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             FinishFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CreateDist.SUCCESSFUL_OUTCOME: triggers.FINISH_RENDER,
+            PrepareConformanceImplementationInformation.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_IMPLEMENTATION_INFORMATION_PREPARED,
+            PrepareConformanceImplementationInformation.FAILED_OUTCOME: triggers.HANDLE_ERROR,
             RenderConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_READY,
             PrepareTestingEnvironment.SUCCESSFUL_OUTCOME: triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
             PrepareTestingEnvironment.FAILED_OUTCOME: triggers.HANDLE_ERROR,
@@ -188,6 +194,10 @@ class StateMachineConfig:
                 {
                     "name": States.CONFORMANCE_TESTING_INITIALISED.value,
                     "on_enter": "start_conformance_tests_for_frid",
+                },
+                {
+                    "name": States.PREPARE_CONFORMANCE_IMPLEMENTATION_INFORMATION.value,
+                    "on_enter": "start_prepare_conformance_implementation_information",
                 },
                 {
                     "name": States.CONFORMANCE_TEST_GENERATED.value,
@@ -400,6 +410,16 @@ class StateMachineConfig:
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
+                "trigger": triggers.MARK_CONFORMANCE_IMPLEMENTATION_INFORMATION_PREPARED,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PREPARE_CONFORMANCE_IMPLEMENTATION_INFORMATION.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
+                "trigger": triggers.MARK_CONFORMANCE_TESTS_READY,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PREPARE_CONFORMANCE_IMPLEMENTATION_INFORMATION.value}",
                 "trigger": triggers.MARK_CONFORMANCE_TESTS_READY,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}",
             },

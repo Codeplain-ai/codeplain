@@ -355,6 +355,10 @@ class RenderContext:
         if self.prepare_conformance_test_fix_script is None:
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TEST_FIX_PREPARED)
 
+    def start_prepare_conformance_implementation_information(self):
+        if self.prepare_conformance_test_fix_script is None:
+            self.machine.dispatch(triggers.MARK_CONFORMANCE_IMPLEMENTATION_INFORMATION_PREPARED)
+
     def start_testing_environment_preparation(self):
         if (
             self.prepare_environment_script is None

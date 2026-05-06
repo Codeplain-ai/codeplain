@@ -113,7 +113,6 @@ class RenderConformanceTests(BaseAction):
             )
 
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
-
         response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
@@ -129,6 +128,7 @@ class RenderConformanceTests(BaseAction):
             ),
             all_acceptance_tests,
             run_state=render_context.run_state,
+            conformance_test_fix_information=render_context.conformance_tests_running_context.conformance_implementation_information,
         )
 
         render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
@@ -183,6 +183,7 @@ class RenderConformanceTests(BaseAction):
             render_context.get_required_modules_functionalities(),
             acceptance_test,
             run_state=render_context.run_state,
+            conformance_test_fix_information=render_context.conformance_tests_running_context.conformance_implementation_information,
         )
         conformance_tests_folder_name = (
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()

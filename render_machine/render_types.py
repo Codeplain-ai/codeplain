@@ -91,6 +91,7 @@ class ConformanceTestsRunningContext:
         self.regenerating_conformance_tests: bool = False
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
+        self.conformance_implementation_information: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
         self.previous_conformance_tests_issue_frid: Optional[str] = None
         self.previous_conformance_tests_issue_module: Optional[str] = None
@@ -159,6 +160,7 @@ class ScriptExecutionHistory:
     latest_testing_environment_output_path: Optional[str] = None
     latest_prepare_implementation_output_path: Optional[str] = None
     latest_prepare_conformance_test_fix_output_path: Optional[str] = None
+    latest_prepare_conformance_implementation_output_path: Optional[str] = None
     should_update_script_outputs: bool = False
 
 

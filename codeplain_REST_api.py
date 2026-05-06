@@ -191,6 +191,42 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
+    def prepare_conformance_implementation(
+        self,
+        frid: str,
+        functional_requirement_id: str,
+        plain_source_tree: dict,
+        linked_resources: dict,
+        existing_files_content: dict,
+        memory_files_content: dict,
+        module_name: str,
+        required_modules: dict,
+        conformance_tests_folder_name: str,
+        conformance_tests_json: dict,
+        all_acceptance_tests: list[str],
+        run_state: RunState,
+        prepare_conformance_implementation_script: str,
+    ) -> dict:
+        endpoint_url = f"{self.api_url}/prepare_conformance_implementation"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": frid,
+            "functional_requirement_id": functional_requirement_id,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+            "conformance_tests_folder_name": conformance_tests_folder_name,
+            "conformance_tests_json": conformance_tests_json,
+            "all_acceptance_tests": all_acceptance_tests,
+            "prepare_conformance_implementation_script": prepare_conformance_implementation_script,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
     def render_functional_requirement(
         self,
         frid: str,
@@ -343,6 +379,7 @@ class CodeplainAPI:
         conformance_tests_json,
         all_acceptance_tests,
         run_state: RunState,
+        conformance_test_fix_information: Optional[str] = None,
     ):
         endpoint_url = f"{self.api_url}/render_conformance_tests"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -360,6 +397,9 @@ class CodeplainAPI:
             "conformance_tests_json": conformance_tests_json,
             "all_acceptance_tests": all_acceptance_tests,
         }
+
+        if conformance_test_fix_information is not None:
+            payload["conformance_test_fix_information"] = conformance_test_fix_information
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
         return response["patched_response_files"], response["conformance_tests_plan_summary_string"]
@@ -496,6 +536,7 @@ class CodeplainAPI:
         required_modules,
         acceptance_test,
         run_state: RunState,
+        conformance_test_fix_information: Optional[str] = None,
     ):
         """
         Renders acceptance tests based on the provided parameters.
@@ -513,6 +554,8 @@ class CodeplainAPI:
             required_modules (dict): A dictionary where the keys represent module names
                                      and the values are lists of functionalities implemented in those modules.
             acceptance_test (dict): A dictionary containing acceptance test information.
+            conformance_test_fix_information (str, optional): Additional information produced by the
+                                                               prepare_conformance_test_fix_script.
 
         Returns:
             dict: The rendered acceptance tests.
@@ -534,6 +577,9 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "acceptance_test": acceptance_test,
         }
+
+        if conformance_test_fix_information is not None:
+            payload["conformance_test_fix_information"] = conformance_test_fix_information
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
