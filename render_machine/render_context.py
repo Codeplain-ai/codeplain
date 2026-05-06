@@ -278,9 +278,6 @@ class RenderContext:
 
     def start_unittests_processing_in_conformance_tests(self):
         self.start_unittests_processing()
-        self.conformance_tests_running_context.implementation_code_was_updated = False
-        self.conformance_tests_running_context.regression_run_started = True
-        self.conformance_tests_running_context = self.get_first_conformance_tests_running_context()
 
     def finish_unittests_processing(self):
         existing_files = file_utils.list_all_text_files(self.build_folder)
@@ -369,9 +366,6 @@ class RenderContext:
 
     def finish_conformance_tests_processing(self):
         self.conformance_tests_running_context = None
-
-    def implementation_code_was_updated_in_conformance_tests(self) -> bool:
-        return self.conformance_tests_running_context.implementation_code_was_updated
 
     def start_conformance_tests_for_frid(self):
         if self.conformance_tests_running_context.regenerating_conformance_tests:
