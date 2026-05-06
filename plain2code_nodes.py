@@ -29,9 +29,20 @@ class Plain2CodeIncludeNode(IncludeNode):
         try:
             template = context.env.get_template(str(name), context=context, tag=self.tag, whitespaces=whitespaces)
         except TemplateNotFoundError as err:
-            err.token = self.name.token
-            err.template_name = context.template.full_name()
-            raise
+            detail = str(err)
+            long_message = f"""Template not found: {detail}
+The required template could not be found. Templates are searched in the following order (highest to lowest precedence):
+
+    1. The directory containing your .plain file
+    2. The directory specified by --template-dir (if provided)
+    3. The built-in 'standard_template_library' directory
+
+Please ensure that the missing template exists in one of these locations, or specify the correct --template-dir if using custom templates.
+"""
+            wrapped = TemplateNotFoundError(long_message)
+            wrapped.token = self.name.token
+            wrapped.template_name = context.template.full_name()
+            raise wrapped from err
 
         namespace: dict[str, object] = dict(arg.evaluate(context) for arg in self.args)
 

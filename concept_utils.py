@@ -206,7 +206,7 @@ def sort_definitions(definitions: list[dict]) -> list[dict]:
             msg += "\n".join(cyclic_definitions)
             msg += "\n"
 
-        raise PlainSyntaxError(msg)
+        raise PlainSyntaxError(f"Plain syntax error: {msg}")
 
     order = list(nx.topological_sort(concept_graph))
     if len(order) > 0:
