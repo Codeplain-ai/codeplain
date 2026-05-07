@@ -127,7 +127,6 @@ class FixConformanceTest(BaseAction):
 
         if (
             issue_reason_code == self.ISSUE_REASON_CODE_CONFORMANCE_TESTS
-            or issue_reason_code == self.ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS
         ):
             render_context.conformance_tests.store_conformance_tests_files(
                 render_context.module_name,
