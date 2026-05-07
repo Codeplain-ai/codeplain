@@ -26,7 +26,9 @@ else
     exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
-PYTHON_BUILD_SUBFOLDER="$(dirname "$1")/python_$(basename "$1")"
+PYTHON_BUILD_SUBFOLDER="/tmp/python_$(basename "$1")"
+
+trap 'rm -rf "$PYTHON_BUILD_SUBFOLDER"' EXIT
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing Python build subfolder: $PYTHON_BUILD_SUBFOLDER\n"

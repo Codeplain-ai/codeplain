@@ -17,7 +17,9 @@ if [ -z "$1" ]; then
 fi
 
 # Define the path to the subfolder
-NODE_SUBFOLDER="$(dirname "$1")/node_$(basename "$1")"
+NODE_SUBFOLDER="/tmp/node_$(basename "$1")"
+
+trap 'rm -rf "$NODE_SUBFOLDER"' EXIT
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing Node subfolder: $NODE_SUBFOLDER\n"
