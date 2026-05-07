@@ -125,9 +125,7 @@ class FixConformanceTest(BaseAction):
                 f"Potential conflicting functionalities detected while fixing conformance tests for functionality {current_testing_frid} in module {current_testing_module_name}."
             )
 
-        if (
-            issue_reason_code == self.ISSUE_REASON_CODE_CONFORMANCE_TESTS
-        ):
+        if issue_reason_code == self.ISSUE_REASON_CODE_CONFORMANCE_TESTS:
             render_context.conformance_tests.store_conformance_tests_files(
                 render_context.module_name,
                 render_context.required_modules,
