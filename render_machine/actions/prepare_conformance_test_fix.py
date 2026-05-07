@@ -15,6 +15,10 @@ class PrepareConformanceTestFix(BaseAction):
     FAILED_OUTCOME = "conformance_test_fix_preparation_failed"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
+        # This action should only be called when prepare_conformance_test_fix_script is set
+        # (checked by start_prepare_conformance_test_fix in RenderContext)
+        assert render_context.prepare_conformance_test_fix_script is not None
+
         if render_context.verbose:
             console.info(
                 f"Running prepare_conformance_test_fix_script for FRID "

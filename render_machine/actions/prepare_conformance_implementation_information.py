@@ -14,6 +14,12 @@ class PrepareConformanceImplementationInformation(BaseAction):
     FAILED_OUTCOME = "conformance_implementation_information_preparation_failed"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        # This action should only be called when prepare_conformance_test_fix_script is set
+        # (checked by start_prepare_conformance_implementation_information in RenderContext)
+        assert render_context.prepare_conformance_test_fix_script is not None
+        # This action is only called during conformance test processing when current_testing_frid is set
+        assert render_context.conformance_tests_running_context.current_testing_frid is not None
+
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
 
