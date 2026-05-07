@@ -243,7 +243,7 @@ class ModuleRenderer:
         ):
             return False, required_modules, False
 
-        memory_manager = MemoryManager(self.codeplainAPI, os.path.join(self.args.build_folder, module_name))
+        memory_manager = MemoryManager(self.codeplainAPI, module_name, self.args.conformance_tests_folder)
         render_context = self._build_render_context_for_module(
             module_name, memory_manager, plain_source, required_modules, self.template_dirs, render_range
         )
