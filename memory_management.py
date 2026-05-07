@@ -24,9 +24,9 @@ class MemoryManager:
         console.debug(f"Loaded {len(memory_files_content)} memory files.")
         return memory_files, memory_files_content
 
-    def __init__(self, codeplain_api, module_build_folder: str):
+    def __init__(self, codeplain_api, module_name: str, conformance_tests_folder: str):
         self.codeplain_api = codeplain_api
-        self.memory_folder = os.path.join(module_build_folder, CODEPLAIN_MEMORY_SUBFOLDER)
+        self.memory_folder = os.path.join(conformance_tests_folder, module_name, CODEPLAIN_MEMORY_SUBFOLDER)
 
     def create_conformance_tests_memory(
         self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str
