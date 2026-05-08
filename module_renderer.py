@@ -270,7 +270,8 @@ class ModuleRenderer:
 
     def render_module(self) -> None:
         self.loaded_modules = list[PlainModule]()
-        _, _, rendering_failed = self._render_module(self.filename, self.render_range, True)
+        module_name = self.filename.split("/")[-1]
+        _, _, rendering_failed = self._render_module(module_name, self.render_range, True)
         if not rendering_failed:
             if self.args.copy_build:
                 rendered_code_path = f"{self.args.build_dest}/"
