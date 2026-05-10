@@ -18,7 +18,7 @@ RETRY_ERROR_CODES = [
 ERROR_CODE_EXCEPTIONS = {
     "FunctionalRequirementTooComplex": plain2code_exceptions.FunctionalRequirementTooComplex,
     "ConflictingRequirements": plain2code_exceptions.ConflictingRequirements,
-    "CreditBalanceTooLow": plain2code_exceptions.RenderingCreditBalanceTooLow,
+    "RenderingCreditBalanceTooLow": plain2code_exceptions.RenderingCreditBalanceTooLow,
     "LLMInternalError": plain2code_exceptions.LLMInternalError,
     "MissingResource": plain2code_exceptions.MissingResource,
     "PlainSyntaxError": plain2code_exceptions.PlainSyntaxError,
@@ -99,8 +99,8 @@ class CodeplainAPI:
             raise plain2code_exceptions.MissingResource(f"Missing resource: {message}\n")
         if error_code == "ConflictingRequirements":
             raise plain2code_exceptions.ConflictingRequirements(f"Conflicting requirements: {message}\n")
-        if error_code == "CreditBalanceTooLow":
-            raise plain2code_exceptions.RenderingCreditBalanceTooLow(f"Credit balance too low: {message}\n")
+        if error_code == "RenderingCreditBalanceTooLow":
+            raise plain2code_exceptions.RenderingCreditBalanceTooLow(message)
         if error_code == "LLMInternalError":
             raise plain2code_exceptions.LLMInternalError(f"LLM internal error: {message}\n")
         if error_code == "PlainSyntaxError":
