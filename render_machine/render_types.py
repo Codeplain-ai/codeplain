@@ -1,7 +1,40 @@
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import Any, Optional
 
 import plain_spec
+
+
+class TestExecutionPhase(Enum):
+    """Explicit phases of conformance test execution."""
+
+    # Initial testing of current FRID
+    TESTING_CURRENT_FRID = auto()
+
+    # Running regression tests on earlier FRIDs
+    RUNNING_REGRESSION = auto()
+
+    # Re-running a specific test that failed after code change
+    RETRYING_AFTER_CODE_CHANGE = auto()
+
+    # All tests passed
+    COMPLETED = auto()
+
+
+class AcceptanceTestPhase(Enum):
+    """Phases for incremental acceptance test execution."""
+
+    # No acceptance tests have been run yet
+    NOT_STARTED = auto()
+
+    # Currently running acceptance tests incrementally
+    IN_PROGRESS = auto()
+
+    # All acceptance tests completed
+    COMPLETED = auto()
+
+    # No acceptance tests defined for this FRID
+    NOT_APPLICABLE = auto()
 
 
 @dataclass
@@ -30,11 +63,11 @@ class ConformanceTestsRunningContext:
         conformance_tests_json: dict,
         conformance_tests_render_attempts: int,
         current_testing_frid_specifications: Optional[dict[str, list]],
-        conformance_test_phase_index: int,
         should_prepare_testing_environment: bool,
         conflicting_requirement_count: int = 0,
         conflicting_module_name: Optional[str] = None,
         conflicting_frid: Optional[str] = None,
+        frid_being_implemented: Optional[str] = None,
     ):
         self.current_testing_module_name = current_testing_module_name
         self.current_testing_frid = current_testing_frid
@@ -42,17 +75,19 @@ class ConformanceTestsRunningContext:
         self._conformance_tests_json = {current_testing_module_name: conformance_tests_json}
         self.conformance_tests_render_attempts = conformance_tests_render_attempts
         self.current_testing_frid_specifications = current_testing_frid_specifications
-        self.conformance_test_phase_index = conformance_test_phase_index
         self.should_prepare_testing_environment = should_prepare_testing_environment
         self.conflicting_requirement_count = conflicting_requirement_count
         self.conflicting_module_name = conflicting_module_name
         self.conflicting_frid = conflicting_frid
-        # will be propagated only when:
-        # - current_testing_frid == frid  noqa: E800
-        # - conformance_test_phase_index == 0 (conformance tests phase)
+
+        self.execution_phase: TestExecutionPhase = TestExecutionPhase.TESTING_CURRENT_FRID
+        self.acceptance_test_phase: AcceptanceTestPhase = AcceptanceTestPhase.NOT_STARTED
+        self.acceptance_tests_completed: int = 0
+        self.frid_being_implemented: Optional[str] = frid_being_implemented
+        self.test_that_triggered_code_change: Optional[tuple[str, str]] = None
+
         self.regenerating_conformance_tests: bool = False
-        self.implementation_code_was_updated: bool = False
-        self.regression_run_started: bool = False
+
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
         self.previous_conformance_tests_issue_frid: Optional[str] = None
@@ -91,9 +126,12 @@ class ConformanceTestsRunningContext:
 
     def get_current_acceptance_test(self) -> Optional[str]:
         """Get the current acceptance test text (raw, unformatted)."""
-        return self.current_testing_frid_specifications[plain_spec.ACCEPTANCE_TESTS][
-            self.conformance_test_phase_index - 1
-        ]
+        if plain_spec.ACCEPTANCE_TESTS not in self.current_testing_frid_specifications:
+            return None
+        acceptance_tests = self.current_testing_frid_specifications[plain_spec.ACCEPTANCE_TESTS]
+        if not acceptance_tests or self.acceptance_tests_completed == 0:
+            return None
+        return acceptance_tests[self.acceptance_tests_completed - 1]
 
     def set_conformance_tests_summary(self, summary: list[dict]):
         self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
@@ -105,7 +143,9 @@ class ConformanceTestsRunningContext:
             "current_testing_module_name": self.current_testing_module_name,
             "current_testing_frid": self.current_testing_frid,
             "fix_attempts": self.fix_attempts,
-            "conformance_test_phase_index": self.conformance_test_phase_index,
+            "execution_phase": self.execution_phase.name,
+            "acceptance_test_phase": self.acceptance_test_phase.name,
+            "acceptance_tests_completed": self.acceptance_tests_completed,
         }
 
 

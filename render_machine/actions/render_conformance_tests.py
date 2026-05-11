@@ -8,6 +8,7 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
+from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
 
 
 class RenderConformanceTests(BaseAction):
@@ -20,19 +21,38 @@ class RenderConformanceTests(BaseAction):
             return self._render_acceptance_test(render_context)
 
     def _should_render_conformance_tests(self, render_context: RenderContext) -> bool:
-        return render_context.conformance_tests_running_context.conformance_test_phase_index == 0
+        """Check if we should render full conformance tests (first time) vs just acceptance tests (incremental)."""
+
+        ctx = render_context.conformance_tests_running_context
+
+        # If we're in regression phase, tests already exist - don't render anything new
+        if ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION:
+            return True  # Return True to skip rendering (conformance tests already exist)
+
+        # Render full conformance tests when:
+        # 1. NOT_STARTED: First render, before acceptance tests begin
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_STARTED:
+            return True
+
+        # 2. NOT_APPLICABLE: No acceptance tests defined, always use full conformance test path
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_APPLICABLE:
+            # Return True so _render_conformance_tests() is called, which will skip if tests already exist
+            return True
+
+        # 3. All other cases (IN_PROGRESS, COMPLETED): Render acceptance tests incrementally
+        return False
 
     def _render_conformance_tests(self, render_context: RenderContext):
-        if render_context.verbose:
-            console.info("Implementing test requirements:")
-            console.print_list(
-                render_context.conformance_tests_running_context.current_testing_frid_specifications[
-                    plain_spec.TEST_REQUIREMENTS
-                ],
-                style=console.INFO_STYLE,
-            )
-
+        # Check if tests already exist (e.g., during regression) - if so, skip rendering
         if not render_context.conformance_tests_running_context.current_conformance_tests_exist():
+            if render_context.verbose:
+                console.info("Implementing test requirements:")
+                console.print_list(
+                    render_context.conformance_tests_running_context.current_testing_frid_specifications[
+                        plain_spec.TEST_REQUIREMENTS
+                    ],
+                    style=console.INFO_STYLE,
+                )
             fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
                 frid=render_context.conformance_tests_running_context.current_testing_frid,
                 module_name=render_context.conformance_tests_running_context.current_testing_module_name,
@@ -128,6 +148,10 @@ class RenderConformanceTests(BaseAction):
         return self.SUCCESSFUL_OUTCOME, None
 
     def _render_acceptance_test(self, render_context: RenderContext):
+        if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:
+            # If there are no acceptance tests defined, continue.
+            return self.SUCCESSFUL_OUTCOME, None
+
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
         (
@@ -140,8 +164,9 @@ class RenderConformanceTests(BaseAction):
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
         )
 
+        # Get the current acceptance test being rendered (completed count is 1-based)
         acceptance_test = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-            render_context.conformance_tests_running_context.conformance_test_phase_index - 1
+            render_context.conformance_tests_running_context.acceptance_tests_completed - 1
         ]
 
         if render_context.verbose:

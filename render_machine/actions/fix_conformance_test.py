@@ -9,6 +9,7 @@ from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
+from render_machine.render_types import TestExecutionPhase
 
 
 class FixConformanceTest(BaseAction):
@@ -151,7 +152,12 @@ class FixConformanceTest(BaseAction):
                         style=console.OUTPUT_STYLE,
                     )
                 render_context.conformance_tests_running_context.should_prepare_testing_environment = True
-                render_context.conformance_tests_running_context.implementation_code_was_updated = True
+
+                # Record which test triggered the change and transition to retry phase
+                ctx = render_context.conformance_tests_running_context
+                ctx.test_that_triggered_code_change = (ctx.current_testing_module_name, ctx.current_testing_frid)
+                ctx.execution_phase = TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
+
                 return self.IMPLEMENTATION_CODE_UPDATED, None
             else:
                 return self.IMPLEMENTATION_CODE_NOT_UPDATED, None

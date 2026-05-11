@@ -14,9 +14,11 @@ from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
 from render_machine.render_types import (
+    AcceptanceTestPhase,
     ConformanceTestsRunningContext,
     FridContext,
     ScriptExecutionHistory,
+    TestExecutionPhase,
     UnitTestsRunningContext,
 )
 
@@ -357,104 +359,243 @@ class RenderContext:
             current_testing_module_name=self.module_name,
             current_testing_frid=self.frid_context.frid,
             current_testing_frid_specifications=current_frid_specifications,
-            conformance_test_phase_index=0,
             fix_attempts=0,
             conformance_tests_json=self.conformance_tests.get_conformance_tests_json(self.module_name),
             conformance_tests_render_attempts=0,
             should_prepare_testing_environment=True,
+            frid_being_implemented=self.frid_context.frid,
         )
 
     def finish_conformance_tests_processing(self):
         self.conformance_tests_running_context = None
 
-    def start_conformance_tests_for_frid(self):
-        if self.conformance_tests_running_context.regenerating_conformance_tests:
-            if self.verbose:
-                console.info(
-                    f"Recreating conformance tests for functionality {self.conformance_tests_running_context.current_testing_frid}."
-                )
+    # ========== Helper Methods for Conformance Test Execution ==========
 
-            existing_conformance_tests_folder = self.conformance_tests_running_context.get_conformance_tests_json(
-                self.conformance_tests_running_context.current_testing_module_name
-            ).pop(self.conformance_tests_running_context.current_testing_frid)
+    def _should_run_current_frid_tests(self) -> bool:
+        """Check if we should run/continue testing the current FRID."""
+        ctx = self.conformance_tests_running_context
+        return (
+            ctx.execution_phase == TestExecutionPhase.TESTING_CURRENT_FRID
+            and ctx.current_testing_module_name == self.module_name
+            and ctx.current_testing_frid == ctx.frid_being_implemented
+        )
 
-            file_utils.delete_folder(existing_conformance_tests_folder["folder_name"])
+    def _has_more_acceptance_test_phases(self) -> bool:
+        """Check if there are more acceptance test phases to run."""
+        ctx = self.conformance_tests_running_context
 
-            self.conformance_tests_running_context.conformance_tests_render_attempts += 1
-            self.conformance_tests_running_context.fix_attempts = 0
-            self.conformance_tests_running_context.regenerating_conformance_tests = False
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_APPLICABLE:
+            return False
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.COMPLETED:
+            return False
+
+        acceptance_tests = self.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
+        return ctx.acceptance_tests_completed < len(acceptance_tests)
+
+    def _start_regression_phase(self):
+        """Transition to regression testing phase."""
+        ctx = self.conformance_tests_running_context
+        ctx.execution_phase = TestExecutionPhase.RUNNING_REGRESSION
+        ctx.current_testing_frid = None  # Will be set by get_first_conformance_tests_running_context
+
+    def _get_next_test_to_run(self):
+        """Determine which test to run next based on current phase."""
+        ctx = self.conformance_tests_running_context
+
+        if ctx.current_testing_frid is None:
+            return self.get_first_conformance_tests_running_context()
         else:
-            if self.conformance_tests_running_context.implementation_code_was_updated:
-                self.conformance_tests_running_context.implementation_code_was_updated = False
-                self.conformance_tests_running_context.regression_run_started = True
-                self.conformance_tests_running_context.current_testing_frid = None
+            return self.get_next_conformance_tests_running_context()
 
-            # This block handles phase-based rendering for the current FRID being implemented.
-            # Only runs before regression starts — during regression the current FRID is treated
-            # as an existing test like any other.
-            elif (
-                not self.conformance_tests_running_context.regression_run_started
-                and self.conformance_tests_running_context.current_testing_module_name == self.module_name
-                and self.conformance_tests_running_context.current_testing_frid == self.frid_context.frid
-            ):
-                if not self.conformance_tests_running_context.current_conformance_tests_exist():
-                    # No entry yet — RenderConformanceTests will create it on this action cycle
-                    return
+    def _has_reached_implementation_frid(self) -> bool:
+        """Check if regression has reached the FRID being implemented."""
+        ctx = self.conformance_tests_running_context
+        return (
+            ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
+            and ctx.current_testing_module_name == self.module_name
+            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
+        )
 
-                if not self.frid_context.specifications.get(
+    def _setup_test_specifications(self):
+        """Load specifications for the current test."""
+        ctx = self.conformance_tests_running_context
+
+        if ctx.current_testing_module_name == self.module_name:
+            ctx.current_testing_frid_specifications, _ = plain_spec.get_specifications_for_frid(
+                self.plain_source_tree, ctx.current_testing_frid
+            )
+        else:
+            ctx.current_testing_frid_specifications = ctx.get_conformance_tests_json(ctx.current_testing_module_name)[
+                ctx.current_testing_frid
+            ]["functional_requirement"]
+
+    # ========== Phase Handlers ==========
+
+    def _handle_test_regeneration(self):
+        """Handle regeneration of conformance tests after too many failures."""
+        ctx = self.conformance_tests_running_context
+
+        if self.verbose:
+            console.info(f"Recreating conformance tests for functionality {ctx.current_testing_frid}.")
+
+        existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(ctx.current_testing_frid)
+        file_utils.delete_folder(existing_folder["folder_name"])
+
+        ctx.conformance_tests_render_attempts += 1
+        ctx.fix_attempts = 0
+        ctx.regenerating_conformance_tests = False
+
+    def _handle_retry_after_code_change(self):
+        """Re-run the test that failed and triggered a code change."""
+        ctx = self.conformance_tests_running_context
+
+        # The test that failed is still in current_testing_frid - just re-run it
+        self._setup_test_specifications()
+
+        if ctx.current_conformance_tests_exist():
+            self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+
+    def _on_conformance_test_passed_after_retry(self):
+        """Called when a test passes after being retried due to code changes."""
+        ctx = self.conformance_tests_running_context
+
+        if ctx.execution_phase == TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
+            # Test passed after code change - restart regression from the beginning
+            ctx.test_that_triggered_code_change = None
+            self._start_regression_phase()
+
+    def _handle_current_frid_testing(self):
+        """Handle incremental testing of the current FRID being implemented."""
+        ctx = self.conformance_tests_running_context
+
+        # Initialize acceptance test phase on first run (before checking if tests exist)
+        # This prevents duplicate test runs by ensuring the phase is set immediately
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_STARTED:
+            acceptance_tests = self.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS)
+            if not acceptance_tests:
+                ctx.acceptance_test_phase = AcceptanceTestPhase.NOT_APPLICABLE
+                # Increment counter immediately to signal "we're starting the test process"
+                # This prevents re-running the test after it's rendered
+                ctx.acceptance_tests_completed = 1
+            else:
+                ctx.acceptance_test_phase = AcceptanceTestPhase.IN_PROGRESS
+
+        # Wait for tests to be rendered
+        if not ctx.current_conformance_tests_exist():
+            return
+
+        # Handle case: No acceptance tests
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_APPLICABLE:
+            if ctx.acceptance_tests_completed == 1:
+                # Test has run once - move to regression
+                ctx.acceptance_test_phase = AcceptanceTestPhase.COMPLETED
+                self._start_regression_phase()
+                self._handle_regression_testing()
+                return
+            else:
+                # This shouldn't happen since we set completed=1 during initialization
+                raise RuntimeError(f"Unexpected state: acceptance_tests_completed={ctx.acceptance_tests_completed}")
+
+        # Handle case: Has acceptance tests
+        if ctx.acceptance_test_phase == AcceptanceTestPhase.IN_PROGRESS:
+            if self._has_more_acceptance_test_phases():
+                # Run next phase
+                if ctx.acceptance_tests_completed == 0:
+                    ctx.current_testing_frid_high_level_implementation_plan = None
+
+                ctx.acceptance_tests_completed += 1
+                acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
+                    : ctx.acceptance_tests_completed
+                ]
+                ctx.get_conformance_tests_json(ctx.current_testing_module_name)[self.frid_context.frid][
                     plain_spec.ACCEPTANCE_TESTS
-                ) or self.conformance_tests_running_context.conformance_test_phase_index == len(
-                    self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS]
-                ):
-                    # All phases done — start regression run over earlier FRIDs
-                    self.conformance_tests_running_context.regression_run_started = True
-                    self.conformance_tests_running_context.current_testing_frid = None
-                    # fall through to get_first below
-                else:
-                    if self.conformance_tests_running_context.conformance_test_phase_index == 0:
-                        self.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
-                            None
-                        )
-
-                    self.conformance_tests_running_context.conformance_test_phase_index += 1
-                    current_acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-                        : self.conformance_tests_running_context.conformance_test_phase_index
-                    ]
-                    self.conformance_tests_running_context.get_conformance_tests_json(
-                        self.conformance_tests_running_context.current_testing_module_name
-                    )[self.frid_context.frid][plain_spec.ACCEPTANCE_TESTS] = current_acceptance_tests
-                    return
-
-            if self.conformance_tests_running_context.current_testing_frid is None:
-                self.conformance_tests_running_context = self.get_first_conformance_tests_running_context()
+                ] = acceptance_tests
+                return
             else:
-                self.conformance_tests_running_context = self.get_next_conformance_tests_running_context()
+                # All phases done - move to regression
+                ctx.acceptance_test_phase = AcceptanceTestPhase.COMPLETED
+                self._start_regression_phase()
+                self._handle_regression_testing()
+                return
 
-            # Detect regression completion: we've reached the current FRID (don't re-run it)
-            if self.conformance_tests_running_context.regression_run_started:
-                current = self.conformance_tests_running_context.current_testing_frid
-                if self.conformance_tests_running_context.current_testing_module_name == self.module_name and (
-                    current is None or current == self.frid_context.frid
-                ):
-                    self.conformance_tests_running_context.current_testing_frid = self.frid_context.frid
-                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
-                    return
+        # Should not reach here
+        raise RuntimeError(f"Unexpected acceptance test phase: {ctx.acceptance_test_phase}")
 
-            if self.conformance_tests_running_context.current_testing_module_name == self.module_name:
-                self.conformance_tests_running_context.current_testing_frid_specifications, _ = (
-                    plain_spec.get_specifications_for_frid(
-                        self.plain_source_tree, self.conformance_tests_running_context.current_testing_frid
-                    )
-                )
-            else:
-                self.conformance_tests_running_context.current_testing_frid_specifications = (
-                    self.conformance_tests_running_context.get_conformance_tests_json(
-                        self.conformance_tests_running_context.current_testing_module_name
-                    )[self.conformance_tests_running_context.current_testing_frid]["functional_requirement"]
-                )
+    def _handle_regression_testing(self):
+        """Handle regression testing of all earlier FRIDs."""
 
-            if self.conformance_tests_running_context.current_conformance_tests_exist():
-                self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+        ctx = self.conformance_tests_running_context
+
+        # Get next test to run
+        self.conformance_tests_running_context = self._get_next_test_to_run()
+
+        # Check if we've reached the implementation FRID
+        if self._has_reached_implementation_frid():
+            ctx.execution_phase = TestExecutionPhase.COMPLETED
+            ctx.current_testing_frid = ctx.frid_being_implemented
+            self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+            return
+
+        # Set up specs and run test
+        self._setup_test_specifications()
+
+        if ctx.current_conformance_tests_exist():
+            self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+
+    # ========== Main Conformance Test Orchestration ==========
+
+    def start_conformance_tests_for_frid(self):
+        """
+        Orchestrate conformance test execution.
+
+        Flow:
+        1. Handle test regeneration (if needed)
+        2. Handle test passed after retry (transition to regression)
+        3. Handle code changes (retry failed test)
+        4. Handle current FRID testing (incremental phases)
+        5. Handle regression testing (all earlier FRIDs)
+        6. Detect completion
+        """
+
+        ctx = self.conformance_tests_running_context
+
+        # ========== STEP 1: Handle Test Regeneration ==========
+        if ctx.regenerating_conformance_tests:
+            self._handle_test_regeneration()
+            return
+
+        # ========== STEP 2: Test Passed After Retry - Transition to Regression ==========
+        # This happens when MOVE_TO_NEXT_CONFORMANCE_TEST is triggered after a retry succeeds
+        if (
+            ctx.execution_phase == TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
+            and ctx.test_that_triggered_code_change is not None
+        ):
+            # The test that had code changes has now passed
+            self._on_conformance_test_passed_after_retry()
+            # Fall through to handle regression
+
+        # ========== STEP 3: Handle Code Changes (Retry) ==========
+        if ctx.execution_phase == TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
+            self._handle_retry_after_code_change()
+            return
+
+        # ========== STEP 3: Handle Current FRID Testing ==========
+        if self._should_run_current_frid_tests():
+            self._handle_current_frid_testing()
+            return
+
+        # ========== STEP 4: Handle Regression Testing ==========
+        if ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION:
+            self._handle_regression_testing()
+            return
+
+        # ========== STEP 5: Completion ==========
+        if ctx.execution_phase == TestExecutionPhase.COMPLETED:
+            self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+            return
+
+        # Should never reach here
+        raise RuntimeError(f"Unexpected execution phase: {ctx.execution_phase}")
 
     def start_fixing_conformance_tests(self):
         self.conformance_tests_running_context.fix_attempts += 1
