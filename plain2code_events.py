@@ -55,7 +55,12 @@ class RenderStateUpdated(BaseEvent):
 
 @dataclass
 class RenderModuleCompleted(BaseEvent):
-    pass
+    module_name: str
+
+
+@dataclass
+class RenderModuleFailed(BaseEvent):
+    module_name: str
 
 
 @dataclass

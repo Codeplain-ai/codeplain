@@ -14,12 +14,13 @@ from plain2code_events import (
     RenderContextSnapshot,
     RenderFailed,
     RenderModuleCompleted,
+    RenderModuleFailed,
     RenderModuleStarted,
     RenderPaused,
     RenderStateUpdated,
 )
 from render_machine.states import States
-from tui.widget_helpers import log_to_widget, transition_frid_progress
+from tui.widget_helpers import display_module_name, log_to_widget, stop_progress_timer, transition_frid_progress
 
 from .components import (
     CustomFooter,
@@ -115,6 +116,7 @@ class Plain2CodeTUI(App):
         self.event_bus.subscribe(RenderFailed, self.on_render_failed)
         self.event_bus.subscribe(RenderModuleStarted, self.on_render_module_started)
         self.event_bus.subscribe(RenderModuleCompleted, self.on_render_module_completed)
+        self.event_bus.subscribe(RenderModuleFailed, self.on_render_module_failed)
         self.event_bus.subscribe(LogMessageEmitted, self.on_log_message_emitted)
         self.event_bus.subscribe(RenderPaused, self.on_render_paused)
 
@@ -175,14 +177,14 @@ class Plain2CodeTUI(App):
         except Exception as e:
             log_to_widget(self, "WARNING", f"Error updating render module name: {type(e).__name__}: {e}")
 
-    def on_render_module_completed(self, _event: RenderModuleCompleted):
+    def on_render_module_completed(self, event: RenderModuleCompleted):
         """Update TUI based on the current state machine state."""
-        try:
-            frid_progress = self.query_one(f"#{TUIComponents.FRID_PROGRESS.value}", FRIDProgress)
-            info_box = frid_progress.query_one(RenderingInfoBox)
-            info_box.update_module(FRIDProgress.RENDERING_MODULE_TEXT)
-        except Exception as e:
-            log_to_widget(self, "WARNING", f"Error resetting render module name: {type(e).__name__}: {e}")
+        display_module_name(self, event.module_name)
+
+    def on_render_module_failed(self, event: RenderModuleFailed):
+        """Update TUI based on the current state machine state."""
+        display_module_name(self, event.module_name)
+        stop_progress_timer(self)
 
     def on_log_message_emitted(self, event: LogMessageEmitted):
         try:
