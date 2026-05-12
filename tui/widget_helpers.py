@@ -5,7 +5,7 @@ from datetime import datetime
 from textual.css.query import NoMatches
 from textual.widgets import Static
 
-from .components import FRIDProgress, ProgressItem, StructuredLogView, TUIComponents
+from .components import FRIDProgress, ProgressItem, RenderingInfoBox, StructuredLogView, SubstateLine, TUIComponents
 from .models import Substate
 
 
@@ -167,3 +167,26 @@ def clear_progress_item_substates(tui, widget_id: str) -> None:
         log_to_widget(tui, "WARNING", f"ProgressItem {widget_id} not found: {e}")
     except Exception as e:
         log_to_widget(tui, "ERROR", f"Error clearing substates for {widget_id}: {e}")
+
+
+def display_module_name(tui, module_name: str):
+    """Helper function to display the module name in the FRIDProgress widget.
+
+    Args:
+        tui: The Plain2CodeTUI instance
+        module_name: The module name to display
+    """
+    frid_progress = get_frid_progress(tui)
+    info_box = frid_progress.query_one(RenderingInfoBox)
+    info_box.update_module(f"{FRIDProgress.RENDERING_MODULE_TEXT}{module_name}")
+
+
+def stop_progress_timer(tui):
+    """Helper function to stop the progress timer in the FRIDProgress widget.
+
+    Args:
+        tui: The Plain2CodeTUI instance
+    """
+    frid_progress = get_frid_progress(tui)
+    substate_line = frid_progress.query_one(SubstateLine)
+    substate_line.stop_progress_timer()

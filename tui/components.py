@@ -134,6 +134,10 @@ class SubstateLine(Horizontal):
         else:
             self._timer.resume()
 
+    def stop_progress_timer(self) -> None:
+        if self._timer is not None:
+            self._timer.stop()
+
     def _add_second(self) -> None:
         self._seconds_elapsed += 1
         self._refresh_timer()
