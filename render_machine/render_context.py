@@ -468,8 +468,12 @@ class RenderContext:
         """Handle incremental testing of the current FRID being implemented."""
         ctx = self.conformance_tests_running_context
 
-        # Initialize acceptance test phase on first run (before checking if tests exist)
-        # This prevents duplicate test runs by ensuring the phase is set immediately
+        # Wait for tests to be rendered
+        if not ctx.current_conformance_tests_exist():
+            return
+
+        # Initialize acceptance test phase AFTER tests exist and pass
+        # This ensures full conformance tests run first before acceptance tests
         if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_STARTED:
             acceptance_tests = self.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS)
             if not acceptance_tests:
@@ -479,10 +483,6 @@ class RenderContext:
                 ctx.acceptance_tests_completed = 1
             else:
                 ctx.acceptance_test_phase = AcceptanceTestPhase.IN_PROGRESS
-
-        # Wait for tests to be rendered
-        if not ctx.current_conformance_tests_exist():
-            return
 
         # Handle case: No acceptance tests
         if ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_APPLICABLE:
@@ -507,7 +507,7 @@ class RenderContext:
                 acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
                     : ctx.acceptance_tests_completed
                 ]
-                ctx.get_conformance_tests_json(ctx.current_testing_module_name)[self.frid_context.frid][
+                ctx.get_conformance_tests_json(ctx.current_testing_module_name)[ctx.current_testing_frid][
                     plain_spec.ACCEPTANCE_TESTS
                 ] = acceptance_tests
                 return

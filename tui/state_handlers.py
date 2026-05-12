@@ -20,15 +20,17 @@ from .widget_helpers import (
 )
 
 
-def format_acceptance_test_text(raw_text: str) -> str:
+def format_acceptance_test_text(raw_text: str | None) -> str:
     """Format acceptance test text for display by removing list prefix if present.
 
     Args:
-        raw_text: The raw acceptance test text from specifications
+        raw_text: The raw acceptance test text from specifications (can be None during state transitions)
 
     Returns:
-        Formatted text with "- " prefix removed if present
+        Formatted text with "- " prefix removed if present, or empty string if None
     """
+    if raw_text is None:
+        return ""
     if raw_text.startswith("- "):
         return raw_text[2:]
     return raw_text
