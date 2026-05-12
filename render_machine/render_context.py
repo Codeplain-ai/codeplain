@@ -395,6 +395,11 @@ class RenderContext:
     def _start_regression_phase(self):
         """Transition to regression testing phase."""
         ctx = self.conformance_tests_running_context
+
+        # Only reset code_changed flag if starting fresh regression (not restarting after fix)
+        if ctx.execution_phase != TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
+            ctx.code_changed_during_regression = False
+
         ctx.execution_phase = TestExecutionPhase.RUNNING_REGRESSION
         ctx.current_testing_frid = None  # Will be set by get_first_conformance_tests_running_context
 
@@ -460,7 +465,8 @@ class RenderContext:
         ctx = self.conformance_tests_running_context
 
         if ctx.execution_phase == TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
-            # Test passed after code change - restart regression from the beginning
+            # Test passed after code change - mark that code changed and restart regression
+            ctx.code_changed_during_regression = True
             ctx.test_that_triggered_code_change = None
             self._start_regression_phase()
 
@@ -529,17 +535,23 @@ class RenderContext:
         # Get next test to run
         self.conformance_tests_running_context = self._get_next_test_to_run()
 
-        # Check if we've reached the implementation FRID
-        if self._has_reached_implementation_frid():
-            ctx.execution_phase = TestExecutionPhase.COMPLETED
-            ctx.current_testing_frid = ctx.frid_being_implemented
-            self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
-            return
-
         # Set up specs and run test
         self._setup_test_specifications()
 
         if ctx.current_conformance_tests_exist():
+            # Check if this is the implementation FRID (last test to run)
+            if self._has_reached_implementation_frid():
+                # Reached implementation FRID - only re-run it if code changed during regression
+                if ctx.code_changed_during_regression:
+                    # Code changed - run the implementation FRID again to verify no regression
+                    # After it passes, mark as completed on next iteration
+                    ctx.execution_phase = TestExecutionPhase.COMPLETED
+                else:
+                    # No code changes - skip re-running implementation FRID, mark as completed immediately
+                    ctx.execution_phase = TestExecutionPhase.COMPLETED
+                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+                    return
+
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
     # ========== Main Conformance Test Orchestration ==========

@@ -85,6 +85,7 @@ class ConformanceTestsRunningContext:
         self.acceptance_tests_completed: int = 0
         self.frid_being_implemented: Optional[str] = frid_being_implemented
         self.test_that_triggered_code_change: Optional[tuple[str, str]] = None
+        self.code_changed_during_regression: bool = False
 
         self.regenerating_conformance_tests: bool = False
 
