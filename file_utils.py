@@ -8,6 +8,7 @@ from liquid2.exceptions import UndefinedError
 
 import plain_spec
 from plain2code_console import console
+from plain2code_exceptions import UnsupportedResourceType
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
 from plain_modules import CODEPLAIN_MEMORY_SUBFOLDER, CODEPLAIN_METADATA_FOLDER
 
@@ -217,13 +218,7 @@ def open_from(dirs, file_name):
 
         with open(full_file_name, "rb") as f:
             content = f.read()
-            try:
-                content_text = content.decode("utf-8")
-            except UnicodeDecodeError:
-                console.debug(
-                    f"WARNING! Error loading {file_name} ({file_name}). File is not a text file. Skipping it."
-                )
-            return content_text
+        return content.decode("utf-8")
 
     return None
 
@@ -236,7 +231,13 @@ def load_linked_resources(template_dirs: list[str], resources_list):
         if file_name in linked_resources:
             continue
 
-        content = open_from(template_dirs, file_name)
+        try:
+            content = open_from(template_dirs, file_name)
+        except UnicodeDecodeError:
+            raise UnsupportedResourceType(
+                f"Referenced resource '{file_name}' is a binary file. "
+                f"Only text files (e.g. .md, .txt, .json, .yaml) can be referenced from a .plain file."
+            )
 
         if content is None:
             raise FileNotFoundError(f"""File not found:

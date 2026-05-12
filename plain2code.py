@@ -33,6 +33,7 @@ from plain2code_exceptions import (
     PlainSyntaxError,
     RenderCancelledError,
     RenderingCreditBalanceTooLow,
+    UnsupportedResourceType,
 )
 from plain2code_logger import (
     LOGGER_NAME,
@@ -347,6 +348,7 @@ def main():  # noqa: C901
                     RenderingCreditBalanceTooLow,
                     NetworkConnectionError,
                     ModuleDoesNotExistError,
+                    UnsupportedResourceType,
                 ),
             ):
                 exc_info = sys.exc_info()
