@@ -18,7 +18,7 @@ import plain_modules
 import plain_spec
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
-from partial_rendering import detect_partial_rendering, get_choices
+from partial_rendering import get_plain_module_render_state, get_render_choices
 from plain2code_arguments import parse_arguments
 from plain2code_console import console
 from plain2code_events import RenderFailed
@@ -48,8 +48,8 @@ from plain2code_logger import (
 from plain2code_state import RunState
 from plain2code_utils import format_duration_hms, print_dry_run_output
 from system_config import system_config
-from tui.partial_render_tui import PartialRenderTUI
 from tui.plain2code_tui import Plain2CodeTUI
+from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
@@ -181,42 +181,42 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         template_dirs,
     )
 
-    partial_render_choice = None
+    render_choice = None
     if render_range is None:
-        partial_render = detect_partial_rendering(plain_module)
-        if partial_render is not None:
-            choices = get_choices(plain_module, partial_render, args.force_render)
+        plain_module_render_state = get_plain_module_render_state(plain_module)
+        if plain_module_render_state is not None:
+            render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
             ask_user = True
-            partial_render_choice = None
-            if len(choices) <= 2:
+            render_choice = None
+            if len(render_choices) <= 2:
                 # Last choice is Quit, first choice is the only other actionable choice
-                partial_render_choice = choices[list(choices.keys())[0]]
-                ask_user = partial_render_choice.is_desctructive
+                render_choice = render_choices[list(render_choices.keys())[0]]
+                ask_user = render_choice.is_destructive
 
             if ask_user:
-                app = PartialRenderTUI(
+                app = PlainModuleRenderChoiceTUI(
                     plain_module,
-                    partial_render,
-                    choices,
+                    plain_module_render_state,
+                    render_choices,
                     system_config.client_version,
                     run_state.render_id,
                     css_path="styles.css",
                 )
-                partial_render_choice = app.run()
-                if partial_render_choice is None or (
-                    partial_render_choice.module is None
-                    and partial_render_choice.render_range is None
-                    and partial_render_choice.msg == "Quit"
+                render_choice = app.run()
+                if render_choice is None or (
+                    render_choice.module is None
+                    and render_choice.render_range is None
+                    and render_choice.choice_type == "quit"
                 ):
                     sys.exit(0)
 
-    if partial_render_choice is not None and render_range is not None:
+    if render_choice is not None and render_range is not None:
         raise Exception("Partial rendering and render range cannot be used together")
 
     module_renderer = ModuleRenderer(
         codeplainAPI,
         plain_module,
-        partial_render_choice,
+        render_choice,
         render_range,
         args,
         run_state,

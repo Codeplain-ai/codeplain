@@ -7,7 +7,7 @@ from plain_modules import PlainModule
 
 
 @dataclass
-class PartialRender:
+class PlainModuleRenderState:
     last_render_module: PlainModule
     last_render_frid: str | None
     change: PlainModule | None = None
@@ -15,12 +15,12 @@ class PartialRender:
 
 
 @dataclass
-class PartialRenderChoice:
+class RenderChoice:
     module: PlainModule | None = None
     render_range: list[str] | None = None
-    msg: str | None = None
     wipe_later_modules: bool = False
-    is_desctructive: bool = False
+    is_destructive: bool = False
+    choice_type: str | None = None
 
 
 def spec_change(plain_module: PlainModule) -> PlainModule | None:
@@ -70,7 +70,7 @@ def module_comes_before_or_equal(
     raise ValueError(f"Module {module1.module_name} and {module2.module_name} not found in {all_required_modules}")
 
 
-def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
+def get_plain_module_render_state(plain_module: PlainModule) -> PlainModuleRenderState | None:
     sc = spec_change(plain_module)
     cc = code_change(plain_module)
     all_required_modules = plain_module.all_required_modules
@@ -92,7 +92,7 @@ def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
             )
         module = found_module
 
-    pr = PartialRender(
+    pr = PlainModuleRenderState(
         last_render_module=module,
         last_render_frid=last_rendered_frid,
         change=None,
@@ -116,91 +116,109 @@ def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
     return pr
 
 
-def get_choices(
+def get_all_affected_modules_from_change(
     plain_module: PlainModule,
-    partial_render: PartialRender,
+    plain_module_render_state: PlainModuleRenderState,
+) -> list[PlainModule]:
+    all_affected_modules = list[PlainModule]()
+
+    if plain_module_render_state.change_type == "spec_change":
+        start_module = plain_module_render_state.change
+    elif plain_module_render_state.change_type == "code_change":
+        if plain_module_render_state.change.is_module_fully_rendered():
+            start_module = plain_module.get_next_module(plain_module_render_state.change.module_name)
+        else:
+            start_module = plain_module_render_state.change
+    else:
+        raise ValueError(f"Unknown change type: {plain_module_render_state.change_type}")
+
+    affected_module = False
+    all_modules = plain_module.all_required_modules + [plain_module]
+    for module in all_modules:
+        if module.module_name == start_module.module_name:
+            affected_module = True
+
+        if affected_module:
+            all_affected_modules.append(module)
+
+    return all_affected_modules
+
+
+def get_render_choices(
+    plain_module: PlainModule,
+    plain_module_render_state: PlainModuleRenderState,
     force_render: bool = False,
-) -> dict[str, PartialRenderChoice]:
-    choices = dict[str, PartialRenderChoice]()
+) -> dict[str, RenderChoice]:
+    choices = dict[str, RenderChoice]()
     choice_idx = 1
 
-    if partial_render.last_render_module.is_initial_module():
-        choices[str(choice_idx)] = PartialRenderChoice(
-            module=partial_render.last_render_module,
+    if plain_module_render_state.last_render_module.is_initial_module():
+        choices[str(choice_idx)] = RenderChoice(
+            module=plain_module_render_state.last_render_module,
             render_range=None,
-            msg=f"Start from module [#5593FF]{partial_render.last_render_module.module_name}[/]",
+            choice_type="module_start",
             wipe_later_modules=True,
-            is_desctructive=False,
+            is_destructive=False,
         )
         choice_idx += 1
 
-    elif not partial_render.last_render_module.is_module_fully_rendered():
-        if not partial_render.last_render_frid:
+    elif not plain_module_render_state.last_render_module.is_module_fully_rendered():
+        if not plain_module_render_state.last_render_frid:
             raise ValueError("Last render FRID is not set for a non-initial module")
 
         next_frid, next_module = plain_module.get_next_frid(
-            partial_render.last_render_frid, partial_render.last_render_module.module_name
+            plain_module_render_state.last_render_frid, plain_module_render_state.last_render_module.module_name
         )
         render_range = plain_spec.get_render_range_from(next_frid, next_module.plain_source)
-        msg = "Continue from"
-        if next_frid != plain_spec.get_first_frid(next_module.plain_source):
-            msg += f" functionality [#5593FF]{next_frid}[/]"
-        else:
-            msg += f" module [#5593FF]{next_module.module_name}[/]"
 
-        choices[str(choice_idx)] = PartialRenderChoice(
+        choices[str(choice_idx)] = RenderChoice(
             module=next_module,
             render_range=render_range if not force_render else None,
             wipe_later_modules=force_render,
-            msg=msg,
+            choice_type="continue_from_frid",
         )
         choice_idx += 1
 
     else:
-        next_module = plain_module.get_next_module(partial_render.last_render_module.module_name)
+        next_module = plain_module.get_next_module(plain_module_render_state.last_render_module.module_name)
         if next_module is None:
-            next_module = partial_render.last_render_module
+            next_module = plain_module_render_state.last_render_module
 
-        choices[str(choice_idx)] = PartialRenderChoice(
+        choices[str(choice_idx)] = RenderChoice(
             module=next_module,
             render_range=None,
-            msg=f"Start from module [#5593FF]{next_module.module_name}[/]",
-            is_desctructive=partial_render.last_render_module.module_name == plain_module.module_name,
+            is_destructive=plain_module_render_state.last_render_module.module_name == plain_module.module_name,
+            choice_type="module_start",
         )
         choice_idx += 1
 
-    if partial_render.change:
-        all_affected_modules = list[str]()
-        affected_module = False
-        for module in plain_module.all_required_modules:
-            if module.module_name == partial_render.change.module_name:
-                affected_module = True
-            if affected_module:
-                all_affected_modules.append(module.module_name)
+    if plain_module_render_state.change:
+        all_affected_modules = get_all_affected_modules_from_change(plain_module, plain_module_render_state)
 
         if len(all_affected_modules) > 0:
-            choices[str(choice_idx)] = PartialRenderChoice(
-                module=partial_render.change,
+            choices[str(choice_idx)] = RenderChoice(
+                module=all_affected_modules[0],
                 render_range=None,
-                msg=f"Re-render all affected modules ([#5593FF]{', '.join(all_affected_modules)}[/])",
+                choice_type="rerender_affected",
                 wipe_later_modules=True,
-                is_desctructive=True,
+                is_destructive=True,
             )
             choice_idx += 1
 
     if len(plain_module.all_required_modules) > 0:
         first_module = plain_module.all_required_modules[0]
-        if first_module.module_name != partial_render.last_render_module.module_name and (
-            partial_render.change is not None and first_module.module_name != partial_render.change.module_name
+        if first_module.module_name != plain_module_render_state.last_render_module.module_name and (
+            plain_module_render_state.change is not None
+            and first_module.module_name != plain_module_render_state.change.module_name
         ):
-            choices[str(choice_idx)] = PartialRenderChoice(
+            choices[str(choice_idx)] = RenderChoice(
                 module=first_module,
                 render_range=None,
-                msg=f"Re-render from first module ([#5593FF]{first_module.module_name}[/])",
+                choice_type="rerender_from_first",
                 wipe_later_modules=True,
-                is_desctructive=True,
+                is_destructive=True,
             )
             choice_idx += 1
 
-    choices[str(choice_idx)] = PartialRenderChoice(module=None, render_range=None, msg="Quit")
+    choices[str(choice_idx)] = RenderChoice(module=None, render_range=None, choice_type="quit")
     return choices

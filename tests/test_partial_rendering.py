@@ -12,9 +12,9 @@ under test relies on: ``module_name``, ``required_modules``,
 import pytest
 
 from partial_rendering import (
-    PartialRender,
+    PlainModuleRenderState,
     code_change,
-    detect_partial_rendering,
+    get_plain_module_render_state,
     module_comes_before_or_equal,
     spec_change,
 )
@@ -233,13 +233,13 @@ def _build_fresh_tree(last_rendered=(None, None)):
 
 def test_detect_partial_rendering_returns_none_when_nothing_rendered():
     root, _, _ = _build_fresh_tree(last_rendered=(None, None))
-    assert detect_partial_rendering(root) is None
+    assert get_plain_module_render_state(root) is None
 
 
 def test_detect_partial_rendering_no_changes_returns_last_rendered():
     root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "1"))
-    pr = detect_partial_rendering(root)
-    assert isinstance(pr, PartialRender)
+    pr = get_plain_module_render_state(root)
+    assert isinstance(pr, PlainModuleRenderState)
     assert pr.last_render_module is leaf
     assert pr.last_render_frid == "1"
     assert pr.change is None
@@ -249,7 +249,7 @@ def test_detect_partial_rendering_no_changes_returns_last_rendered():
 def test_detect_partial_rendering_raises_when_last_rendered_module_unknown():
     root, _, _ = _build_fresh_tree(last_rendered=("phantom", "1"))
     with pytest.raises(ModuleDoesNotExistError, match="phantom"):
-        detect_partial_rendering(root)
+        get_plain_module_render_state(root)
 
 
 def test_detect_partial_rendering_spec_change_on_earlier_module_wins():
@@ -259,7 +259,7 @@ def test_detect_partial_rendering_spec_change_on_earlier_module_wins():
     root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
     leaf._metadata = {"source_hash": "stale-leaf"}  # leaf's spec changed
 
-    pr = detect_partial_rendering(root)
+    pr = get_plain_module_render_state(root)
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "spec_change"
@@ -273,7 +273,7 @@ def test_detect_partial_rendering_spec_change_on_top_module_is_reported():
     root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "1"))
     root._metadata = {"source_hash": "stale-root"}  # spec change on root
 
-    pr = detect_partial_rendering(root)
+    pr = get_plain_module_render_state(root)
     assert pr.last_render_module is leaf
     assert pr.change is root
     assert pr.change_type == "spec_change"
@@ -287,7 +287,7 @@ def test_detect_partial_rendering_code_change_wins_over_last_rendered():
         "required_modules_code_hash": "stale-code",
     }
 
-    pr = detect_partial_rendering(root)
+    pr = get_plain_module_render_state(root)
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "code_change"
@@ -309,7 +309,7 @@ def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive()
         "required_modules_code_hash": "stale-middle-code",
     }
 
-    pr = detect_partial_rendering(root)
+    pr = get_plain_module_render_state(root)
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "code_change"

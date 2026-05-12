@@ -2,15 +2,11 @@ import argparse
 import os
 import threading
 
-import git_utils
-import plain_file
-import plain_spec
 from event_bus import EventBus
 from memory_management import MemoryManager
-from partial_rendering import PartialRenderChoice
+from partial_rendering import RenderChoice
 from plain2code_console import console
 from plain2code_events import RenderCompleted, RenderFailed
-from plain2code_exceptions import MissingPreviousFunctionalitiesError
 from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine.code_renderer import CodeRenderer
@@ -24,7 +20,7 @@ class ModuleRenderer:
         self,
         codeplainAPI,
         plain_module: PlainModule,
-        partial_render_choice: PartialRenderChoice | None,
+        render_choice: RenderChoice | None,
         render_range: list[str] | None,
         args: argparse.Namespace,
         run_state: RunState,
@@ -34,125 +30,13 @@ class ModuleRenderer:
     ):
         self.codeplainAPI = codeplainAPI
         self.plain_module = plain_module
-        self.partial_render_choice = partial_render_choice
+        self.render_choice = render_choice
         self.render_range = render_range
         self.args = args
         self.run_state = run_state
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
-
-    def _ensure_module_folders_exist(self, module_name: str, first_render_frid: str) -> tuple[str, str]:
-        """
-        Ensure that build and conformance test folders exist for the module.
-
-        Args:
-            module_name: Name of the module being rendered
-            first_render_frid: The first FRID in the render range
-
-        Returns:
-            tuple[str, str]: (build_folder_path, conformance_tests_path)
-
-        Raises:
-            MissingPreviousFridCommitsError: If any required folders are missing
-        """
-        build_folder_path = os.path.join(self.args.build_folder, module_name)
-        conformance_tests_path = os.path.join(self.args.conformance_tests_folder, module_name)
-
-        if not os.path.exists(build_folder_path):
-            raise MissingPreviousFunctionalitiesError(
-                "Error rendering plain code: "
-                f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the source code folder does not exist.\n\n"
-                f"To fix this, please render the module from the beginning by running:\n"
-                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}\n"
-            )
-
-        if not os.path.exists(conformance_tests_path) and self.args.render_conformance_tests:
-            raise MissingPreviousFunctionalitiesError(
-                "Error rendering plain code: "
-                f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the conformance tests folder does not exist.\n\n"
-                f"To fix this, please render the module from the beginning by running:\n"
-                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}\n"
-            )
-
-        return build_folder_path, conformance_tests_path
-
-    def _ensure_frid_commit_exists(
-        self,
-        frid: str,
-        module_name: str,
-        build_folder_path: str,
-        conformance_tests_path: str,
-        first_render_frid: str,
-    ) -> None:
-        """
-        Ensure commit exists for a single FRID in both repositories.
-
-        Args:
-            frid: The FRID to check
-            module_name: Name of the module
-            build_folder_path: Path to the build folder
-            conformance_tests_path: Path to the conformance tests folder
-            first_render_frid: The first FRID in the render range (for error messages)
-
-        Raises:
-            MissingPreviousFridCommitsError: If the commit is missing
-        """
-        # Check in build folder
-        if not git_utils.has_commit_for_frid(build_folder_path, frid, module_name):
-            raise MissingPreviousFunctionalitiesError(
-                "Error rendering plain code: "
-                f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the implementation of the previous functionality ({frid}) hasn't been completed yet.\n\n"
-                f"To fix this, please render the missing functionality ({frid}) first by running:\n"
-                f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}\n"
-            )
-
-        # Check in conformance tests folder (only if conformance tests are enabled)
-        if self.args.render_conformance_tests:
-            if not git_utils.has_commit_for_frid(conformance_tests_path, frid, module_name):
-                raise MissingPreviousFunctionalitiesError(
-                    "Error rendering plain code: "
-                    f"Cannot start rendering from functionality {first_render_frid} for module '{module_name}' because the conformance tests for the previous functionality ({frid}) haven't been completed yet.\n\n"
-                    f"To fix this, please render the missing functionality ({frid}) first by running:\n"
-                    f"  codeplain {module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}\n"
-                )
-
-    def _ensure_previous_frid_commits_exist(
-        self, module_name: str, plain_source: dict, render_range: list[str]
-    ) -> None:
-        """
-        Ensure that all FRID commits before the render_range exist.
-
-        This is a precondition check that must pass before rendering can proceed.
-        Raises an exception if any previous FRID commits are missing.
-
-        Args:
-            module_name: Name of the module being rendered
-            plain_source: The plain source tree
-            render_range: List of FRIDs to render
-
-        Raises:
-            MissingPreviousFridCommitsError: If any previous FRID commits are missing
-        """
-        first_render_frid = render_range[0]
-
-        # Get all FRIDs that should have been rendered before this one
-        previous_frids = plain_spec.get_frids_before(plain_source, first_render_frid)
-        if not previous_frids:
-            return
-
-        # Ensure the module folders exist
-        build_folder_path, conformance_tests_path = self._ensure_module_folders_exist(module_name, first_render_frid)
-
-        # Verify commits exist for all previous FRIDs
-        for prev_frid in previous_frids:
-            self._ensure_frid_commit_exists(
-                prev_frid,
-                module_name,
-                build_folder_path,
-                conformance_tests_path,
-                first_render_frid,
-            )
 
     def _build_render_context_for_module(
         self,
@@ -192,20 +76,20 @@ class ModuleRenderer:
         Returns:
             tuple[bool, bool]: (Whether the module was rendered and whether the rendering failed)
         """
-        is_partial_render_choice_module = (
-            self.partial_render_choice is not None
-            and self.partial_render_choice.module is not None
-            and self.partial_render_choice.module.module_name == plain_module.module_name
+        is_render_choice_module = (
+            self.render_choice is not None
+            and self.render_choice.module is not None
+            and self.render_choice.module.module_name == plain_module.module_name
         )
 
-        if is_partial_render_choice_module:
-            render_range = self.partial_render_choice.render_range
+        if is_render_choice_module:
+            render_range = self.render_choice.render_range
 
         if render_range is not None:
             plain_module.ensure_previous_frid_commits_exist(render_range, self.args.render_conformance_tests)
 
         has_any_required_module_changed = False
-        if not self.args.render_machine_graph and plain_module.required_modules and not is_partial_render_choice_module:
+        if not self.args.render_machine_graph and plain_module.required_modules and not is_render_choice_module:
             console.debug(f"Analyzing required modules of module {plain_module.module_name}...")
             for required_module in plain_module.required_modules:
                 has_module_changed, rendering_failed = self._render_module(
@@ -226,7 +110,7 @@ class ModuleRenderer:
             and not has_any_required_module_changed
             and not plain_module.has_plain_spec_changed()
             and not plain_module.has_required_modules_code_changed()
-            and not is_partial_render_choice_module
+            and not is_render_choice_module
         ):
             return False, False
 
@@ -264,11 +148,11 @@ class ModuleRenderer:
         return True, False
 
     def render_module(self) -> None:
-        if self.partial_render_choice is not None and self.partial_render_choice.wipe_later_modules:
+        if self.render_choice is not None and self.render_choice.wipe_later_modules:
             later_module = False
             all_modules = self.plain_module.all_required_modules + [self.plain_module]
             for module in all_modules:
-                if module.module_name == self.partial_render_choice.module.module_name:
+                if module.module_name == self.render_choice.module.module_name:
                     later_module = True
                     continue
 
