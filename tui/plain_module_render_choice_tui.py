@@ -5,12 +5,12 @@ from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Label, ListItem, ListView, Static
 
 import plain_spec
-from partial_rendering import PartialRender, PartialRenderChoice
+from partial_rendering import PlainModuleRenderState, RenderChoice, get_all_affected_modules_from_change
 from plain_modules import PlainModule
 from tui.components import CustomFooter, TUIComponents
 
 
-class PartialRenderTUI(App):
+class PlainModuleRenderChoiceTUI(App):
     BINDINGS = [
         Binding("ctrl+o", "toggle_expand", "Expand/Collapse", show=False),
         Binding("ctrl+c", "copy_selection", "Copy", show=False),
@@ -20,19 +20,44 @@ class PartialRenderTUI(App):
     def __init__(
         self,
         plain_module: PlainModule,
-        partial_render: PartialRender,
-        choices: dict[str, PartialRenderChoice],
+        plain_module_render_state: PlainModuleRenderState,
+        render_choices: dict[str, RenderChoice],
         state_machine_version: str,
         render_id: str,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.plain_module = plain_module
-        self.partial_render = partial_render
+        self.plain_module_render_state = plain_module_render_state
         self.state_machine_version = state_machine_version
         self.render_id = render_id
         self._expandable_labels: list[dict] = []
-        self.choices = choices
+        self.render_choices = render_choices
+
+    def get_msg_from_choice(self, render_choice: RenderChoice) -> str:
+        if render_choice.choice_type == "module_start":
+            return f"Start from module [#5593FF]{render_choice.module.module_name}[/]"
+        elif render_choice.choice_type == "rerender_affected" and self.plain_module_render_state.change is not None:
+            all_affected_modules = get_all_affected_modules_from_change(
+                self.plain_module, self.plain_module_render_state
+            )
+
+            return f"Re-render all affected modules ([#5593FF]{', '.join([m.module_name for m in all_affected_modules])}[/])"
+
+        elif render_choice.choice_type == "rerender_from_first":
+            return f"Re-render from first module ([#5593FF]{render_choice.module.module_name}[/])"
+        elif render_choice.choice_type == "continue_from_frid":
+            msg = "Continue from"
+            next_frid = render_choice.render_range[0] if render_choice.render_range else None
+            if next_frid != plain_spec.get_first_frid(render_choice.module.plain_source):
+                msg += (
+                    f" functionality [#5593FF]{next_frid}[/] in module [#5593FF]{render_choice.module.module_name}[/]"
+                )
+            else:
+                msg += f" module [#5593FF]{render_choice.module.module_name}[/]"
+            return msg
+        elif render_choice.choice_type == "quit":
+            return "Quit"
 
     def compose(self) -> ComposeResult:
         with Vertical(id=TUIComponents.DASHBOARD_VIEW.value):
@@ -47,7 +72,7 @@ class PartialRenderTUI(App):
         yield CustomFooter(render_id=self.render_id, use_logs_shortcut=False, use_pause_shortcut=False)
 
     def on_mount(self) -> None:
-        pr = self.partial_render
+        pr = self.plain_module_render_state
 
         info_panel = self.query_one("#info-panel", Vertical)
         info_panel.mount(Label("module status", classes="rendering-info-title"))
@@ -84,7 +109,7 @@ class PartialRenderTUI(App):
             )
 
         elif pr.last_render_module.is_module_fully_rendered():
-            change_box.mount(Label("--- Rendering interrupted ---", classes="rendering-info-row"))
+            change_box.mount(Label("--- Rendering finished ---", classes="rendering-info-row"))
             change_box.mount(Label("The current module was fully rendered.", classes="rendering-info-title"))
         else:
             interrupted_frid = "1"
@@ -123,13 +148,13 @@ class PartialRenderTUI(App):
         # Populate the ListView
         lv = self.query_one("#choice-list", ListView)
         self.mount(Label("How would you like to continue?", classes="partial-render-question"), before=lv)
-        for key, choice in self.choices.items():
-            lv.append(ListItem(Label(f"[bold]{key}.[/bold] {choice.msg}"), id=f"choice-{key}"))
+        for key, choice in self.render_choices.items():
+            lv.append(ListItem(Label(f"[bold]{key}.[/bold] {self.get_msg_from_choice(choice)}"), id=f"choice-{key}"))
         lv.focus()
 
     def _register_expandable(self, label: Label, prefix: str, full_text: str) -> None:
-        first_line = full_text[:100]
-        short = f"{prefix} {first_line} [#888](ctrl+o to expand)[/]"
+        first_lines = "\n".join(full_text.splitlines()[:3])
+        short = f"{prefix} {first_lines} [#888](ctrl+o to expand)[/]"
         full = f"{prefix} {full_text} [#888](ctrl+o to collapse)[/]"
         label.update(short)
         self._expandable_labels.append({"label": label, "short": short, "full": full, "expanded": False})
@@ -145,7 +170,7 @@ class PartialRenderTUI(App):
         if not item_id or not item_id.startswith("choice-"):
             raise ValueError(f"Invalid item ID: {item_id}")
         key = item_id.split("-", 1)[1]
-        self.selected_choice = self.choices[key]
+        self.selected_choice = self.render_choices[key]
         self.exit(self.selected_choice)
 
     async def action_copy_selection(self) -> None:
