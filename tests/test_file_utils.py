@@ -18,7 +18,7 @@ def test_load_linked_resources_text_file(template_dir):
     with open(file_path, "w") as f:
         f.write("# hello")
 
-    result = load_linked_resources([template_dir], [{"text": "Notes", "target": "notes.md"}])
+    result = load_linked_resources([template_dir], [{"text": "Notes", "target": "notes.md"}], "my_thing")
 
     assert result == {"notes.md": "# hello"}
 
@@ -29,12 +29,13 @@ def test_load_linked_resources_binary_file_raises_unsupported_resource_type(temp
         f.write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe\xfd")
 
     with pytest.raises(UnsupportedResourceType) as exc_info:
-        load_linked_resources([template_dir], [{"text": "Icon", "target": "icon.png"}])
+        load_linked_resources([template_dir], [{"text": "Icon", "target": "icon.png"}], "my_thing")
 
     assert "icon.png" in str(exc_info.value)
     assert "binary file" in str(exc_info.value)
+    assert "my_thing" in str(exc_info.value)
 
 
 def test_load_linked_resources_missing_file_raises_file_not_found(template_dir):
     with pytest.raises(FileNotFoundError):
-        load_linked_resources([template_dir], [{"text": "Missing", "target": "missing.md"}])
+        load_linked_resources([template_dir], [{"text": "Missing", "target": "missing.md"}], "my_thing")

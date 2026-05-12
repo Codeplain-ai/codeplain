@@ -223,7 +223,7 @@ def open_from(dirs, file_name):
     return None
 
 
-def load_linked_resources(template_dirs: list[str], resources_list):
+def load_linked_resources(template_dirs: list[str], resources_list, module_name: str):
     linked_resources = {}
 
     for resource in resources_list:
@@ -235,7 +235,7 @@ def load_linked_resources(template_dirs: list[str], resources_list):
             content = open_from(template_dirs, file_name)
         except UnicodeDecodeError:
             raise UnsupportedResourceType(
-                f"Referenced resource '{file_name}' is a binary file. "
+                f"Referenced resource '{file_name}' in module '{module_name}' is a binary file. "
                 f"Only text files (e.g. .md, .txt, .json, .yaml) can be referenced from a .plain file."
             )
 

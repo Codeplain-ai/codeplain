@@ -87,7 +87,7 @@ class RenderContext:
 
         resources_list = []
         plain_spec.collect_linked_resources(plain_source_tree, resources_list, None, True)
-        self.all_linked_resources = file_utils.load_linked_resources(template_dirs, resources_list)
+        self.all_linked_resources = file_utils.load_linked_resources(template_dirs, resources_list, module_name)
 
         # Initialize context objects
         self.frid_context: Optional[FridContext] = None
