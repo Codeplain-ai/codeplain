@@ -20,6 +20,7 @@ class PartialRenderChoice:
     render_range: list[str] | None = None
     msg: str | None = None
     wipe_later_modules: bool = False
+    is_desctructive: bool = False
 
 
 def spec_change(plain_module: PlainModule) -> PlainModule | None:
@@ -78,13 +79,7 @@ def detect_partial_rendering(plain_module: PlainModule) -> PartialRender | None:
         return None
 
     if last_rendered_module_name == plain_module.module_name:
-        if (
-            last_rendered_frid is None
-            or plain_spec.get_next_frid(plain_module.plain_source, last_rendered_frid) is not None
-        ):
-            module = plain_module
-        else:
-            return None
+        module = plain_module
     else:
         found_module: PlainModule | None = None
         for required_module in all_required_modules:
@@ -135,6 +130,7 @@ def get_choices(
             render_range=None,
             msg=f"Start from module [#5593FF]{partial_render.last_render_module.module_name}[/]",
             wipe_later_modules=True,
+            is_desctructive=False,
         )
         choice_idx += 1
 
@@ -169,6 +165,7 @@ def get_choices(
             module=next_module,
             render_range=None,
             msg=f"Start from module [#5593FF]{next_module.module_name}[/]",
+            is_desctructive=partial_render.last_render_module.module_name == plain_module.module_name,
         )
         choice_idx += 1
 
@@ -187,6 +184,7 @@ def get_choices(
                 render_range=None,
                 msg=f"Re-render all affected modules ([#5593FF]{', '.join(all_affected_modules)}[/])",
                 wipe_later_modules=True,
+                is_desctructive=True,
             )
             choice_idx += 1
 
@@ -200,10 +198,9 @@ def get_choices(
                 render_range=None,
                 msg=f"Re-render from first module ([#5593FF]{first_module.module_name}[/])",
                 wipe_later_modules=True,
+                is_desctructive=True,
             )
             choice_idx += 1
 
     choices[str(choice_idx)] = PartialRenderChoice(module=None, render_range=None, msg="Quit")
-    print(choices)
-
     return choices

@@ -128,7 +128,7 @@ class PartialRenderTUI(App):
         lv.focus()
 
     def _register_expandable(self, label: Label, prefix: str, full_text: str) -> None:
-        first_line = full_text[:20]
+        first_line = full_text[:100]
         short = f"{prefix} {first_line} [#888](ctrl+o to expand)[/]"
         full = f"{prefix} {full_text} [#888](ctrl+o to collapse)[/]"
         label.update(short)
