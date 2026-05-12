@@ -186,7 +186,14 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         partial_render = detect_partial_rendering(plain_module)
         if partial_render is not None:
             choices = get_choices(plain_module, partial_render, args.force_render)
-            if len(choices) > 2:
+            ask_user = True
+            partial_render_choice = None
+            if len(choices) <= 2:
+                # Last choice is Quit, first choice is the only other actionable choice
+                partial_render_choice = choices[list(choices.keys())[0]]
+                ask_user = partial_render_choice.is_desctructive
+
+            if ask_user:
                 app = PartialRenderTUI(
                     plain_module,
                     partial_render,
@@ -202,9 +209,6 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
                     and partial_render_choice.msg == "Quit"
                 ):
                     sys.exit(0)
-            else:
-                # Last choice is Quit, first choice is the only other actionable choice
-                partial_render_choice = choices[list(choices.keys())[0]]
 
     if partial_render_choice is not None and render_range is not None:
         raise Exception("Partial rendering and render range cannot be used together")
