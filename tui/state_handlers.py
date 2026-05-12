@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from plain2code_events import RenderContextSnapshot
+from render_machine.render_types import AcceptanceTestPhase
 from render_machine.states import States
 
 from . import components as tui_components
@@ -19,15 +20,17 @@ from .widget_helpers import (
 )
 
 
-def format_acceptance_test_text(raw_text: str) -> str:
+def format_acceptance_test_text(raw_text: str | None) -> str:
     """Format acceptance test text for display by removing list prefix if present.
 
     Args:
-        raw_text: The raw acceptance test text from specifications
+        raw_text: The raw acceptance test text from specifications (can be None during state transitions)
 
     Returns:
-        Formatted text with "- " prefix removed if present
+        Formatted text with "- " prefix removed if present, or empty string if None
     """
+    if raw_text is None:
+        return ""
     if raw_text.startswith("- "):
         return raw_text[2:]
     return raw_text
@@ -194,7 +197,9 @@ class ConformanceTestsHandler(StateHandler):
 
         if segments[2] != States.POSTPROCESSING_CONFORMANCE_TESTS.value:
             if segments[2] == States.CONFORMANCE_TESTING_INITIALISED.value:
-                if snapshot.conformance_tests_running_context.conformance_test_phase_index == 0:
+                phase = snapshot.conformance_tests_running_context.acceptance_test_phase
+                # Rendering full conformance tests (if there are no acceptance tests available or haven't been started yet)
+                if phase == AcceptanceTestPhase.NOT_STARTED or phase == AcceptanceTestPhase.NOT_APPLICABLE:
                     rendering_text = f"Rendering conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
                     update_progress_item_substates(
                         self.tui,
