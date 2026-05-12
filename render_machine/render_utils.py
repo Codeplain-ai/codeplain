@@ -1,4 +1,3 @@
-import fcntl
 import os
 import re
 import signal
@@ -8,6 +7,9 @@ import tempfile
 import threading
 import time
 from typing import Optional
+
+if sys.platform == "linux":
+    import fcntl
 
 import file_utils
 import git_utils
