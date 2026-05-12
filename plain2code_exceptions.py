@@ -21,6 +21,10 @@ class MissingResource(Exception):
     pass
 
 
+class UnsupportedResourceType(Exception):
+    pass
+
+
 class PlainSyntaxError(Exception):
     pass
 
