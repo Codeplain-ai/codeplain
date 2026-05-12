@@ -530,10 +530,11 @@ class RenderContext:
     def _handle_regression_testing(self):
         """Handle regression testing of all earlier FRIDs."""
 
-        ctx = self.conformance_tests_running_context
-
         # Get next test to run
         self.conformance_tests_running_context = self._get_next_test_to_run()
+
+        # Get reference to the updated context
+        ctx = self.conformance_tests_running_context
 
         # Set up specs and run test
         self._setup_test_specifications()
