@@ -62,7 +62,7 @@ try {
     # Temporarily allow stderr output without throwing (Python unittest writes progress to stderr)
     # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
     $ErrorActionPreference = 'Continue'
-    $output = & $PYTHON_CMD -m unittest discover -b 2>&1 | ForEach-Object { "$_" } | Out-String
+    $output = & $PYTHON_CMD -m unittest discover -b 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $exit_code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
 
