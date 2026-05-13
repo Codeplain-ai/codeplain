@@ -1,4 +1,5 @@
 import logging
+import re
 
 from rich.console import Console
 from rich.style import Style
@@ -7,6 +8,14 @@ from rich.tree import Tree
 import plain2code_logger
 
 CHARACTERS_TO_TOKENS_RULE_OF_THUMB_RATIO = 4
+
+# Pattern to strip Rich markup tags (e.g. [#FF6B6B], [bold], [/bold])
+_RICH_MARKUP_PATTERN = re.compile(r"\[/?[^\]]*\]")
+
+
+def _sanitize_for_logger(text: str) -> str:
+    """Strip Rich markup and replace non-ASCII chars for safe logging on all platforms."""
+    return _RICH_MARKUP_PATTERN.sub("", text).encode("ascii", "replace").decode("ascii")
 
 logger = logging.getLogger(plain2code_logger.LOGGER_NAME)
 
@@ -33,28 +42,28 @@ class Plain2CodeConsole(Console):
             self.llm_encoding = None
 
     def info(self, *args, **kwargs):
-        logger.info(" ".join(map(str, args)))
+        logger.info(_sanitize_for_logger(" ".join(map(str, args))))
         super().print(*args, **kwargs, style=self.INFO_STYLE)
 
     def warning(self, *args, **kwargs):
-        logger.warning(" ".join(map(str, args)))
+        logger.warning(_sanitize_for_logger(" ".join(map(str, args))))
         super().print(*args, **kwargs, style=self.WARNING_STYLE)
 
     def error(self, *args, **kwargs):
-        logger.error(" ".join(map(str, args)))
+        logger.error(_sanitize_for_logger(" ".join(map(str, args))))
         super().print(*args, **kwargs, style=self.ERROR_STYLE)
 
     def input(self, *args, **kwargs):
         # We also log input as info so it shows in the toggled view
-        logger.info(" ".join(map(str, args)))
+        logger.info(_sanitize_for_logger(" ".join(map(str, args))))
         super().print(*args, **kwargs, style=self.INPUT_STYLE)
 
     def output(self, *args, **kwargs):
-        logger.info(" ".join(map(str, args)))
+        logger.info(_sanitize_for_logger(" ".join(map(str, args))))
         super().print(*args, **kwargs, style=self.OUTPUT_STYLE)
 
     def debug(self, *args, **kwargs):
-        logger.debug(" ".join(map(str, args)))
+        logger.debug(_sanitize_for_logger(" ".join(map(str, args))))
         super().print(*args, **kwargs, style=self.DEBUG_STYLE)
 
     def print_list(self, items, style=None):
