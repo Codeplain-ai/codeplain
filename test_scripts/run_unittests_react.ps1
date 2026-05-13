@@ -63,7 +63,7 @@ try {
     # Temporarily allow stderr output without throwing (npm/jest may write to stderr)
     # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
     $ErrorActionPreference = 'Continue'
-    $output = npm test -- --runInBand --silent --detectOpenHandles 2>&1 | ForEach-Object { "$_" } | Out-String
+    $output = npm test -- --runInBand --silent --detectOpenHandles 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $TEST_EXIT_CODE = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
 
