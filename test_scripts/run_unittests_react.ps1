@@ -60,8 +60,11 @@ try {
 
     # Execute all React unittests in the subfolder
     Write-Host "Running React unittests in $BuildFolder..."
+    # Temporarily allow stderr output without throwing (npm/jest may write to stderr)
+    $ErrorActionPreference = 'Continue'
     $output = npm test -- --runInBand --silent --detectOpenHandles 2>&1 | Out-String
     $TEST_EXIT_CODE = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
 
     # Strip ANSI escape codes
     $output = $output -replace $ANSI_ESCAPE_PATTERN, ''

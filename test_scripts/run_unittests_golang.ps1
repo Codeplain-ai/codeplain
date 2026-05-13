@@ -47,11 +47,19 @@ Push-Location $GO_BUILD_SUBFOLDER
 
 try {
     Write-Host "Running go get..."
+    # Temporarily allow stderr output without throwing (Go tools write to stderr)
+    $ErrorActionPreference = 'Continue'
     go get
+    $ErrorActionPreference = 'Stop'
 
     # Execute all Golang unittests in the subfolder
     Write-Host "Running Golang unittests in $BuildFolder..."
+    $ErrorActionPreference = 'Continue'
     go test
+    $exit_code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+
+    exit $exit_code
 } finally {
     Pop-Location
 }
