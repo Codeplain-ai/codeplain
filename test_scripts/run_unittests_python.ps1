@@ -59,8 +59,11 @@ try {
     # Execute all Python unittests in the subfolder
     Write-Host "Running Python unittests in $PYTHON_BUILD_SUBFOLDER..."
 
+    # Temporarily allow stderr output without throwing (Python unittest writes progress to stderr)
+    $ErrorActionPreference = 'Continue'
     $output = & $PYTHON_CMD -m unittest discover -b 2>&1 | Out-String
     $exit_code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
 
     # Echo the original output
     Write-Host $output
