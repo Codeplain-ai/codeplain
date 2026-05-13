@@ -326,7 +326,7 @@ def get_template_directories(plain_file_path, custom_template_dir=None, default_
     3. Default template directory - for standard/fallback templates
     """
     template_dirs = [
-        os.path.dirname(plain_file_path),  # Highest precedence - directory containing plain file
+        os.path.dirname(os.path.abspath(plain_file_path)),  # Highest precedence - directory containing plain file
     ]
 
     if custom_template_dir:

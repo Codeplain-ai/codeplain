@@ -9,7 +9,9 @@ if [ -z "$1" ]; then
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
-GO_BUILD_SUBFOLDER=go_$1
+GO_BUILD_SUBFOLDER="/tmp/go_$(basename "$1")"
+
+trap 'rm -rf "$GO_BUILD_SUBFOLDER"' EXIT
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing Go build subfolder: $GO_BUILD_SUBFOLDER\n"

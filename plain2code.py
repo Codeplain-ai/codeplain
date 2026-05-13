@@ -35,14 +35,7 @@ from plain2code_exceptions import (
     RenderingCreditBalanceTooLow,
     UnsupportedResourceType,
 )
-from plain2code_logger import (
-    LOGGER_NAME,
-    CrashLogHandler,
-    IndentedFormatter,
-    LoggingHandler,
-    dump_crash_logs,
-    get_log_file_path,
-)
+from plain2code_logger import LOGGER_NAME, CrashLogHandler, IndentedFormatter, LoggingHandler, dump_crash_logs
 from plain2code_state import RunState
 from plain2code_utils import format_duration_hms, print_dry_run_output
 from system_config import system_config
@@ -129,8 +122,7 @@ def setup_logging(
     event_bus: EventBus,
     run_state: RunState,
     log_to_file: bool,
-    log_file_name: str,
-    plain_file_path: Optional[str],
+    log_file_path: str,
     headless: bool = False,
 ):
     # Set default level to INFO for everything not explicitly configured
@@ -139,8 +131,6 @@ def setup_logging(
     logging.getLogger("git").setLevel(logging.WARNING)
     logging.getLogger("transitions").setLevel(logging.ERROR)
     logging.getLogger("transitions.extensions.diagrams").setLevel(logging.ERROR)
-
-    log_file_path = get_log_file_path(plain_file_path, log_file_name)
 
     # Try to load logging configuration from YAML file
     if args.logging_config_path and os.path.exists(args.logging_config_path):
@@ -165,7 +155,7 @@ def setup_logging(
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
 
-    if log_to_file and log_file_path:
+    if log_to_file:
         try:
             file_handler = logging.FileHandler(log_file_path, mode="w")
             file_handler.setFormatter(formatter)
@@ -314,7 +304,7 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless)
+    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.headless)
 
     exc_info = None
     error_message = None

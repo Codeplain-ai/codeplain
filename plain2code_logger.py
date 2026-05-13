@@ -1,7 +1,5 @@
 import logging
-import os
 import time
-from typing import Optional
 
 from event_bus import EventBus
 from plain2code_events import LogMessageEmitted
@@ -77,14 +75,6 @@ class CrashLogHandler(logging.Handler):
             return False
 
 
-def get_log_file_path(plain_file_path: Optional[str], log_file_name: str) -> Optional[str]:
-    """Get the full path to the log file, relative to the plain file directory."""
-    if not plain_file_path:
-        return None
-    plain_dir = os.path.dirname(os.path.abspath(plain_file_path))
-    return os.path.join(plain_dir, log_file_name)
-
-
 def dump_crash_logs(args, formatter=None):
     """Dump buffered logs to file if CrashLogHandler is present."""
     if args.log_to_file:
@@ -97,6 +87,4 @@ def dump_crash_logs(args, formatter=None):
     crash_handler = next((h for h in root_logger.handlers if isinstance(h, CrashLogHandler)), None)
 
     if crash_handler and args.filename:
-        log_file_path = get_log_file_path(args.filename, args.log_file_name)
-
-        crash_handler.dump_to_file(log_file_path, formatter)
+        crash_handler.dump_to_file(args.log_file_name, formatter)
