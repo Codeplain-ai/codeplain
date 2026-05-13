@@ -139,7 +139,10 @@ try {
 
     Push-Location $NODE_SUBFOLDER
 
+    # Temporarily allow stderr output without throwing (npm may write warnings to stderr)
+    $ErrorActionPreference = 'Continue'
     $npmInstallOutput = npm install --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | Out-String
+    $ErrorActionPreference = 'Stop'
     # Filter out noisy npm install lines
     $npmInstallOutput -split "`n" | Where-Object { $_ -notmatch $NPM_INSTALL_OUTPUT_FILTER } | ForEach-Object {
         if ($_.Trim()) { Write-Host $_ }
@@ -156,7 +159,10 @@ try {
 
     $script:build_output = [System.IO.Path]::GetTempFileName()
 
+    # Temporarily allow stderr output without throwing (build tools may write to stderr)
+    $ErrorActionPreference = 'Continue'
     npm run build > $script:build_output 2>&1
+    $ErrorActionPreference = 'Stop'
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error: Building application."
@@ -276,7 +282,10 @@ try {
 
     Push-Location $NODE_CONFORMANCE_TESTS_SUBFOLDER
 
+    # Temporarily allow stderr output without throwing (npm may write warnings to stderr)
+    $ErrorActionPreference = 'Continue'
     $npmInstallOutput = npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | Out-String
+    $ErrorActionPreference = 'Stop'
     $npmInstallOutput -split "`n" | Where-Object { $_ -notmatch $NPM_INSTALL_OUTPUT_FILTER } | ForEach-Object {
         if ($_.Trim()) { Write-Host $_ }
     }
@@ -285,7 +294,9 @@ try {
         Write-Host "Running Cypress conformance tests..."
     }
 
+    $ErrorActionPreference = 'Continue'
     $cypress_info_output = npx cypress info 2>&1 | Out-String
+    $ErrorActionPreference = 'Stop'
     $CYPRESS_BROWSER_FLAG = ""
     if ($cypress_info_output -match "(?i)chrome") {
         $CYPRESS_BROWSER_FLAG = "--browser=chrome"

@@ -69,8 +69,11 @@ try {
     # Execute all Python conformance tests in the build folder
     Write-Host "Running Python conformance tests...`n"
 
+    # Temporarily allow stderr output without throwing (Python unittest writes progress to stderr)
+    $ErrorActionPreference = 'Continue'
     $output = & $PYTHON_CMD -m unittest discover -b -s "$current_dir/$ConformanceTestsFolder" 2>&1 | Out-String
     $exit_code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
 
     # Echo the original output
     Write-Host $output

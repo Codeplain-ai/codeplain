@@ -80,8 +80,11 @@ try {
     # Execute Go lang conformance tests
     Write-Host "Running Golang conformance tests...`n"
 
+    # Temporarily allow stderr output without throwing (Go may write to stderr)
+    $ErrorActionPreference = 'Continue'
     $output = go run "$current_dir/$ConformanceTestsFolder/conformance_tests.go" 2>&1 | Out-String
     $exit_code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
 
     # If there was an error, print the output and exit with the error code
     if ($exit_code -ne 0) {
