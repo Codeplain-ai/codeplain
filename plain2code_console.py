@@ -17,6 +17,7 @@ def _sanitize_for_logger(text: str) -> str:
     """Strip Rich markup and replace non-ASCII chars for safe logging on all platforms."""
     return _RICH_MARKUP_PATTERN.sub("", text).encode("ascii", "replace").decode("ascii")
 
+
 logger = logging.getLogger(plain2code_logger.LOGGER_NAME)
 
 
