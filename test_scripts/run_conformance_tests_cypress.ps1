@@ -142,7 +142,7 @@ try {
     # Temporarily allow stderr output without throwing (npm may write warnings to stderr)
     # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
     $ErrorActionPreference = 'Continue'
-    $npmInstallOutput = npm install --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | ForEach-Object { "$_" } | Out-String
+    $npmInstallOutput = npm install --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $ErrorActionPreference = 'Stop'
     # Filter out noisy npm install lines
     $npmInstallOutput -split "`n" | Where-Object { $_ -notmatch $NPM_INSTALL_OUTPUT_FILTER } | ForEach-Object {
@@ -286,7 +286,7 @@ try {
     # Temporarily allow stderr output without throwing (npm may write warnings to stderr)
     # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
     $ErrorActionPreference = 'Continue'
-    $npmInstallOutput = npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | ForEach-Object { "$_" } | Out-String
+    $npmInstallOutput = npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $ErrorActionPreference = 'Stop'
     $npmInstallOutput -split "`n" | Where-Object { $_ -notmatch $NPM_INSTALL_OUTPUT_FILTER } | ForEach-Object {
         if ($_.Trim()) { Write-Host $_ }
@@ -297,7 +297,7 @@ try {
     }
 
     $ErrorActionPreference = 'Continue'
-    $cypress_info_output = npx cypress info 2>&1 | ForEach-Object { "$_" } | Out-String
+    $cypress_info_output = npx cypress info 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $ErrorActionPreference = 'Stop'
     $CYPRESS_BROWSER_FLAG = ""
     if ($cypress_info_output -match "(?i)chrome") {

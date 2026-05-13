@@ -50,14 +50,14 @@ try {
     # Temporarily allow stderr output without throwing (Go tools write to stderr)
     # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
     $ErrorActionPreference = 'Continue'
-    $output = go get 2>&1 | ForEach-Object { "$_" } | Out-String
+    $output = go get 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $ErrorActionPreference = 'Stop'
     if ($output.Trim()) { Write-Host $output }
 
     # Execute all Golang unittests in the subfolder
     Write-Host "Running Golang unittests in $BuildFolder..."
     $ErrorActionPreference = 'Continue'
-    $output = go test 2>&1 | ForEach-Object { "$_" } | Out-String
+    $output = go test 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
     $exit_code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
 
