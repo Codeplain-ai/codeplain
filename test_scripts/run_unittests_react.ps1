@@ -61,8 +61,9 @@ try {
     # Execute all React unittests in the subfolder
     Write-Host "Running React unittests in $BuildFolder..."
     # Temporarily allow stderr output without throwing (npm/jest may write to stderr)
+    # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
     $ErrorActionPreference = 'Continue'
-    $output = npm test -- --runInBand --silent --detectOpenHandles 2>&1 | Out-String
+    $output = npm test -- --runInBand --silent --detectOpenHandles 2>&1 | ForEach-Object { "$_" } | Out-String
     $TEST_EXIT_CODE = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
 
