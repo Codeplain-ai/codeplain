@@ -17,7 +17,7 @@ if (-not $args[0]) {
 $BuildFolder = $args[0]
 
 # Define the path to the subfolder
-$NODE_SUBFOLDER = ".tmp/$BuildFolder"
+$NODE_SUBFOLDER = "node_$BuildFolder"
 
 if ($env:VERBOSE -eq "1") {
     Write-Host "Preparing Node subfolder: $NODE_SUBFOLDER"

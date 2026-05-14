@@ -13,7 +13,7 @@ if (-not $args[0]) {
 
 $BuildFolder = $args[0]
 
-$GO_BUILD_SUBFOLDER = ".tmp/$BuildFolder"
+$GO_BUILD_SUBFOLDER = "go_$BuildFolder"
 
 if ($env:VERBOSE -eq "1") {
     Write-Host "Preparing Go build subfolder: $GO_BUILD_SUBFOLDER"

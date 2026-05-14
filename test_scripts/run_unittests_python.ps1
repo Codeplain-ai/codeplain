@@ -23,7 +23,7 @@ if (Get-Command python3 -ErrorAction SilentlyContinue) {
     exit $UNRECOVERABLE_ERROR_EXIT_CODE
 }
 
-$PYTHON_BUILD_SUBFOLDER = ".tmp/$BuildFolder"
+$PYTHON_BUILD_SUBFOLDER = "python_$BuildFolder"
 
 if ($env:VERBOSE -eq "1") {
     Write-Host "Preparing Python build subfolder: $PYTHON_BUILD_SUBFOLDER"
