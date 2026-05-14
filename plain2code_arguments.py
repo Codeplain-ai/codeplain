@@ -175,7 +175,9 @@ def create_parser():
         help="Path to the plain file to render. The directory containing this file has highest precedence for template loading, "
         "so you can place custom templates here to override the defaults. See --template-dir for more details about template loading.",
     )
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", default=True, help="Enable verbose output (default: enabled)"
+    )
     parser.add_argument("--base-folder", type=str, help="Base folder for the build files")
     parser.add_argument(
         "--build-folder", type=non_empty_string, default=DEFAULT_BUILD_FOLDER, help="Folder for build files"
