@@ -49,6 +49,22 @@ FILE_EXTENSION_MAPPING = {
 SYSTEM_FOLDERS = [".git", CODEPLAIN_METADATA_FOLDER, CODEPLAIN_MEMORY_SUBFOLDER]
 
 
+def normalize_line_endings(text: str) -> str:
+    """
+    Normalize line endings to Unix-style LF (\\n).
+
+    This ensures consistent line endings across platforms (Windows CRLF, Mac CR, Unix LF).
+    Critical for patch matching when LLM responses use LF but Windows files use CRLF.
+
+    Args:
+        text: Text content with potentially mixed line endings
+
+    Returns:
+        Text with all line endings normalized to LF (\\n)
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def is_system_folder_path(file_path: str) -> bool:
     parts = Path(file_path).parts
     return bool(parts) and parts[0] in SYSTEM_FOLDERS
@@ -178,7 +194,7 @@ def get_existing_files_content(build_folder, existing_files):
         with open(os.path.join(build_folder, file_name), "rb") as f:
             content = f.read()
             try:
-                existing_files_content[file_name] = content.decode("utf-8")
+                existing_files_content[file_name] = normalize_line_endings(content.decode("utf-8"))
             except UnicodeDecodeError:
                 console.debug(f"WARNING! Error loading {file_name}. File is not a text file. Skipping it.")
 
@@ -218,7 +234,7 @@ def open_from(dirs, file_name):
 
         with open(full_file_name, "rb") as f:
             content = f.read()
-        return content.decode("utf-8")
+        return normalize_line_endings(content.decode("utf-8"))
 
     return None
 
@@ -240,7 +256,8 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
             )
 
         if content is None:
-            raise FileNotFoundError(f"""File not found:
+            raise FileNotFoundError(
+                f"""File not found:
                 Resource file {file_name} not found. Resource files are searched in the following order (highest to lowest precedence):
 
                 1. The directory containing your .plain file
@@ -248,7 +265,8 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
                 3. The built-in 'standard_template_library' directory
 
                 Please ensure that the resource exists in one of these locations, or specify the correct --template-dir if using custom templates.
-                """)
+                """
+            )
 
         linked_resources[file_name] = content
 
