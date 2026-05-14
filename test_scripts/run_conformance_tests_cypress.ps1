@@ -99,7 +99,7 @@ $current_dir = Get-Location
 
 try {
     # Define the path to the subfolder
-    $NODE_SUBFOLDER = ".tmp/$BuildFolder"
+    $NODE_SUBFOLDER = "node_$BuildFolder"
 
     # Running React application
     Write-Host "### Step 1: Starting the React application in folder $NODE_SUBFOLDER..."
@@ -246,7 +246,7 @@ try {
     Set-Location $current_dir
 
     # Define the path to the conformance tests subfolder
-    $NODE_CONFORMANCE_TESTS_SUBFOLDER = ".tmp/$ConformanceTestsFolder"
+    $NODE_CONFORMANCE_TESTS_SUBFOLDER = "node_$ConformanceTestsFolder"
 
     if ($env:VERBOSE -eq "1") {
         Write-Host "Preparing conformance tests Node subfolder: $NODE_CONFORMANCE_TESTS_SUBFOLDER"
