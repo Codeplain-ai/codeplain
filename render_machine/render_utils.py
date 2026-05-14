@@ -101,8 +101,9 @@ def execute_script(  # noqa: C901
     script_timeout = timeout if timeout is not None else SCRIPT_EXECUTION_TIMEOUT
 
     script_path = file_utils.add_current_path_if_no_path(script)
-    # On Windows, .ps1 files must be run via PowerShell, not as the executable
-    if sys.platform == "win32" and script_path.lower().endswith(".ps1"):
+    if sys.platform == "win32":
+        if not script_path.lower().endswith(".ps1"):
+            raise ValueError(f"On Windows, only PowerShell (.ps1) scripts are supported, but got: {script_path}")
         cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path] + scripts_args
     else:
         cmd = [script_path] + scripts_args
