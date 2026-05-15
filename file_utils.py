@@ -219,6 +219,13 @@ def store_response_files(target_folder, response_files, existing_files):
 
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
+        # On Windows, an existing file may have the read-only attribute set (e.g. files
+        # restored from zip, copied from network shares, or touched by certain tools),
+        # which causes open(..., "w") to raise PermissionError. Clear it first, mirroring
+        # the pattern used for deletion via _make_writable.
+        if os.path.exists(full_file_name):
+            _make_writable(full_file_name)
+
         with open(full_file_name, "w") as f:
             # console.info(f"OLA writing to file {file_name} content before: {}")
             console.info(f"OLA writing to file {file_name} content after: {response_files[file_name]}")
