@@ -362,6 +362,9 @@ def main():  # noqa: C901
             # Log traceback
             dump_crash_logs(args)
 
+    if args.headless and (exc_info is not None or not run_state.render_succeeded):
+        sys.exit(1)
+
 
 if __name__ == "__main__":  # noqa: C901
     main()
