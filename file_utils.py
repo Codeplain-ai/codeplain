@@ -203,8 +203,8 @@ def get_existing_files_content(build_folder, existing_files):
 
 def store_response_files(target_folder, response_files, existing_files):
     for file_name in response_files:
-        console.debug(f"OLA store_response_files file_name: {file_name} full_file_name: {full_file_name}")
         full_file_name = os.path.join(target_folder, file_name)
+        console.debug(f"OLA store_response_files file_name: {file_name} full_file_name: {full_file_name}")
 
         if response_files[file_name] is None:
             console.debug(f"OLA file_name {file_name} should be deleted")
