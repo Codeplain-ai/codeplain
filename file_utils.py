@@ -203,9 +203,11 @@ def get_existing_files_content(build_folder, existing_files):
 
 def store_response_files(target_folder, response_files, existing_files):
     for file_name in response_files:
+        console.debug(f"OLA store_response_files file_name: {file_name} full_file_name: {full_file_name}")
         full_file_name = os.path.join(target_folder, file_name)
 
         if response_files[file_name] is None:
+            console.debug(f"OLA file_name {file_name} should be deleted")
             # None content indicates that the file should be deleted.
             if os.path.exists(full_file_name):
                 os.remove(full_file_name)
@@ -218,7 +220,9 @@ def store_response_files(target_folder, response_files, existing_files):
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
         with open(full_file_name, "w") as f:
-            f.write(response_files[file_name])
+            console.debug(f"OLA writing to file {file_name} content before: {]}")
+            console.debug(f"OLA writing to file {file_name} content after: {response_files[file_name]}")
+            f.write(normalize_line_endings(response_files[file_name]))
 
         if file_name not in existing_files:
             existing_files.append(file_name)
@@ -256,7 +260,8 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
             )
 
         if content is None:
-            raise FileNotFoundError(f"""File not found:
+            raise FileNotFoundError(
+                f"""File not found:
                 Resource file {file_name} not found. Resource files are searched in the following order (highest to lowest precedence):
 
                 1. The directory containing your .plain file
@@ -264,7 +269,8 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
                 3. The built-in 'standard_template_library' directory
 
                 Please ensure that the resource exists in one of these locations, or specify the correct --template-dir if using custom templates.
-                """)
+                """
+            )
 
         linked_resources[file_name] = content
 
