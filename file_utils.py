@@ -84,7 +84,9 @@ def list_all_text_files(directory):
                     console.debug(f"WARNING! Not listing {filename} in {root}. File is not a text file. Skipping it.")
                     continue
 
-                all_files.append(os.path.join(modified_root, filename))
+                # Normalize path separators to forward slashes for cross-platform consistency
+                file_path = os.path.join(modified_root, filename).replace("\\", "/")
+                all_files.append(file_path)
 
     return all_files
 
@@ -175,25 +177,34 @@ def add_current_path_if_no_path(filename):
 def get_existing_files_content(build_folder, existing_files):
     existing_files_content = {}
     for file_name in existing_files:
-        with open(os.path.join(build_folder, file_name), "rb") as f:
-            content = f.read()
-            try:
-                existing_files_content[file_name] = content.decode("utf-8")
-            except UnicodeDecodeError:
-                console.debug(f"WARNING! Error loading {file_name}. File is not a text file. Skipping it.")
+        # Normalize path separators to forward slashes for consistent cross-platform behavior
+        normalized_file_name = file_name.replace("\\", "/")
+        file_path = os.path.join(build_folder, file_name)
+        try:
+            # Use text mode with explicit UTF-8 encoding and Unix line endings
+            with open(file_path, "r", encoding="utf-8", newline="\n") as f:
+                existing_files_content[normalized_file_name] = f.read()
+        except UnicodeDecodeError:
+            console.debug(f"WARNING! Error loading {file_name}. File is not a text file. Skipping it.")
 
     return existing_files_content
 
 
 def store_response_files(target_folder, response_files, existing_files):
     for file_name in response_files:
+        # Normalize path separators to forward slashes for consistent cross-platform behavior
+        normalized_file_name = file_name.replace("\\", "/")
         full_file_name = os.path.join(target_folder, file_name)
 
         if response_files[file_name] is None:
             # None content indicates that the file should be deleted.
             if os.path.exists(full_file_name):
                 os.remove(full_file_name)
-                existing_files.remove(file_name)
+                # Remove using normalized name to ensure match
+                if normalized_file_name in existing_files:
+                    existing_files.remove(normalized_file_name)
+                elif file_name in existing_files:
+                    existing_files.remove(file_name)
             else:
                 console.debug(f"WARNING! Cannot delete file! File {full_file_name} does not exist.")
 
@@ -201,11 +212,12 @@ def store_response_files(target_folder, response_files, existing_files):
 
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
-        with open(full_file_name, "w") as f:
+        # Use explicit UTF-8 encoding and Unix line endings for cross-platform consistency
+        with open(full_file_name, "w", encoding="utf-8", newline="\n") as f:
             f.write(response_files[file_name])
 
-        if file_name not in existing_files:
-            existing_files.append(file_name)
+        if normalized_file_name not in existing_files:
+            existing_files.append(normalized_file_name)
 
     return existing_files
 
