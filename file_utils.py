@@ -220,7 +220,7 @@ def store_response_files(target_folder, response_files, existing_files):
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
         with open(full_file_name, "w") as f:
-            console.debug(f"OLA writing to file {file_name} content before: {]}")
+            # console.debug(f"OLA writing to file {file_name} content before: {}")
             console.debug(f"OLA writing to file {file_name} content after: {response_files[file_name]}")
             f.write(normalize_line_endings(response_files[file_name]))
 
