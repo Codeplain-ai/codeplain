@@ -1,17 +1,14 @@
 # E2E test base image for codeplain CLI.
 #
-# Intentionally bare: install.sh is COPIED in but NOT executed here. Each pytest
-# test runs install.sh fresh inside a container via `docker exec`, so the install
-# flow is re-validated on every CI run (the layer cache won't skip it).
+# install.sh is intentionally not executed but only COPIED
+# Each pytest test runs install.sh inside a container via `docker exec`, so the installation is re-tested on every run. This must not be cached.
 
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install only the OS tools install.sh needs to bootstrap uv. `uv tool install
-# codeplain` will download its own Python 3.11 (codeplain pins requires-python
-# == 3.11) — we don't try to provide it ourselves. We just need *some* python3
-# on PATH to execute the rendered hello_world.py output.
+# codeplain` will download its own Python 3.11. We just need *some* python3 on PATH to execute the rendered hello_world.py
 RUN apt-get update && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
