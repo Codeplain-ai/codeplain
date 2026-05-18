@@ -26,4 +26,4 @@ def test_render_and_run_hello_world_python(e2e_container, exec_in_container, cop
 
     rc, out, err = exec_in_container(e2e_container, f"python3 {generated}")
     assert rc == 0, f"generated python failed (rc={rc}):\nstdout:\n{out}\nstderr:\n{err}"
-    assert "hello, Mars" in out.lower(), f"unexpected stdout from generated app: {out!r}"
+    assert "hello, world" in out.lower(), f"unexpected stdout from generated app: {out!r}"
