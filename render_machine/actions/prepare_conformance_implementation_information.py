@@ -36,9 +36,9 @@ class PrepareConformanceImplementationInformation(BaseAction):
             conformance_tests_folder_name = ""
 
         # Determine which acceptance tests to include based on phase
-        # Phase 0 = rendering conformance tests (include all acceptance tests)
-        # Phase > 0 = rendering specific acceptance test (include only that one)
-        if render_context.conformance_tests_running_context.conformance_test_phase_index == 0:
+        # acceptance_tests_completed == 0 = rendering conformance tests (include all acceptance tests)
+        # acceptance_tests_completed > 0 = rendering specific acceptance test (include only that one)
+        if render_context.conformance_tests_running_context.acceptance_tests_completed == 0:
             # Preparing for conformance tests rendering - include all acceptance tests
             all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
         else:
