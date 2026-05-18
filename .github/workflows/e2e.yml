@@ -1,0 +1,46 @@
+# .github/workflows/e2e.yml
+name: E2E
+
+on:
+  pull_request: # TODO remove before merging to main
+  schedule:
+    - cron: '0 5 * * *'   # nightly to catch API drift
+  workflow_dispatch:
+
+jobs:
+  e2e-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install pytest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build E2E image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: tests/e2e/Dockerfile
+          tags: codeplain-e2e:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run E2E tests
+        env:
+          CODEPLAIN_API_KEY: ${{ secrets.CODEPLAIN_API_KEY }}
+        run: pytest tests/e2e/ -v --tb=short
+
+      - name: Upload generated outputs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-outputs-linux
+          path: /tmp/pytest-of-runner/**/container_work*/**
