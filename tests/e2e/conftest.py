@@ -24,8 +24,11 @@ def docker_image() -> str:
 @pytest.fixture(scope="session")
 def api_key() -> str:
     key = os.environ.get("CODEPLAIN_API_KEY")
-    if not key:
+
+    if key is None:
         pytest.skip("CODEPLAIN_API_KEY not set")
+    if key == "":
+        pytest.fail("CODEPLAIN_API_KEY is set but empty")
     return key
 
 
