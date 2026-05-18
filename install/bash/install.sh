@@ -22,7 +22,13 @@ NC='\033[0m' # No Color / Reset
 # Export colors for child scripts
 export YELLOW GREEN GREEN_LIGHT GREEN_DARK BLUE BLACK WHITE RED GRAY GRAY_LIGHT BOLD NC
 
-clear
+NONINTERACTIVE="${CODEPLAIN_INSTALL_NONINTERACTIVE:-0}"
+
+if [ "$NONINTERACTIVE" = "1" ]; then
+    echo "running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
+else
+    clear
+fi
 echo -e "started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
 
 # Install uv if not present
@@ -61,31 +67,42 @@ else
     echo -e "installing codeplain...${NC}"
     echo -e ""
     uv tool install codeplain
-    clear
+    if [ "$NONINTERACTIVE" != "1" ]; then
+        clear
+    fi
     echo -e "${GREEN}✓ codeplain installed successfully!${NC}"
 fi
 
 # Check if API key already exists
 SKIP_API_KEY_SETUP=false
 if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
-    echo -e "  you already have an API key configured."
-    echo ""
-    echo -e "  would you like to log in and get a new one?"
-    echo ""
-    read -r -p "  [y/N]: " GET_NEW_KEY < /dev/tty
-    echo ""
-
-    if [[ ! "$GET_NEW_KEY" =~ ^[Yy]$ ]]; then
-        echo -e "${GREEN}✓${NC} using existing API key."
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        echo -e "${GREEN}✓${NC} using existing CODEPLAIN_API_KEY (non-interactive mode)."
         SKIP_API_KEY_SETUP=true
+    else
+        echo -e "  you already have an API key configured."
+        echo ""
+        echo -e "  would you like to log in and get a new one?"
+        echo ""
+        read -r -p "  [y/N]: " GET_NEW_KEY < /dev/tty
+        echo ""
+
+        if [[ ! "$GET_NEW_KEY" =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}✓${NC} using existing API key."
+            SKIP_API_KEY_SETUP=true
+        fi
     fi
 fi
 
 if [ "$SKIP_API_KEY_SETUP" = false ]; then
-    echo -e "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
-    echo ""
-    read -r -p "paste your API key here: " API_KEY < /dev/tty
-    echo ""
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        echo -e "${GRAY}no CODEPLAIN_API_KEY set; skipping key setup (non-interactive mode).${NC}"
+    else
+        echo -e "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
+        echo ""
+        read -r -p "paste your API key here: " API_KEY < /dev/tty
+        echo ""
+    fi
 fi
 
 if [ "$SKIP_API_KEY_SETUP" = true ]; then
@@ -130,7 +147,9 @@ else
 fi
 
 # ASCII Art Welcome
-clear
+if [ "$NONINTERACTIVE" != "1" ]; then
+    clear
+fi
 echo ""
 echo -e "${NC}"
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
@@ -153,10 +172,14 @@ echo ""
 echo ""
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
 echo ""
-echo -e "  would you like to get a quick intro to ***plain specification language?"
-echo ""
-read -r -p "  [Y/n]: " WALKTHROUGH_CHOICE < /dev/tty
-echo ""
+if [ "$NONINTERACTIVE" = "1" ]; then
+    WALKTHROUGH_CHOICE="n"
+else
+    echo -e "  would you like to get a quick intro to ***plain specification language?"
+    echo ""
+    read -r -p "  [Y/n]: " WALKTHROUGH_CHOICE < /dev/tty
+    echo ""
+fi
 
 # Determine script directory for local execution
 SCRIPT_DIR=""
@@ -193,19 +216,23 @@ if [[ ! "$WALKTHROUGH_CHOICE" =~ ^[Nn]$ ]]; then
 fi
 
 # Download examples step
-clear
-echo ""
-echo -e "${GRAY}────────────────────────────────────────────${NC}"
-echo -e "  ${YELLOW}${BOLD}Example Projects${NC}"
-echo -e "${GRAY}────────────────────────────────────────────${NC}"
-echo ""
-echo -e "  we've prepared some example Plain projects for you"
-echo -e "  to explore and experiment with."
-echo ""
-echo -e "  would you like to download them?"
-echo ""
-read -r -p "  [Y/n]: " DOWNLOAD_EXAMPLES < /dev/tty
-echo ""
+if [ "$NONINTERACTIVE" = "1" ]; then
+    DOWNLOAD_EXAMPLES="n"
+else
+    clear
+    echo ""
+    echo -e "${GRAY}────────────────────────────────────────────${NC}"
+    echo -e "  ${YELLOW}${BOLD}Example Projects${NC}"
+    echo -e "${GRAY}────────────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  we've prepared some example Plain projects for you"
+    echo -e "  to explore and experiment with."
+    echo ""
+    echo -e "  would you like to download them?"
+    echo ""
+    read -r -p "  [Y/n]: " DOWNLOAD_EXAMPLES < /dev/tty
+    echo ""
+fi
 
 # Run examples download if user agrees
 if [[ ! "${DOWNLOAD_EXAMPLES:-}" =~ ^[Nn]$ ]]; then
@@ -213,7 +240,9 @@ if [[ ! "${DOWNLOAD_EXAMPLES:-}" =~ ^[Nn]$ ]]; then
 fi
 
 # Final message
-clear
+if [ "$NONINTERACTIVE" != "1" ]; then
+    clear
+fi
 echo ""
 echo -e "${GRAY}────────────────────────────────────────────${NC}"
 echo -e "  ${YELLOW}${BOLD}You're all set!${NC}"
@@ -230,6 +259,8 @@ echo ""
 echo -e "  ${GREEN}happy development!${NC} 🚀"
 echo ""
 
-# Replace this subshell with a fresh shell that has the new environment
-# Reconnect stdin to terminal (needed when running via curl | bash)
-exec "$SHELL" < /dev/tty
+if [ "$NONINTERACTIVE" != "1" ]; then
+    # Replace this subshell with a fresh shell that has the new environment
+    # Reconnect stdin to terminal (needed when running via curl | bash)
+    exec "$SHELL" < /dev/tty
+fi
