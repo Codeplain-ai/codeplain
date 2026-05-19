@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from configparser import NoOptionError, NoSectionError
 from typing import Optional, Union
 
@@ -7,6 +8,13 @@ from git import Repo
 
 import file_utils
 from plain2code_exceptions import InvalidGitRepositoryError
+
+# On Windows, `git clean -xdf` and `git reset --hard` skip files that another
+# process holds open (IDE indexers, antivirus, OneDrive). Git still exits 0 in
+# that case, so we have to verify the working tree afterwards. A short retry
+# gives the other process time to release its handle before we give up.
+_REVERT_MAX_ATTEMPTS = 3
+_REVERT_RETRY_DELAY_SECONDS = 0.5
 
 FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE = "[Codeplain] Implemented code and unit tests for functionality {}"
 REFACTORED_CODE_COMMIT_MESSAGE = "[Codeplain] Refactored code after implementing functionality {}"
@@ -136,11 +144,36 @@ def add_all_files_and_commit(
     return repo
 
 
+def _reset_and_clean(repo: Repo, commit: Optional[str] = None) -> None:
+    for attempt in range(1, _REVERT_MAX_ATTEMPTS + 1):
+        if commit is None:
+            repo.git.reset("--hard")
+        else:
+            repo.git.reset("--hard", commit)
+        repo.git.clean("-xdf")
+
+        if not repo.is_dirty(untracked_files=True):
+            return
+
+        if attempt < _REVERT_MAX_ATTEMPTS:
+            time.sleep(_REVERT_RETRY_DELAY_SECONDS)
+
+    status = repo.git.status("--porcelain")
+    raise InvalidGitRepositoryError(
+        f"Failed to revert working tree in {repo.working_dir!r} after "
+        f"{_REVERT_MAX_ATTEMPTS} attempts: files remained dirty after "
+        "`git reset --hard` + `git clean -xdf`. On Windows this usually means "
+        "another process (an IDE, file indexer, or antivirus) is holding "
+        "handles on files in the build folder; close any editors/viewers "
+        "showing files in this folder and retry.\n"
+        f"Working tree status after final attempt:\n{status}"
+    )
+
+
 def revert_changes(repo_path: Union[str, os.PathLike]) -> Repo:
     """Reverts all changes made since the last commit."""
     repo = Repo(repo_path)
-    repo.git.reset("--hard")
-    repo.git.clean("-xdf")
+    _reset_and_clean(repo)
     return repo
 
 
@@ -161,8 +194,7 @@ def revert_to_commit_with_frid(repo_path: Union[str, os.PathLike], frid: Optiona
     if not commit:
         raise InvalidGitRepositoryError("Git repository is in an invalid state. Relevant commit could not be found.")
 
-    repo.git.reset("--hard", commit)
-    repo.git.clean("-xdf")
+    _reset_and_clean(repo, commit)
     return repo
 
 
