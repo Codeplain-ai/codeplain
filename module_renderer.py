@@ -116,10 +116,8 @@ class ModuleRenderer:
 
         memory_manager = MemoryManager(
             self.codeplainAPI,
-            os.path.join(
-                self.args.build_folder,
-                plain_module.module_name,
-            ),
+            plain_module.module_name,
+            self.args.conformance_tests_folder,
         )
         render_context = self._build_render_context_for_module(
             plain_module,
