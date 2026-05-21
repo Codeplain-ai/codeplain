@@ -68,7 +68,7 @@ def print_exit_summary(
     msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
     msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or '-'}\n\n"
     msg += f"[#8E8F91]functionalities  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]used credits  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]render time  [#FFFFFF]{format_duration_hms(run_state.render_time_accumulated)}\n"
-    console.info(msg)
+    console.print(msg)
 
     if not run_state.render_succeeded and error_message:
         console.error(error_message)
@@ -118,7 +118,7 @@ def setup_logging(
 
     if log_to_file and log_file_path:
         try:
-            file_handler = logging.FileHandler(log_file_path, mode="w")
+            file_handler = logging.FileHandler(log_file_path, mode="w", encoding="utf-8")
             file_handler.setFormatter(formatter)
             file_handler.setLevel(configured_log_level)
             root_logger.addHandler(file_handler)
@@ -268,6 +268,10 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
 
 
 def main():  # noqa: C901
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     args = parse_arguments()
 
     # Handle early-exit flags before heavy initialization
