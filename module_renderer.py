@@ -65,6 +65,7 @@ class ModuleRenderer:
             test_script_timeout=self.args.test_script_timeout,
             stop_event=self.stop_event,
             enter_pause_event=self.enter_pause_event,
+            use_agent=getattr(self.args, "use_agent", False),
         )
 
     def _render_module(

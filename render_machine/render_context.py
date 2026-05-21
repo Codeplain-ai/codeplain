@@ -49,6 +49,7 @@ class RenderContext:
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
         enter_pause_event: Optional[threading.Event] = None,
+        use_agent: bool = False,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -73,6 +74,7 @@ class RenderContext:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
+        self.use_agent = use_agent
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
