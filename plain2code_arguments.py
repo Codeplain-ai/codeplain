@@ -354,6 +354,13 @@ def create_parser():
     )
 
     parser.add_argument(
+        "--use-agent",
+        action="store_true",
+        default=False,
+        help="Use agentic loop for fixing unit tests instead of the default iterative approach.",
+    )
+
+    parser.add_argument(
         "--status",
         action="store_true",
         default=False,

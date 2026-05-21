@@ -531,3 +531,21 @@ class CodeplainAPI:
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def agent_start(self, task_type: str, task_params: dict, run_state: RunState):
+        endpoint_url = f"{self.api_url}/agent/start"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "task_type": task_type,
+            "task_params": task_params,
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def agent_continue(self, session_id: str, tool_results: list[dict], run_state: RunState):
+        endpoint_url = f"{self.api_url}/agent/continue"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "session_id": session_id,
+            "tool_results": tool_results,
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
