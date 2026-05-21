@@ -65,7 +65,7 @@ class CrashLogHandler(logging.Handler):
             return False
 
         try:
-            with open(filepath, "w") as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 for record in self.records:
                     if formatter:
                         msg = formatter.format(record)
