@@ -36,7 +36,7 @@ class CodeRenderer:
         self.render_context.set_machine(self.machine)
 
         # Get action mappings
-        self.action_map = self.state_machine_config.get_action_map()
+        self.action_map = self.state_machine_config.get_action_map(use_agent=render_context.use_agent)
         self.action_result_triggers_map = self.state_machine_config.get_action_result_triggers_map()
 
     def run(self):
