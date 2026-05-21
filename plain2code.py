@@ -40,6 +40,7 @@ from plain2code_exceptions import (
 from plain2code_logger import (
     LOGGER_NAME,
     CrashLogHandler,
+    ElapsedTimeFormatter,
     IndentedFormatter,
     LoggingHandler,
     dump_crash_logs,
@@ -110,6 +111,7 @@ def setup_logging(
     root_logger.setLevel(logging.DEBUG)  # Capture all logs; handlers will filter levels as needed
 
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
+    file_formatter = ElapsedTimeFormatter(run_state)
 
     if not headless:
         handler = LoggingHandler(event_bus, run_state)
@@ -119,7 +121,7 @@ def setup_logging(
     if log_to_file and log_file_path:
         try:
             file_handler = logging.FileHandler(log_file_path, mode="w", encoding="utf-8")
-            file_handler.setFormatter(formatter)
+            file_handler.setFormatter(file_formatter)
             file_handler.setLevel(configured_log_level)
             root_logger.addHandler(file_handler)
         except Exception as e:
@@ -128,7 +130,7 @@ def setup_logging(
         # If file logging is disabled, use CrashLogHandler to buffer logs in memory
         # in case we need to dump them on crash.
         crash_handler = CrashLogHandler()
-        crash_handler.setFormatter(formatter)
+        crash_handler.setFormatter(file_formatter)
         crash_handler.setLevel(configured_log_level)
         root_logger.addHandler(crash_handler)
 
@@ -354,7 +356,7 @@ def main():  # noqa: C901
         )
         if exc_info:
             # Log traceback
-            dump_crash_logs(args)
+            dump_crash_logs(args, run_state)
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)
