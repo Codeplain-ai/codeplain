@@ -5,6 +5,10 @@ import file_utils
 import render_machine.render_utils as render_utils
 from render_machine.render_context import RenderContext
 
+MAX_INLINE_OUTPUT_LINES = 200
+TEST_OUTPUT_FILE = "_test_output.txt"
+DEFAULT_READ_LIMIT = 200
+
 
 def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     unittests_script = os.path.normpath(render_context.unittests_script)
@@ -18,7 +22,23 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     )
     if exit_code == 0:
         return "All unit tests passed successfully."
-    return f"Tests failed (exit code {exit_code}):\n{output}"
+
+    lines = output.split("\n") if output else []
+    total_lines = len(lines)
+
+    if total_lines <= MAX_INLINE_OUTPUT_LINES:
+        return f"Tests failed (exit code {exit_code}):\n{output}"
+
+    # Save full output to file, return truncated version
+    output_path = os.path.join(render_context.build_folder, TEST_OUTPUT_FILE)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(output)
+
+    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
+    return (
+        f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
+        f"Full output saved to {TEST_OUTPUT_FILE} (use read_file to see more).\n\n{truncated}"
+    )
 
 
 def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
@@ -38,7 +58,22 @@ def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
     )
     if exit_code == 0:
         return "All conformance tests passed successfully."
-    return f"Tests failed (exit code {exit_code}):\n{output}"
+
+    lines = output.split("\n") if output else []
+    total_lines = len(lines)
+
+    if total_lines <= MAX_INLINE_OUTPUT_LINES:
+        return f"Tests failed (exit code {exit_code}):\n{output}"
+
+    output_path = os.path.join(render_context.build_folder, TEST_OUTPUT_FILE)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(output)
+
+    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
+    return (
+        f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
+        f"Full output saved to {TEST_OUTPUT_FILE} (use read_file to see more).\n\n{truncated}"
+    )
 
 
 def write_file(args: dict, render_context: RenderContext) -> str:
@@ -54,12 +89,41 @@ def write_file(args: dict, render_context: RenderContext) -> str:
 
 def read_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
+    offset = args.get("offset")
+    limit = args.get("limit")
     full_path = os.path.join(render_context.build_folder, file_path)
 
     if not os.path.exists(full_path):
         return f"Error: File '{file_path}' not found"
+
     with open(full_path, "r", encoding="utf-8") as f:
-        return f.read()
+        all_lines = f.readlines()
+
+    total_lines = len(all_lines)
+
+    # Apply offset (1-based)
+    start = 0
+    if offset is not None:
+        start = max(0, int(offset) - 1)
+
+    # Apply limit
+    max_lines = int(limit) if limit is not None else DEFAULT_READ_LIMIT
+    end = start + max_lines
+
+    selected_lines = all_lines[start:end]
+    content = "".join(selected_lines)
+
+    # Add metadata if file was truncated
+    if end < total_lines or start > 0:
+        shown_start = start + 1
+        shown_end = min(end, total_lines)
+        header = f"[Showing lines {shown_start}-{shown_end} of {total_lines} total]\n"
+        return header + content
+    elif total_lines > max_lines:
+        header = f"[Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more.]\n"
+        return header + "".join(all_lines[:max_lines])
+
+    return content
 
 
 def list_files(args: dict, render_context: RenderContext) -> str:
