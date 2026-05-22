@@ -16,6 +16,7 @@ import file_utils
 import plain_file
 import plain_modules
 import plain_spec
+from cli_output import print_dry_run_output, print_exit_summary, print_status
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
 from partial_rendering import get_plain_module_render_state, get_render_choices
@@ -46,33 +47,13 @@ from plain2code_logger import (
     get_log_file_path,
 )
 from plain2code_state import RunState
-from plain2code_utils import format_duration_hms, print_dry_run_output
+from plain2code_utils import format_duration_hms
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
-
-
-def print_exit_summary(
-    run_state: RunState,
-    spec_filename: str,
-    error_message: Optional[str] = None,
-) -> None:
-    console.quiet = False
-    """Print render outcome after the TUI exits (terminal restored)."""
-
-    msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
-    msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
-    msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
-    msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or '-'}\n\n"
-    msg += f"[#8E8F91]functionalities  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]used credits  [#FFFFFF]{run_state.rendered_functionalities}  [#8E8F91]render time  [#FFFFFF]{format_duration_hms(run_state.render_time_accumulated)}\n"
-    console.print(msg)
-
-    if not run_state.render_succeeded and error_message:
-        console.error(error_message)
-    console.quiet = True
 
 
 def setup_logging(
@@ -148,8 +129,7 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
         raise OutdatedClientVersion(
             "Outdated client version: "
             f"Your client version ({system_config.client_version}) is outdated. Minimum required version is {min_version}. "
-            "Please update using:"
-            "  uv tool upgrade codeplain"
+            "Please update using: uv tool upgrade codeplain"
         )
 
 
@@ -273,6 +253,23 @@ def main():  # noqa: C901
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     args = parse_arguments()
+
+    # Handle --status flag before any other initialization
+    if args.status:
+        if not args.api_key:
+            console.error(
+                "Your API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
+            )
+            return
+
+        if not args.api:
+            args.api = "https://api.codeplain.ai"
+
+        try:
+            print_status(args.api_key, args.api, system_config.client_version)
+        except Exception as e:
+            console.error(f"Error fetching status: {str(e)}")
+        return
 
     # Handle early-exit flags before heavy initialization
     if args.dry_run or args.full_plain:

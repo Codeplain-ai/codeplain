@@ -172,6 +172,7 @@ def create_parser():
     parser.add_argument(
         "filename",
         type=str,
+        nargs="?",
         help="Path to the plain file to render. The directory containing this file has highest precedence for template loading, "
         "so you can place custom templates here to override the defaults. See --template-dir for more details about template loading.",
     )
@@ -348,6 +349,14 @@ def create_parser():
         "All logs are written to the log file.",
     )
 
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        default=False,
+        help="Display account status including user information, API key label, and rendering credits. "
+        "Does not render any code.",
+    )
+
     return parser
 
 
@@ -355,7 +364,14 @@ def parse_arguments():
     parser = create_parser()
 
     args = parser.parse_args()
-    args = update_args_with_config(args, parser)
+
+    # Validate filename is provided when needed
+    if not args.status and not args.filename:
+        parser.error("the following arguments are required: filename")
+
+    # Only process config if filename is provided (not needed for --status)
+    if args.filename:
+        args = update_args_with_config(args, parser)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
@@ -372,6 +388,9 @@ def parse_arguments():
 
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")
+
+    if args.status and (args.dry_run or args.full_plain):
+        parser.error("--status cannot be used with --dry-run or --full-plain")
 
     script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME, PREPARE_ENVIRONMENT_SCRIPT_NAME]
     for script_name in script_arg_names:

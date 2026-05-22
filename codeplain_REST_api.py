@@ -161,6 +161,14 @@ class CodeplainAPI:
         }
         return self.post_request(endpoint_url, headers, payload, None, num_retries=0, silent=True)
 
+    def status(self):
+        endpoint_url = f"{self.api_url}/status"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "api_key": self.api_key,
+        }
+        return self.post_request(endpoint_url, headers, payload, None, num_retries=0, silent=True)
+
     def render_functional_requirement(
         self,
         frid: str,

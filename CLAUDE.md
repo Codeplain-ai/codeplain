@@ -62,6 +62,9 @@ Hook is located at `.git/hooks/pre-push`.
 # Basic usage - render a .plain file
 python plain2code.py path/to/file.plain
 
+# Display account status (user info, credits, API key label)
+python plain2code.py --status
+
 # Dry run (parse and validate .plain files without rendering code)
 # This parses the spec files, resolves imports/requires, but doesn't generate code
 python plain2code.py path/to/file.plain --dry-run
@@ -125,8 +128,9 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 3. **Rendering Orchestration** (`module_renderer.py`): Coordinates render process across modules
 4. **State Machine** (`render_machine/`): Hierarchical state machine drives the render lifecycle
 5. **API Communication** (`codeplain_REST_api.py`): HTTP client for Codeplain API
-6. **Code Generation** (`render_machine/code_renderer.py`): Main code renderer class that orchestrates the code generation workflow using a hierarchical state machine.
+6. **Code Generation** (`render_machine/code_renderer.py`): Main code renderer class that orchestrates the code generation workflow using a hierarchical state machine
 7. **TUI** (`tui/`): Textual-based terminal UI showing render progress
+8. **CLI Output** (`cli_output/`): Non-interactive terminal output formatting for status, dry-run, and render summaries
 
 ### Key Concepts
 
@@ -148,6 +152,8 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 ### Directory Structure
 
 - `plain2code.py` - Main CLI entry point
+- `plain2code_arguments.py` - CLI argument parsing and validation
+- `plain2code_utils.py` - Pure utility functions (duration formatting, ambiguity messages)
 - `plain_modules.py` - Module dependency resolution
 - `plain_file.py` - `.plain` file parser
 - `plain_spec.py` - Spec extraction and FRID utilities
@@ -158,15 +164,20 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
   - `triggers.py` - State transition logic
   - `render_context.py` - Shared context across states
   - `conformance_tests.py` - Test generation and execution
-- `tui/` - Terminal UI (Textual framework)
+- `tui/` - Interactive terminal UI (Textual framework)
   - `plain2code_tui.py` - Main TUI app
   - `components.py` - Custom UI widgets
+- `cli_output/` - Non-interactive CLI output formatting
+  - `status.py` - Status display (`--status` flag)
+  - `dry_run.py` - Dry run output (`--dry-run` flag)
+  - `render_summary.py` - Render completion summary
 - `codeplain_REST_api.py` - API client
 - `memory_management.py` - Context tracking
 - `git_utils.py` - Git operations for checkpointing
 - `file_utils.py` - File I/O utilities
 - `concept_utils.py` - Concept validation (***plain language feature)
 - `plain2code_logger.py` - Custom logging with elapsed time timestamps
+- `plain2code_console.py` - Rich console wrapper with custom styles
 - `plain2code_state.py` - Runtime state (render ID, counters, timing)
 - `standard_template_library/` - Built-in code templates
 - `examples/` - Sample `.plain` projects
