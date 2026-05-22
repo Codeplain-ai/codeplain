@@ -24,7 +24,7 @@ dependencies = [
     "transitions==0.9.3",
     "textual>=7.5.0",
     "rich==14.2.0",
-    "python-frontmatter==1.1.0",
+    "python-frontmatter==1.3.0",
     "networkx==3.6.1",
 ]
 
