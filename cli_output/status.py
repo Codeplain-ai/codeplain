@@ -133,7 +133,11 @@ def print_status(api_key: str, api_url: str, client_version: str) -> None:
         console.print(f"Version: {client_version}")
     else:
         from plain2code_console import Plain2CodeConsole
-        console.print(f"Version: {client_version} (outdated — minimum required: {min_version})", style=Plain2CodeConsole.ERROR_STYLE)
+
+        console.print(
+            f"Version: {client_version} (outdated — minimum required: {min_version})",
+            style=Plain2CodeConsole.ERROR_STYLE,
+        )
         console.print("To update, run: uv tool upgrade codeplain\n", style=Plain2CodeConsole.ERROR_STYLE)
     console.print(f"Name: {user['first_name']} {user['last_name']}")
     console.print(f"User email: {user['email']}")

@@ -1,6 +1,7 @@
 """Unit tests for cli_output module."""
 
 from datetime import datetime, timezone
+from io import StringIO
 from unittest.mock import Mock, patch
 
 import pytest
@@ -386,3 +387,25 @@ class TestPrintStatus:
         calls = [str(call) for call in mock_console.print.call_args_list]
         purchased_calls = [c for c in calls if "Purchased" in c]
         assert len(purchased_calls) == 2
+
+
+class TestVersionFlag:
+    """Tests for --version flag."""
+
+    def test_version_flag_without_filename(self, capsys):
+        """Test that --version works without providing a filename."""
+        import sys
+
+        import plain2code
+
+        # Save original argv
+        original_argv = sys.argv
+        try:
+            sys.argv = ["plain2code.py", "--version"]
+            # This should not raise an error about missing filename
+            plain2code.main()
+
+            captured = capsys.readouterr()
+            assert "codeplain version" in captured.out
+        finally:
+            sys.argv = original_argv
