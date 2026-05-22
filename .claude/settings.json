@@ -1,0 +1,27 @@
+{
+    "includeCoAuthoredBy": false,
+    "attribution": { "commit": "", "pr": "" },
+    "permissions": {
+        "allow": [
+            "Read",
+            "Bash(pytest *)",
+            "Bash(black *)",
+            "Bash(isort *)",
+            "Bash(flake8 *)",
+            "Bash(mypy *)",
+            "Bash(coverage *)",
+            "Bash(git status*)",
+            "Bash(git diff*)",
+            "Bash(git log*)",
+            "Bash(ls *)",
+            "Bash(cat *)",
+            "Bash(grep *)",
+            "Bash(find *)",
+            "Bash(head *)",
+            "Bash(tail *)",
+            "Bash(conda *)",
+            "Bash(.venv/bin/python *)",
+            "Bash(python plain2code.py *)"
+        ]
+    }
+}
