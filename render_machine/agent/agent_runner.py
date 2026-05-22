@@ -30,6 +30,8 @@ def run(
         task_type=task_type,
         task_params=task_params,
         run_state=render_context.run_state,
+        module_name=render_context.module_name,
+        frid=render_context.frid_context.frid if render_context.frid_context else "",
     )
 
     turn_count = 0
