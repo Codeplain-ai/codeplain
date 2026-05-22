@@ -357,6 +357,13 @@ def create_parser():
         "Does not render any code.",
     )
 
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        default=False,
+        help="Display the client version and exit.",
+    )
+
     return parser
 
 
@@ -366,7 +373,7 @@ def parse_arguments():
     args = parser.parse_args()
 
     # Validate filename is provided when needed
-    if not args.status and not args.filename:
+    if not args.status and not args.version and not args.filename:
         parser.error("the following arguments are required: filename")
 
     # Only process config if filename is provided (not needed for --status)

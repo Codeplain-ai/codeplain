@@ -47,7 +47,6 @@ from plain2code_logger import (
     get_log_file_path,
 )
 from plain2code_state import RunState
-from plain2code_utils import format_duration_hms
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
@@ -253,6 +252,11 @@ def main():  # noqa: C901
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     args = parse_arguments()
+
+    # Handle --version flag before any other initialization
+    if args.version:
+        console.print(f"codeplain version {system_config.client_version}")
+        return
 
     # Handle --status flag before any other initialization
     if args.status:
