@@ -532,12 +532,14 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def agent_start(self, task_type: str, task_params: dict, run_state: RunState):
+    def agent_start(self, task_type: str, task_params: dict, run_state: RunState, module_name: str = "", frid: str = ""):
         endpoint_url = f"{self.api_url}/agent/start"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
         payload = {
             "task_type": task_type,
             "task_params": task_params,
+            "module_name": module_name,
+            "frid": frid,
         }
         return self.post_request(endpoint_url, headers, payload, run_state)
 
