@@ -60,7 +60,6 @@ def module_comes_before_or_equal(
     module1: PlainModule,
     module2: PlainModule,
 ) -> bool:
-
     for module in all_required_modules:
         if module.module_name == module1.module_name:
             return True
@@ -120,7 +119,7 @@ def get_all_affected_modules_from_change(
     plain_module: PlainModule,
     plain_module_render_state: PlainModuleRenderState,
 ) -> list[PlainModule]:
-    all_affected_modules = list[PlainModule]()
+    all_affected_modules = dict[str, PlainModule]()
 
     if plain_module_render_state.change_type == "spec_change":
         start_module = plain_module_render_state.change
@@ -138,10 +137,10 @@ def get_all_affected_modules_from_change(
         if module.module_name == start_module.module_name:
             affected_module = True
 
-        if affected_module:
-            all_affected_modules.append(module)
+        if affected_module and module.module_name not in all_affected_modules:
+            all_affected_modules[module.module_name] = module
 
-    return all_affected_modules
+    return list(all_affected_modules.values())
 
 
 def get_render_choices(

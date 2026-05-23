@@ -71,15 +71,14 @@ class PlainModule:
         return os.path.join(self.module_build_folder, CODEPLAIN_METADATA_FOLDER)
 
     def get_module_render_status(self) -> tuple[str | None, str | None]:
-        if len(self.required_modules) == 0:
-            return git_utils.get_last_rendered_functionality(self.module_build_folder)
-
         module_name, frid = git_utils.get_last_rendered_functionality(self.module_build_folder)
         if module_name is not None and module_name == self.module_name:
             return module_name, frid
 
-        for module in reversed(self.required_modules):
-            last_rendered_module_name, last_rendered_frid = module.get_module_render_status()
+        for module in reversed(self.all_required_modules):
+            last_rendered_module_name, last_rendered_frid = git_utils.get_last_rendered_functionality(
+                module.module_build_folder
+            )
             if last_rendered_module_name is not None:
                 return last_rendered_module_name, last_rendered_frid
 

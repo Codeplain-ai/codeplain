@@ -174,7 +174,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
                 render_choice = render_choices[list(render_choices.keys())[0]]
                 ask_user = render_choice.is_destructive
 
-            if ask_user:
+            if ask_user and not args.headless:
                 app = PlainModuleRenderChoiceTUI(
                     plain_module,
                     plain_module_render_state,
@@ -190,6 +190,11 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
                     and render_choice.choice_type == "quit"
                 ):
                     sys.exit(0)
+            elif ask_user and args.headless:
+                # ignore the default choice if it requires user input due to headless mode
+                # fallback to --render-from
+                # default choice is only used only when the action is not destructive
+                render_choice = None
 
     if render_choice is not None and render_range is not None:
         raise Exception("Partial rendering and render range cannot be used together")

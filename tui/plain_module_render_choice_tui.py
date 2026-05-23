@@ -36,7 +36,13 @@ class PlainModuleRenderChoiceTUI(App):
 
     def get_msg_from_choice(self, render_choice: RenderChoice) -> str:
         if render_choice.choice_type == "module_start":
-            return f"Start from module [#5593FF]{render_choice.module.module_name}[/]"
+            if render_choice.module.module_name == self.plain_module.module_name:
+                if render_choice.module.is_module_fully_rendered():
+                    return f"Re-render the current module ([#5593FF]{render_choice.module.module_name}[/])"
+                else:
+                    return f"Start rendering the current module ([#5593FF]{render_choice.module.module_name}[/])"
+            else:
+                return f"Start from module [#5593FF]{render_choice.module.module_name}[/]"
         elif render_choice.choice_type == "rerender_affected" and self.plain_module_render_state.change is not None:
             all_affected_modules = get_all_affected_modules_from_change(
                 self.plain_module, self.plain_module_render_state
@@ -109,8 +115,7 @@ class PlainModuleRenderChoiceTUI(App):
             )
 
         elif pr.last_render_module.is_module_fully_rendered():
-            change_box.mount(Label("--- Rendering finished ---", classes="rendering-info-row"))
-            change_box.mount(Label("The current module was fully rendered.", classes="rendering-info-title"))
+            change_box.mount(Label("The current module is fully rendered.", classes="rendering-info-title"))
         else:
             interrupted_frid = "1"
             interrupted_module = pr.last_render_module
@@ -147,7 +152,7 @@ class PlainModuleRenderChoiceTUI(App):
 
         # Populate the ListView
         lv = self.query_one("#choice-list", ListView)
-        self.mount(Label("How would you like to continue?", classes="partial-render-question"), before=lv)
+        self.mount(Label("How would you like to proceed?", classes="partial-render-question"), before=lv)
         for key, choice in self.render_choices.items():
             lv.append(ListItem(Label(f"[bold]{key}.[/bold] {self.get_msg_from_choice(choice)}"), id=f"choice-{key}"))
         lv.focus()
@@ -170,6 +175,16 @@ class PlainModuleRenderChoiceTUI(App):
         if not item_id or not item_id.startswith("choice-"):
             raise ValueError(f"Invalid item ID: {item_id}")
         key = item_id.split("-", 1)[1]
+        self._select_choice(key)
+
+    def on_key(self, event) -> None:
+        """Allow selecting a choice by typing its number directly."""
+        if event.key in self.render_choices:
+            event.stop()
+            event.prevent_default()
+            self._select_choice(event.key)
+
+    def _select_choice(self, key: str) -> None:
         self.selected_choice = self.render_choices[key]
         self.exit(self.selected_choice)
 
