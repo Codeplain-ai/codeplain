@@ -109,4 +109,4 @@ exclude = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-norecursedirs = ["tests/data"]
+norecursedirs = ["tests/data", "tests/e2e"]
