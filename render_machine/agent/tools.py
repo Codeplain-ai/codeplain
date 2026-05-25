@@ -8,13 +8,45 @@ import render_machine.render_utils as render_utils
 from render_machine.render_context import RenderContext
 
 MAX_INLINE_OUTPUT_LINES = 200
-TEST_OUTPUT_FILE = "_test_output.txt"
 DEFAULT_READ_LIMIT = 200
+
+BASE_BUILD = "plain_modules"
+BASE_CONFORMANCE_TESTS = "conformance_tests"
+BASE_TEMP = "temp"
+
+
+def _resolve_base_folder(base: str, render_context: RenderContext) -> str:
+    """Resolve the base folder from the 'base' parameter.
+
+    Args:
+        base: Either "plain_modules" (default), "conformance_tests", or "temp".
+        render_context: The current render context.
+
+    Returns:
+        Absolute path to the resolved folder, or empty string for temp (indicates absolute path usage).
+    """
+    if base == BASE_CONFORMANCE_TESTS:
+        ctx = render_context.conformance_tests_running_context
+        if ctx and render_context.module_name == ctx.current_testing_module_name:
+            return ctx.get_current_conformance_test_folder_name()
+        elif ctx:
+            folder, _ = render_context.conformance_tests.get_source_conformance_test_folder_name(
+                render_context.module_name,
+                render_context.required_modules,
+                ctx.current_testing_module_name,
+                ctx.get_current_conformance_test_folder_name(),
+            )
+            return folder
+        return render_context.conformance_tests_folder
+    elif base == BASE_TEMP:
+        # For temp files, return empty string to indicate absolute path usage
+        return ""
+    return render_context.build_folder
 
 
 def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     unittests_script = os.path.normpath(render_context.unittests_script)
-    exit_code, output, _ = render_utils.execute_script(
+    exit_code, output, temp_file_path = render_utils.execute_script(
         unittests_script,
         [render_context.build_folder],
         render_context.verbose,
@@ -31,16 +63,15 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     if total_lines <= MAX_INLINE_OUTPUT_LINES:
         return f"Tests failed (exit code {exit_code}):\n{output}"
 
-    # Save full output to file, return truncated version
-    output_path = os.path.join(render_context.build_folder, TEST_OUTPUT_FILE)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(output)
-
     truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
-    return (
-        f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
-        f"Full output saved to {TEST_OUTPUT_FILE} (use read_file to see more).\n\n{truncated}"
-    )
+    if temp_file_path:
+        return (
+            f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
+            f"Full output available at: {temp_file_path}\n"
+            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
+        )
+    else:
+        return f"Tests failed (exit code {exit_code}):\n{truncated}"
 
 
 def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
@@ -62,7 +93,7 @@ def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
 
     script_args = [render_context.build_folder, conformance_tests_folder]
 
-    exit_code, output, _ = render_utils.execute_script(
+    exit_code, output, temp_file_path = render_utils.execute_script(
         conformance_tests_script,
         script_args,
         render_context.verbose,
@@ -79,36 +110,78 @@ def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
     if total_lines <= MAX_INLINE_OUTPUT_LINES:
         return f"Tests failed (exit code {exit_code}):\n{output}"
 
-    output_path = os.path.join(render_context.build_folder, TEST_OUTPUT_FILE)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(output)
+    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
+    if temp_file_path:
+        return (
+            f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
+            f"Full output available at: {temp_file_path}\n"
+            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
+        )
+    else:
+        return f"Tests failed (exit code {exit_code}):\n{truncated}"
+
+
+def prepare_environment(args: dict, render_context: RenderContext) -> str:
+    if not render_context.prepare_environment_script:
+        return "No environment preparation script configured."
+
+    script = os.path.normpath(render_context.prepare_environment_script)
+    exit_code, output, temp_file_path = render_utils.execute_script(
+        script,
+        [render_context.build_folder],
+        render_context.verbose,
+        "Testing Environment Preparation",
+        timeout=render_context.test_script_timeout,
+        stop_event=render_context.stop_event,
+    )
+    if exit_code == 0:
+        return "Environment prepared successfully (compilation/build completed)."
+
+    lines = output.split("\n") if output else []
+    total_lines = len(lines)
+
+    if total_lines <= MAX_INLINE_OUTPUT_LINES:
+        return f"Environment preparation failed (exit code {exit_code}):\n{output}"
 
     truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
-    return (
-        f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
-        f"Full output saved to {TEST_OUTPUT_FILE} (use read_file to see more).\n\n{truncated}"
-    )
+    if temp_file_path:
+        return (
+            f"Environment preparation failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
+            f"Full output available at: {temp_file_path}\n"
+            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
+        )
+    else:
+        return f"Environment preparation failed (exit code {exit_code}):\n{truncated}"
 
 
 def write_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
     content = args.get("content", "")
-    full_path = os.path.join(render_context.build_folder, file_path)
+    base = args.get("base", BASE_BUILD)
+    base_folder = _resolve_base_folder(base, render_context)
+    full_path = os.path.join(base_folder, file_path)
 
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, "w", encoding="utf-8") as f:
         f.write(content)
-    return f"Successfully wrote {file_path}"
+    return f"Successfully wrote {file_path} (base: {base})"
 
 
 def read_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
     offset = args.get("offset")
     limit = args.get("limit")
-    full_path = os.path.join(render_context.build_folder, file_path)
+    base = args.get("base", BASE_BUILD)
+    base_folder = _resolve_base_folder(base, render_context)
+
+    # For temp files, file_path is absolute
+    if base == BASE_TEMP:
+        full_path = file_path
+    else:
+        full_path = os.path.join(base_folder, file_path)
 
     if not os.path.exists(full_path):
-        return f"Error: File '{file_path}' not found"
+        return f"Error: File '{file_path}' not found (base: {base})"
 
     with open(full_path, "r", encoding="utf-8") as f:
         all_lines = f.readlines()
@@ -142,10 +215,12 @@ def read_file(args: dict, render_context: RenderContext) -> str:
 
 def list_files(args: dict, render_context: RenderContext) -> str:
     directory_path = args.get("directory_path", "")
-    full_path = os.path.join(render_context.build_folder, directory_path)
+    base = args.get("base", BASE_BUILD)
+    base_folder = _resolve_base_folder(base, render_context)
+    full_path = os.path.join(base_folder, directory_path)
 
     if not os.path.exists(full_path):
-        return f"Error: Directory '{directory_path}' not found"
+        return f"Error: Directory '{directory_path}' not found (base: {base})"
 
     files = file_utils.list_all_text_files(full_path)
     if not files:
@@ -156,14 +231,16 @@ def list_files(args: dict, render_context: RenderContext) -> str:
 def grep(args: dict, render_context: RenderContext) -> str:
     pattern = args.get("pattern", "")
     file_path = args.get("file_path", "")
+    base = args.get("base", BASE_BUILD)
 
     if not pattern:
         return "Error: pattern is required"
 
-    search_path = os.path.join(render_context.build_folder, file_path) if file_path else render_context.build_folder
+    base_folder = _resolve_base_folder(base, render_context)
+    search_path = os.path.join(base_folder, file_path) if file_path else base_folder
 
     if not os.path.exists(search_path):
-        return f"Error: Path '{file_path}' not found"
+        return f"Error: Path '{file_path}' not found (base: {base})"
 
     try:
         cmd = [
@@ -186,7 +263,7 @@ def grep(args: dict, render_context: RenderContext) -> str:
     if not output:
         return f"No matches found for '{pattern}'"
 
-    output = output.replace(render_context.build_folder + "/", "")
+    output = output.replace(base_folder + "/", "")
 
     lines = output.strip().split("\n")
     if len(lines) > 100:
@@ -200,6 +277,7 @@ def create_submit_fix_for_review(
     acceptance_tests: str,
     test_failure: str,
     conformance_test_folder: str = "",
+    conformance_tests_script: str = "",
 ) -> Callable[[dict, RenderContext], str]:
     """Factory that creates a submit_fix_for_review tool with captured context.
 
@@ -250,6 +328,7 @@ def create_submit_fix_for_review(
             "test_output": test_failure,
             "diff": diff_str,
             "explanation": explanation,
+            "conformance_tests_script": conformance_tests_script,
         }
 
         # Reviewer gets read-only tools
