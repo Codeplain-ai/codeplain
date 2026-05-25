@@ -25,7 +25,7 @@ class CodeRenderer:
 
         # Initialize the state machine
         states = self.state_machine_config.get_states(self.render_context)
-        transitions = self.state_machine_config.get_transitions()
+        transitions = self.state_machine_config.get_transitions(self.render_context)
 
         self.machine = HierarchicalGraphMachine(
             model=self.render_context,
