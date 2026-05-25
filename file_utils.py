@@ -99,46 +99,29 @@ def list_folders_in_directory(directory):
     return folders
 
 
-# delete a folder and all its subfolders and files
+def _on_rm_error(func, path, _exc_info):
+    """On Windows, clear read-only flag and retry the removal."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def delete_folder(folder_name):
+    """Delete a folder and all its subfolders and files."""
     if os.path.exists(folder_name):
-        # Use writable-aware deletion so read-only files (e.g. .git objects on Windows) don't cause PermissionError
-        delete_files_and_subfolders(folder_name)
-        _make_writable(folder_name)
-        os.rmdir(folder_name)
-
-
-def _make_writable(path: str) -> None:
-    """On Windows, clear read-only so deletion can succeed."""
-    # TODO - Check if this can be done in a cleaner way.
-    is_windows = os.name == "nt"
-    if is_windows:
-        try:
-            mode = os.stat(path).st_mode
-            os.chmod(path, mode | stat.S_IWRITE)
-        except OSError:
-            pass
+        shutil.rmtree(folder_name, onerror=_on_rm_error)
 
 
 def delete_files_and_subfolders(directory):
-    total_files_deleted = 0
-    total_folders_deleted = 0
-
-    # Walk the directory in reverse order (bottom-up)
-    for root, dirs, files in os.walk(directory, topdown=False):
-        # Delete files
-        for file in files:
-            file_path = os.path.join(root, file)
-            _make_writable(file_path)
-            os.remove(file_path)
-            total_files_deleted += 1
-
-        # Delete directories
-        for dir_ in dirs:
-            dir_path = os.path.join(root, dir_)
-            _make_writable(dir_path)
-            os.rmdir(dir_path)
-            total_folders_deleted += 1
+    """Delete all contents of a directory but keep the directory itself."""
+    for entry in os.scandir(directory):
+        if entry.is_dir(follow_symlinks=False):
+            shutil.rmtree(entry.path, onerror=_on_rm_error)
+        else:
+            try:
+                os.remove(entry.path)
+            except PermissionError:
+                os.chmod(entry.path, stat.S_IWRITE)
+                os.remove(entry.path)
 
 
 def copy_file(source_path, destination_path):
