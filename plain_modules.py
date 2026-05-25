@@ -314,7 +314,7 @@ class PlainModule:
             last_rendered_module_name is not None
             and last_rendered_module_name == self.module_name
             and last_rendered_frid is not None
-            and (last_rendered_frid == frids[-1] or int(last_rendered_frid) >= int(frids[-1]))
+            and int(last_rendered_frid) >= int(frids[-1])
         ):
             return True
 
