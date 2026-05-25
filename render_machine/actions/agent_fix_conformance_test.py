@@ -11,6 +11,7 @@ from render_machine.agent.tools import (
     create_submit_fix_for_review,
     grep,
     list_files,
+    prepare_environment,
     read_file,
     run_conformance_tests,
     write_file,
@@ -49,16 +50,19 @@ class AgentFixConformanceTest(BaseAction):
         acceptance_tests = self._build_acceptance_tests_text(render_context)
 
         # Create the review tool with captured context
+        conformance_tests_script_content = self._read_conformance_tests_script(render_context)
         submit_fix_for_review = create_submit_fix_for_review(
             file_snapshot=combined_snapshot,
             specifications=specifications,
             acceptance_tests=acceptance_tests,
             test_failure=previous_conformance_tests_issue,
             conformance_test_folder=conformance_test_folder,
+            conformance_tests_script=conformance_tests_script_content,
         )
 
         tools = {
             "run_conformance_tests": run_conformance_tests,
+            "prepare_environment": prepare_environment,
             "write_file": write_file,
             "read_file": read_file,
             "list_files": list_files,
@@ -70,6 +74,7 @@ class AgentFixConformanceTest(BaseAction):
             "specifications": specifications,
             "test_output": previous_conformance_tests_issue,
             "acceptance_tests": acceptance_tests,
+            "conformance_tests_script": self._read_conformance_tests_script(render_context),
         }
 
         tool_executor = ToolExecutor(available_tools=tools)
@@ -124,3 +129,10 @@ class AgentFixConformanceTest(BaseAction):
         if not acceptance_tests:
             return ""
         return "\n".join(acceptance_tests)
+
+    def _read_conformance_tests_script(self, render_context: RenderContext) -> str:
+        script_path = os.path.normpath(render_context.conformance_tests_script)
+        if not os.path.exists(script_path):
+            return ""
+        with open(script_path, "r", encoding="utf-8") as f:
+            return f.read()

@@ -1,4 +1,4 @@
-import os
+import tempfile
 from typing import Any
 
 import plain_spec
@@ -7,7 +7,6 @@ from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
     MAX_INLINE_OUTPUT_LINES,
-    TEST_OUTPUT_FILE,
     grep,
     list_files,
     read_file,
@@ -50,14 +49,16 @@ class AgentFixUnitTests(BaseAction):
         if len(lines) <= MAX_INLINE_OUTPUT_LINES:
             return test_output
 
-        output_path = os.path.join(render_context.build_folder, TEST_OUTPUT_FILE)
-        with open(output_path, "w", encoding="utf-8") as f:
+        # Create a temporary file for the full output
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".test_output") as f:
             f.write(test_output)
+            temp_file_path = f.name
 
         truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
         return (
             f"Output truncated ({len(lines)} total lines). "
-            f"Full output saved to {TEST_OUTPUT_FILE} (use read_file to see more).\n\n{truncated}"
+            f"Full output available at: {temp_file_path}\n"
+            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
         )
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
