@@ -1,5 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
+# Non-interactive mode for unattended installs (CI, scripted setup). Skips all
+# prompts and Clear-Host calls. Same env var name as install.sh.
+$nonInteractive = ($env:CODEPLAIN_INSTALL_NONINTERACTIVE -eq "1")
+if ($nonInteractive) {
+    Write-Host "running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
+}
+
 # Base URL for additional scripts
 if (-not $env:CODEPLAIN_SCRIPTS_BASE_URL) {
     $env:CODEPLAIN_SCRIPTS_BASE_URL = "https://codeplain.ai"
@@ -34,7 +41,7 @@ $env:GRAY_LIGHT = $GRAY_LIGHT
 $env:BOLD = $BOLD
 $env:NC = $NC
 
-Clear-Host
+if (-not $nonInteractive) { Clear-Host }
 Write-Host "started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
 
 # Install uv if not present
@@ -94,7 +101,7 @@ if ($codeplainLine) {
     Write-Host "installing codeplain...${NC}"
     Write-Host ""
     uv tool install codeplain
-    Clear-Host
+    if (-not $nonInteractive) { Clear-Host }
     Write-Host "${GREEN}✓ codeplain installed successfully!${NC}"
 }
 
@@ -119,25 +126,34 @@ Write-Host ""
 # Check if API key already exists
 $skipApiKeySetup = $false
 if ($env:CODEPLAIN_API_KEY) {
-    Write-Host "  you already have an API key configured."
-    Write-Host ""
-    Write-Host "  would you like to log in and get a new one?"
-    Write-Host ""
-    $getNewKey = Read-Host "  [y/N]"
-    Write-Host ""
-
-    if ($getNewKey -notmatch '^[Yy]$') {
-        Write-Host "${GREEN}✓${NC} using existing API key."
+    if ($nonInteractive) {
+        Write-Host "${GREEN}✓${NC} using existing CODEPLAIN_API_KEY (non-interactive mode)."
         $skipApiKeySetup = $true
+    } else {
+        Write-Host "  you already have an API key configured."
+        Write-Host ""
+        Write-Host "  would you like to log in and get a new one?"
+        Write-Host ""
+        $getNewKey = Read-Host "  [y/N]"
+        Write-Host ""
+
+        if ($getNewKey -notmatch '^[Yy]$') {
+            Write-Host "${GREEN}✓${NC} using existing API key."
+            $skipApiKeySetup = $true
+        }
     }
 }
 
 $apiKey = $null
 if (-not $skipApiKeySetup) {
-    Write-Host "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
-    Write-Host ""
-    $apiKey = Read-Host "paste your API key here"
-    Write-Host ""
+    if ($nonInteractive) {
+        Write-Host "${GRAY}no CODEPLAIN_API_KEY set; skipping key setup (non-interactive mode).${NC}"
+    } else {
+        Write-Host "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
+        Write-Host ""
+        $apiKey = Read-Host "paste your API key here"
+        Write-Host ""
+    }
 }
 
 if ($skipApiKeySetup) {
@@ -155,7 +171,7 @@ if ($skipApiKeySetup) {
 }
 
 # ASCII Art Welcome
-Clear-Host
+if (-not $nonInteractive) { Clear-Host }
 Write-Host ""
 Write-Host "${NC}"
 Write-Host "${GRAY}────────────────────────────────────────────${NC}"
@@ -178,10 +194,14 @@ Write-Host ""
 Write-Host ""
 Write-Host "${GRAY}────────────────────────────────────────────${NC}"
 Write-Host ""
-Write-Host "  would you like to get a quick intro to ***plain specification language?"
-Write-Host ""
-$walkthroughChoice = Read-Host "  [Y/n]"
-Write-Host ""
+if ($nonInteractive) {
+    $walkthroughChoice = "n"
+} else {
+    Write-Host "  would you like to get a quick intro to ***plain specification language?"
+    Write-Host ""
+    $walkthroughChoice = Read-Host "  [Y/n]"
+    Write-Host ""
+}
 
 # Determine script directory for local execution
 $ScriptDir = ""
@@ -225,19 +245,23 @@ if ($walkthroughChoice -notmatch '^[Nn]$') {
 }
 
 # Download examples step
-Clear-Host
-Write-Host ""
-Write-Host "${GRAY}────────────────────────────────────────────${NC}"
-Write-Host "  ${YELLOW}${BOLD}Example Projects${NC}"
-Write-Host "${GRAY}────────────────────────────────────────────${NC}"
-Write-Host ""
-Write-Host "  we've prepared some example Plain projects for you"
-Write-Host "  to explore and experiment with."
-Write-Host ""
-Write-Host "  would you like to download them?"
-Write-Host ""
-$downloadExamples = Read-Host "  [Y/n]"
-Write-Host ""
+if ($nonInteractive) {
+    $downloadExamples = "n"
+} else {
+    Clear-Host
+    Write-Host ""
+    Write-Host "${GRAY}────────────────────────────────────────────${NC}"
+    Write-Host "  ${YELLOW}${BOLD}Example Projects${NC}"
+    Write-Host "${GRAY}────────────────────────────────────────────${NC}"
+    Write-Host ""
+    Write-Host "  we've prepared some example Plain projects for you"
+    Write-Host "  to explore and experiment with."
+    Write-Host ""
+    Write-Host "  would you like to download them?"
+    Write-Host ""
+    $downloadExamples = Read-Host "  [Y/n]"
+    Write-Host ""
+}
 
 # Run examples download if user agrees
 if ($downloadExamples -notmatch '^[Nn]$') {
@@ -245,7 +269,7 @@ if ($downloadExamples -notmatch '^[Nn]$') {
 }
 
 # Final message
-Clear-Host
+if (-not $nonInteractive) { Clear-Host }
 Write-Host ""
 Write-Host "${GRAY}────────────────────────────────────────────${NC}"
 Write-Host "  ${YELLOW}${BOLD}You're all set!${NC}"
