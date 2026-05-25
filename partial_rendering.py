@@ -150,6 +150,7 @@ def get_render_choices(
 ) -> dict[str, RenderChoice]:
     choices = dict[str, RenderChoice]()
     choice_idx = 1
+    module_start_points = list[str]()
 
     if plain_module_render_state.last_render_module.is_initial_module():
         choices[str(choice_idx)] = RenderChoice(
@@ -189,12 +190,13 @@ def get_render_choices(
             is_destructive=plain_module_render_state.last_render_module.module_name == plain_module.module_name,
             choice_type="module_start",
         )
+        module_start_points.append(next_module.module_name)
         choice_idx += 1
 
     if plain_module_render_state.change:
         all_affected_modules = get_all_affected_modules_from_change(plain_module, plain_module_render_state)
 
-        if len(all_affected_modules) > 0:
+        if len(all_affected_modules) > 0 and all_affected_modules[0].module_name not in module_start_points:
             choices[str(choice_idx)] = RenderChoice(
                 module=all_affected_modules[0],
                 render_range=None,
@@ -202,6 +204,7 @@ def get_render_choices(
                 wipe_later_modules=True,
                 is_destructive=True,
             )
+            module_start_points.append(all_affected_modules[0].module_name)
             choice_idx += 1
 
     if len(plain_module.all_required_modules) > 0:
@@ -209,6 +212,7 @@ def get_render_choices(
         if first_module.module_name != plain_module_render_state.last_render_module.module_name and (
             plain_module_render_state.change is not None
             and first_module.module_name != plain_module_render_state.change.module_name
+            and first_module.module_name not in module_start_points
         ):
             choices[str(choice_idx)] = RenderChoice(
                 module=first_module,
@@ -217,6 +221,7 @@ def get_render_choices(
                 wipe_later_modules=True,
                 is_destructive=True,
             )
+            module_start_points.append(first_module.module_name)
             choice_idx += 1
 
     choices[str(choice_idx)] = RenderChoice(module=None, render_range=None, choice_type="quit")
