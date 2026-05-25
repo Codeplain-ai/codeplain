@@ -102,17 +102,20 @@ class PlainModuleRenderChoiceTUI(App):
 
         if pr.change:
             title_start = "Spec changes" if pr.change_type == "spec_change" else "Code changes"
+            is_required_module = pr.change.module_name != self.plain_module.module_name
             change_box.mount(
                 Label(
-                    f"--- {title_start} detected in required module [#5593FF]{pr.change.module_name}[/] ---",
+                    f"--- {title_start} detected in {'required ' if is_required_module else 'current '}module [#5593FF]{pr.change.module_name}[/] ---",
                     classes="rendering-info-row",
                 )
             )
-            change_box.mount(
-                Label(
-                    f"{title_start} in a required module may affect the current module", classes="rendering-info-title"
+            if is_required_module:
+                change_box.mount(
+                    Label(
+                        f"{title_start} in a required module may affect the current module",
+                        classes="rendering-info-title",
+                    )
                 )
-            )
 
         elif pr.last_render_module.is_module_fully_rendered():
             change_box.mount(Label("The current module is fully rendered.", classes="rendering-info-title"))
