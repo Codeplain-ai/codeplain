@@ -15,6 +15,7 @@ from render_machine.actions.commit_implementation_code_changes import CommitImpl
 from render_machine.actions.create_dist import CreateDist
 from render_machine.actions.exit_with_error import ExitWithError
 from render_machine.actions.finish_functional_requirement import FinishFunctionalRequirement
+from render_machine.actions.agent_fix_conformance_test import AgentFixConformanceTest
 from render_machine.actions.agent_fix_unit_tests import AgentFixUnitTests
 from render_machine.actions.agent_render_functional_requirement import AgentRenderFunctionalRequirement
 from render_machine.actions.fix_conformance_test import FixConformanceTest
@@ -37,6 +38,7 @@ class StateMachineConfig:
     def get_action_map(self, use_agent: bool = False) -> Dict[str, Any]:
         """Get the mapping of states to their corresponding actions."""
         fix_unit_tests_action = AgentFixUnitTests() if use_agent else FixUnitTests()
+        fix_conformance_action = AgentFixConformanceTest() if use_agent else FixConformanceTest()
         render_action = AgentRenderFunctionalRequirement() if use_agent else RenderFunctionalRequirement()
         return {
             States.RENDER_INITIALISED.value: PrepareRepositories(),
@@ -55,7 +57,7 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}": RenderConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}": RunConformanceTests(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}": FixConformanceTest(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}": fix_conformance_action,
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitConformanceTestsChanges(
                 git_utils.CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
