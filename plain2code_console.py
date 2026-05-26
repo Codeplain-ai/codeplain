@@ -59,12 +59,14 @@ class Plain2CodeConsole(Console):
 
     def print_list(self, items, style=None):
         for item in items:
+            logger.debug(f"  {item}")
             super().print(f"{item}", style=style)
 
     def print_files(self, header, root_folder, files, style=None):
         if not files:
             return
 
+        logger.debug(f"{header} {', '.join(files.keys())}")
         tree = self._create_tree_from_files(root_folder, files)
         super().print(f"\n{header}", style=style)
 

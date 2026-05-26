@@ -60,7 +60,6 @@ class ModuleRenderer:
             render_range=render_range,
             render_conformance_tests=self.args.render_conformance_tests,
             base_folder=self.args.base_folder,
-            verbose=self.args.verbose,
             run_state=self.run_state,
             event_bus=self.event_bus,
             test_script_timeout=self.args.test_script_timeout,

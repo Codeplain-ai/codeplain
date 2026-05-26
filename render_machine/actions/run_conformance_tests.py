@@ -33,18 +33,16 @@ class RunConformanceTests(BaseAction):
                 )
             )
 
-        if render_context.verbose:
-            console.info(
-                f"Running conformance tests script {conformance_tests_script} "
-                + f"for {conformance_tests_folder_name} ("
-                + f"functionality {render_context.conformance_tests_running_context.current_testing_frid} "
-                + f"in module {render_context.conformance_tests_running_context.current_testing_module_name}"
-                + ")."
-            )
+        console.info(
+            f"Running conformance tests script {conformance_tests_script} "
+            + f"for {conformance_tests_folder_name} ("
+            + f"functionality {render_context.conformance_tests_running_context.current_testing_frid} "
+            + f"in module {render_context.conformance_tests_running_context.current_testing_module_name}"
+            + ")."
+        )
         exit_code, conformance_tests_issue, conformance_tests_temp_file_path = render_utils.execute_script(
             conformance_tests_script,
             [render_context.build_folder, conformance_tests_folder_name],
-            render_context.verbose,
             "Conformance Tests",
             frid=render_context.conformance_tests_running_context.current_testing_frid,
             module=render_context.conformance_tests_running_context.current_testing_module_name,

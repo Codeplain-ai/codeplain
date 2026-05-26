@@ -30,10 +30,7 @@ class FixUnitTests(BaseAction):
             render_context.build_folder
         )
 
-        if render_context.verbose:
-            render_utils.print_inputs(
-                render_context, existing_files_content, "Files sent as input to unit tests fixing:"
-            )
+        render_utils.print_inputs(render_context, existing_files_content, "Files sent as input to unit tests fixing:")
 
         response_files = render_context.codeplain_api.fix_unittests_issue(
             render_context.frid_context.frid,
@@ -52,7 +49,6 @@ class FixUnitTests(BaseAction):
 
         render_context.unit_tests_running_context.changed_files.update(changed_files)
 
-        if render_context.verbose:
-            console.print_files("Files fixed:", render_context.build_folder, response_files, style=console.OUTPUT_STYLE)
+        console.print_files("Files fixed:", render_context.build_folder, response_files, style=console.OUTPUT_STYLE)
 
         return self.SUCCESSFUL_OUTCOME, None

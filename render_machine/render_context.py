@@ -48,7 +48,6 @@ class RenderContext:
         render_range: list[str] | None,
         render_conformance_tests: bool,
         base_folder: str,
-        verbose: bool,
         run_state: RunState,
         event_bus: EventBus,
         test_script_timeout: Optional[int] = None,
@@ -74,7 +73,6 @@ class RenderContext:
         self.render_range = render_range
         self.render_conformance_tests = render_conformance_tests
         self.base_folder = base_folder
-        self.verbose = verbose
         self.run_state = run_state
         self.event_bus = event_bus
         self.stop_event = stop_event
@@ -99,7 +97,6 @@ class RenderContext:
         self.conformance_tests = ConformanceTests(
             conformance_tests_folder=self.conformance_tests_folder,
             conformance_tests_definition_file_name=CONFORMANCE_TESTS_DEFINITION_FILE_NAME,
-            verbose=verbose,
         )
 
         self.machine = None
@@ -334,10 +331,9 @@ class RenderContext:
         self.frid_context.refactoring_iteration += 1
 
         if self.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
-            if self.verbose:
-                console.info(
-                    f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {self.frid_context.frid}."
-                )
+            console.info(
+                f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {self.frid_context.frid}."
+            )
             self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
 
     def finish_refactoring_code(self):
@@ -440,8 +436,7 @@ class RenderContext:
         """Handle regeneration of conformance tests after too many failures."""
         ctx = self.conformance_tests_running_context
 
-        if self.verbose:
-            console.info(f"Recreating conformance tests for functionality {ctx.current_testing_frid}.")
+        console.info(f"Recreating conformance tests for functionality {ctx.current_testing_frid}.")
 
         existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(ctx.current_testing_frid)
         file_utils.delete_folder(existing_folder["folder_name"])
@@ -625,10 +620,7 @@ class RenderContext:
                 self.machine.dispatch(triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS)
 
     def finish_fixing_conformance_tests(self):
-        if self.verbose:
-            console.info(
-                f"Running conformance tests attempt {self.conformance_tests_running_context.fix_attempts + 1}."
-            )
+        console.info(f"Running conformance tests attempt {self.conformance_tests_running_context.fix_attempts + 1}.")
 
     def start_render_completed(self):
         self.run_state.set_render_succeeded(True)

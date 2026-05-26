@@ -22,8 +22,7 @@ class PrepareRepositories(BaseAction):
 
             previous_frid = plain_spec.get_previous_frid(render_context.plain_source_tree, frid)
 
-            if render_context.verbose:
-                console.debug(f"Reverting code to version implemented for {previous_frid}.")
+            console.debug(f"Reverting code to version implemented for {previous_frid}.")
 
             git_utils.revert_to_commit_with_frid(render_context.build_folder, previous_frid)
             # conformance tests are still not fully implemented
@@ -41,8 +40,7 @@ class PrepareRepositories(BaseAction):
 
             if render_context.required_modules:
                 previous_module = render_context.required_modules[-1]
-                if render_context.verbose:
-                    console.debug(f"Cloning git repo from module {previous_module.module_name}.")
+                console.debug(f"Cloning git repo from module {previous_module.module_name}.")
 
                 file_utils.delete_folder(render_context.build_folder)
                 git_utils.clone_repo(
@@ -53,8 +51,7 @@ class PrepareRepositories(BaseAction):
                     initial_files,
                 )
             else:
-                if render_context.verbose:
-                    console.debug("Initializing git repositories for the render folders.")
+                console.debug("Initializing git repositories for the render folders.")
 
                 git_utils.init_git_repo(
                     render_context.build_folder,

@@ -18,14 +18,12 @@ class RunUnitTests(BaseAction):
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         unittests_script = os.path.normpath(render_context.unittests_script)
 
-        if render_context.verbose:
-            console.info(
-                f"Running unit tests script {unittests_script}. (attempt: {render_context.unit_tests_running_context.fix_attempts + 1})"
-            )
+        console.info(
+            f"Running unit tests script {unittests_script}. (attempt: {render_context.unit_tests_running_context.fix_attempts + 1})"
+        )
         exit_code, unittests_issue, unittests_temp_file_path = render_utils.execute_script(
             unittests_script,
             [render_context.build_folder],
-            render_context.verbose,
             "Unit Tests",
             timeout=render_context.test_script_timeout,
             stop_event=render_context.stop_event,

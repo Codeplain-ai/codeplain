@@ -16,11 +16,9 @@ class ConformanceTests:
         self,
         conformance_tests_folder: str,
         conformance_tests_definition_file_name: str,
-        verbose: bool,
     ):
         self.conformance_tests_folder = conformance_tests_folder
         self.conformance_tests_definition_file_name = conformance_tests_definition_file_name
-        self.verbose = verbose
 
     def get_module_conformance_tests_folder(self, module_name: str) -> str:
         return os.path.join(self.conformance_tests_folder, module_name)
@@ -41,10 +39,9 @@ class ConformanceTests:
     def dump_conformance_tests_json(self, module_name: str, conformance_tests_json: dict) -> None:
         """Dump the conformance tests definition to the file."""
         if os.path.exists(self.get_module_conformance_tests_folder(module_name)):
-            if self.verbose:
-                console.debug(
-                    f"Storing conformance tests definition to {self._get_full_conformance_tests_definition_file_name(module_name)}"
-                )
+            console.debug(
+                f"Storing conformance tests definition to {self._get_full_conformance_tests_definition_file_name(module_name)}"
+            )
             with open(self._get_full_conformance_tests_definition_file_name(module_name), "w") as f:
                 json.dump(conformance_tests_json, f, indent=4)
 
@@ -140,13 +137,12 @@ class ConformanceTests:
             existing_conformance_test_files,
         )
 
-        if self.verbose:
-            console.print_files(
-                "Conformance test files fixed:",
-                current_conformance_test_folder_name,
-                response_files,
-                style=console.OUTPUT_STYLE,
-            )
+        console.print_files(
+            "Conformance test files fixed:",
+            current_conformance_test_folder_name,
+            response_files,
+            style=console.OUTPUT_STYLE,
+        )
 
     def fetch_existing_conformance_test_files(
         self,
