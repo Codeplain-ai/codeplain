@@ -1,29 +1,26 @@
 # Codeplain plain2code renderer
 
-Render ***plain source to software code using the Codeplain API.
+Render \*\*\*plain source to software code using the Codeplain API.
 
 ## Codeplain.ai - Code Generation as a Service
 
-Codeplain is a platform that generates software code using large language models based on requirements you specify in ***plain specification language.
+Codeplain is a platform that generates software code using large language models based on requirements you specify in \*\*\*plain specification language.
 
 Schematic overview of the Codeplain's code generation service
 
 <img src="https://raw.githubusercontent.com/Codeplain-ai/plain2code_client/main/resources/codeplain_overview.png">
 
-### Abstracting Away Code Generation Complexity with ***plain
+### Abstracting Away Code Generation Complexity with \*\*\*plain
 
+\*\*\*plain is a novel specification language that helps abstracting away complexity of using large language models for code generation.
 
-***plain is a novel specification language that helps abstracting away complexity of using large language models for code generation.
-
-An example application in ***plain
+An example application in \*\*\*plain
 
 <img src="resources/plain_example.png" width="70%" height="70%">
-
 
 ## Getting started
 
 ### Prerequisites
-
 
 #### System requirements
 
@@ -63,31 +60,55 @@ export CODEPLAIN_API_KEY="your_actual_api_key_here"
 After completing the installation steps above, you can immediately test the system with a simple "Hello World" example:
 
 - Change to the example folder and run the example:
-   ```
-   cd examples/example_hello_world_python
-   python ../../plain2code.py hello_world_python.plain
-   ```
 
-   *Note: Rendering will take a few minutes to complete.*
+  ```
+  cd examples/example_hello_world_python
+  python ../../plain2code.py hello_world_python.plain
+  ```
+
+  _Note: Rendering will take a few minutes to complete._
 
 - The system will generate a Python application in the `build` directory. You can run it with:
+  ```
+  cd build
+  python hello_world.py
+  ```
+
+## Releasing
+
+Releases are built and published with [uv](https://docs.astral.sh/uv/). The version is read from `_version.py`.
+
+1. Bump the version in `_version.py` and commit/tag (`git tag v<version>`).
+2. Build the distributions:
+   ```bash
+   uv build --python 3.11
    ```
-   cd build
-   python hello_world.py
+   This produces `dist/codeplain-<version>-py3-none-any.whl` and `dist/codeplain-<version>.tar.gz`.
+3. (Optional) Smoke-test the wheel:
+   ```bash
+   uv run --with dist/codeplain-<version>-py3-none-any.whl --no-project -- codeplain --status
    ```
+4. (Optional) Publish to TestPyPI first:
+   ```bash
+   uv publish --publish-url https://test.pypi.org/legacy/ dist/codeplain-<version>*
+   ```
+5. Publish to PyPI:
+   ```bash
+   uv publish dist/codeplain-<version>*
+   ```
+   Authenticate with `UV_PUBLISH_TOKEN=pypi-...` (recommended), `--token pypi-...`, or `--username __token__ --password pypi-...`.
+6. Push the tag: `git push origin v<version>`.
 
 ## Additional Resources
 
 ### Examples and Sample Projects
 
 - See the [examples](examples) folder for sample projects in Golang, Python, and React.
-- For example application how to implement task manager in ***plain see [example-task-manager](https://github.com/Codeplain-ai/example-task-manager) repository.
-- For example application how to implement SaaS connectors in ***plain see [example-saas-connectors](https://github.com/Codeplain-ai/example-saas-connectors) repository.
+- For example application how to implement task manager in \*\*\*plain see [example-task-manager](https://github.com/Codeplain-ai/example-task-manager) repository.
+- For example application how to implement SaaS connectors in \*\*\*plain see [example-saas-connectors](https://github.com/Codeplain-ai/example-saas-connectors) repository.
 
 ### Documentation
 
 - For more details on the ***plain format, see the [***plain language specification](https://www.plainlang.org/docs/).
 - For step-by-step instructions for creating your first ***plain project see the [Kickstart your ***plain project](docs/starting_a_plain_project_from_scratch.md).
 - For complete CLI documentation and usage examples, see [plain2code CLI documentation](docs/plain2code_cli.md).
-
-
