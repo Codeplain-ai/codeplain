@@ -70,6 +70,7 @@ class Plain2CodeTUI(App):
         prepare_environment_script: str,
         state_machine_version: str,
         enter_pause_event: threading.Event | None = None,
+        default_log_level: str = "INFO",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -82,6 +83,7 @@ class Plain2CodeTUI(App):
         self.prepare_environment_script: Optional[str] = prepare_environment_script
         self.state_machine_version = state_machine_version
         self.enter_pause_event = enter_pause_event
+        self.default_log_level = default_log_level
         self._render_finished = False
 
         # Initialize state handlers
@@ -119,6 +121,15 @@ class Plain2CodeTUI(App):
         self.event_bus.subscribe(RenderModuleFailed, self.on_render_module_failed)
         self.event_bus.subscribe(LogMessageEmitted, self.on_log_message_emitted)
         self.event_bus.subscribe(RenderPaused, self.on_render_paused)
+
+        if self.default_log_level != "INFO":
+            try:
+                log_widget = self.query_one(f"#{TUIComponents.LOG_WIDGET.value}", StructuredLogView)
+                log_widget.min_level = self.default_log_level
+                log_filter = self.query_one(f"#{TUIComponents.LOG_FILTER.value}", LogLevelFilter)
+                log_filter._update_level(self.default_log_level)
+            except NoMatches:
+                pass
 
         self._on_ready()
 

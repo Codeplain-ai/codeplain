@@ -84,29 +84,30 @@ def setup_logging(
     plain_file_path: Optional[str],
     headless: bool = False,
 ):
-    # Set default level to INFO for everything not explicitly configured
-    logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger(LOGGER_NAME).setLevel(logging.INFO)
+    default_level = logging.DEBUG if args.verbose else logging.INFO
+
+    logging.getLogger().setLevel(default_level)
+    logging.getLogger(LOGGER_NAME).setLevel(default_level)
     logging.getLogger("git").setLevel(logging.WARNING)
     logging.getLogger("transitions").setLevel(logging.ERROR)
     logging.getLogger("transitions.extensions.diagrams").setLevel(logging.ERROR)
 
     log_file_path = get_log_file_path(plain_file_path, log_file_name)
 
-    # Try to load logging configuration from YAML file
+    # Try to load logging configuration from YAML file (takes precedence over --verbose)
+    config_loaded = False
     if args.logging_config_path and os.path.exists(args.logging_config_path):
         try:
             with open(args.logging_config_path, "r") as f:
                 config = yaml.safe_load(f)
                 logging.config.dictConfig(config)
                 console.info(f"Loaded logging configuration from {args.logging_config_path}")
+                config_loaded = True
         except Exception as e:
             console.warning(f"Failed to load logging configuration from {args.logging_config_path}: {str(e)}")
 
-    # The IndentedFormatter provides better multiline log readability.
-    # We add the LoggingHandler to the root logger.
     root_logger = logging.getLogger(LOGGER_NAME)
-    configured_log_level = root_logger.level
+    configured_log_level = root_logger.level if config_loaded else default_level
     root_logger.setLevel(logging.DEBUG)  # Capture all logs; handlers will filter levels as needed
 
     formatter = IndentedFormatter("%(levelname)s:%(name)s:%(message)s")
@@ -125,12 +126,12 @@ def setup_logging(
         except Exception as e:
             console.warning(f"Failed to setup file logging to {log_file_path}: {str(e)}")
     else:
-        # If file logging is disabled, use CrashLogHandler to buffer logs in memory
-        # in case we need to dump them on crash.
         crash_handler = CrashLogHandler()
         crash_handler.setFormatter(formatter)
         crash_handler.setLevel(configured_log_level)
         root_logger.addHandler(crash_handler)
+
+    return logging.getLevelName(configured_log_level)
 
 
 def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
@@ -153,7 +154,7 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
         )
 
 
-def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
+def render(args, run_state: RunState, event_bus: EventBus, default_log_level: str = "INFO"):  # noqa: C901
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
     # Compute render range from either --render-range or --render-from
@@ -164,7 +165,6 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
         render_range = plain_spec.compute_render_range(args, plain_source)
 
     codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
-    codeplainAPI.verbose = args.verbose
     assert args.api is not None and args.api != "", "API URL is required"
     codeplainAPI.api_url = args.api
 
@@ -256,6 +256,7 @@ def render(args, run_state: RunState, event_bus: EventBus):  # noqa: C901
             prepare_environment_script=args.prepare_environment_script,
             state_machine_version=system_config.client_version,
             enter_pause_event=enter_pause_event,
+            default_log_level=default_log_level,
             css_path="styles.css",
         )
         app.run()
@@ -308,7 +309,9 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless)
+    default_log_level = setup_logging(
+        args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless
+    )
 
     exc_info = None
     error_message = None
@@ -319,7 +322,7 @@ def main():  # noqa: C901
             raise MissingAPIKey(
                 "Your API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
             )
-        render(args, run_state, event_bus)
+        render(args, run_state, event_bus, default_log_level)
     except BaseException as e:
         if isinstance(e, KeyboardInterrupt):
             error_message = "Keyboard interrupt"

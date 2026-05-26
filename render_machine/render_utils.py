@@ -90,7 +90,6 @@ def _sanitize_script_output(script_output: str) -> str:
 def execute_script(  # noqa: C901
     script: str,
     scripts_args: list[str],
-    verbose: bool,
     script_type: str,
     frid: Optional[str] = None,
     module: Optional[str] = None,
@@ -166,60 +165,56 @@ def execute_script(  # noqa: C901
 
         sanitized_script_output = _sanitize_script_output(stdout)
 
-        # Log the info about the script execution
-        if verbose:
-            with tempfile.NamedTemporaryFile(
-                mode="w+", encoding="utf-8", delete=False, suffix=".script_output"
-            ) as temp_file:
-                temp_file.write(f"\n═════════════════════════ {script_type} Script Output ═════════════════════════\n")
-                temp_file.write(sanitized_script_output)
-                temp_file.write("\n══════════════════════════════════════════════════════════════════════\n")
-                temp_file_path = temp_file.name
-                if proc.returncode != 0:
-                    temp_file.write(f"{script_type} script {script} failed with exit code {proc.returncode}.\n")
-                else:
-                    temp_file.write(f"{script_type} script {script} successfully passed.\n")
-                temp_file.write(f"{script_type} script execution time: {elapsed_time:.2f} seconds.\n")
-
-            console.debug(f"[#888888]{script_type} script output stored in: {temp_file_path.strip()}[/#888888]")
-
+        with tempfile.NamedTemporaryFile(
+            mode="w+", encoding="utf-8", delete=False, suffix=".script_output"
+        ) as temp_file:
+            temp_file.write(f"\n═════════════════════════ {script_type} Script Output ═════════════════════════\n")
+            temp_file.write(sanitized_script_output)
+            temp_file.write("\n══════════════════════════════════════════════════════════════════════\n")
+            temp_file_path = temp_file.name
             if proc.returncode != 0:
-                if frid is not None:
-                    console.debug(
-                        f"The {script_type} script for functionality ID {frid} of module {module} has failed. Initiating the patching mode to automatically correct the discrepancies."
-                    )
-                else:
-                    console.debug(
-                        f"The {script_type} script has failed. Initiating the patching mode to automatically correct the discrepancies."
-                    )
+                temp_file.write(f"{script_type} script {script} failed with exit code {proc.returncode}.\n")
             else:
-                if frid is not None:
-                    console.info(
-                        f"[#79FC96]The {script_type} script for functionality ID {frid} of module {module} has passed successfully.[/#79FC96]"
-                    )
-                else:
-                    console.info(f"[#79FC96]All {script_type} scripts have passed successfully.[/#79FC96]")
+                temp_file.write(f"{script_type} script {script} successfully passed.\n")
+            temp_file.write(f"{script_type} script execution time: {elapsed_time:.2f} seconds.\n")
+
+        console.debug(f"[#888888]{script_type} script output stored in: {temp_file_path.strip()}[/#888888]")
+
+        if proc.returncode != 0:
+            if frid is not None:
+                console.debug(
+                    f"The {script_type} script for functionality ID {frid} of module {module} has failed. Initiating the patching mode to automatically correct the discrepancies."
+                )
+            else:
+                console.debug(
+                    f"The {script_type} script has failed. Initiating the patching mode to automatically correct the discrepancies."
+                )
+        else:
+            if frid is not None:
+                console.info(
+                    f"[#79FC96]The {script_type} script for functionality ID {frid} of module {module} has passed successfully.[/#79FC96]"
+                )
+            else:
+                console.info(f"[#79FC96]All {script_type} scripts have passed successfully.[/#79FC96]")
 
         return proc.returncode, sanitized_script_output, temp_file_path
 
     except RenderCancelledError:
         raise
     except subprocess.TimeoutExpired as e:
-        # Store timeout output in a temporary file
-        if verbose:
-            with tempfile.NamedTemporaryFile(
-                mode="w+", encoding="utf-8", delete=False, suffix=".script_timeout"
-            ) as temp_file:
-                temp_file.write(f"{script_type} script {script} timed out after {script_timeout} seconds.")
-                if e.stdout:
-                    decoded_output = e.stdout.decode("utf-8") if isinstance(e.stdout, bytes) else e.stdout
-                    temp_file.write(f"{script_type} script partial output before the timeout:\n{decoded_output}")
-                else:
-                    temp_file.write(f"{script_type} script did not produce any output before the timeout.")
-                temp_file_path = temp_file.name
-            console.warning(
-                f"The {script_type} script timed out after {script_timeout} seconds. {script_type} script output stored in: {temp_file_path}"
-            )
+        with tempfile.NamedTemporaryFile(
+            mode="w+", encoding="utf-8", delete=False, suffix=".script_timeout"
+        ) as temp_file:
+            temp_file.write(f"{script_type} script {script} timed out after {script_timeout} seconds.")
+            if e.stdout:
+                decoded_output = e.stdout.decode("utf-8") if isinstance(e.stdout, bytes) else e.stdout
+                temp_file.write(f"{script_type} script partial output before the timeout:\n{decoded_output}")
+            else:
+                temp_file.write(f"{script_type} script did not produce any output before the timeout.")
+            temp_file_path = temp_file.name
+        console.warning(
+            f"The {script_type} script timed out after {script_timeout} seconds. {script_type} script output stored in: {temp_file_path}"
+        )
 
         partial_output = ""
         if e.stdout:

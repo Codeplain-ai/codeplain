@@ -24,21 +24,17 @@ class RenderFunctionalRequirement(BaseAction):
         )
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
 
-        if render_context.verbose:
-            msg = "-------------------------------------\n"
-            msg += f"Module: {render_context.module_name}\n"
-            msg += f"Rendering functionality {render_context.frid_context.frid}"
-            if render_context.frid_context.functional_requirement_render_attempts > 1:
-                msg += f", attempt number {render_context.frid_context.functional_requirement_render_attempts}/{MAX_CODE_GENERATION_RETRIES}"
-            msg += f":\n{render_context.frid_context.functional_requirement_text}\n"
-            msg += "-------------------------------------"
-            console.info(msg)
+        msg = "-------------------------------------\n"
+        msg += f"Module: {render_context.module_name}\n"
+        msg += f"Rendering functionality {render_context.frid_context.frid}"
+        if render_context.frid_context.functional_requirement_render_attempts > 1:
+            msg += f", attempt number {render_context.frid_context.functional_requirement_render_attempts}/{MAX_CODE_GENERATION_RETRIES}"
+        msg += f":\n{render_context.frid_context.functional_requirement_text}\n"
+        msg += "-------------------------------------"
+        console.info(msg)
 
         try:
-            if render_context.verbose:
-                render_utils.print_inputs(
-                    render_context, existing_files_content, "Files sent as input to code generation:"
-                )
+            render_utils.print_inputs(render_context, existing_files_content, "Files sent as input to code generation:")
 
             response_files = render_context.codeplain_api.render_functional_requirement(
                 render_context.frid_context.frid,
@@ -73,12 +69,11 @@ class RenderFunctionalRequirement(BaseAction):
         )
         render_context.frid_context.changed_files.update(changed_files)
 
-        if render_context.verbose:
-            console.print_files(
-                "Files generated or updated:",
-                render_context.build_folder,
-                response_files,
-                style=console.OUTPUT_STYLE,
-            )
+        console.print_files(
+            "Files generated or updated:",
+            render_context.build_folder,
+            response_files,
+            style=console.OUTPUT_STYLE,
+        )
 
         return self.SUCCESSFUL_OUTCOME, None

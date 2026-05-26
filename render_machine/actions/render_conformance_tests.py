@@ -45,14 +45,13 @@ class RenderConformanceTests(BaseAction):
     def _render_conformance_tests(self, render_context: RenderContext):
         # Check if tests already exist (e.g., during regression) - if so, skip rendering
         if not render_context.conformance_tests_running_context.current_conformance_tests_exist():
-            if render_context.verbose:
-                console.info("Implementing test requirements:")
-                console.print_list(
-                    render_context.conformance_tests_running_context.current_testing_frid_specifications[
-                        plain_spec.TEST_REQUIREMENTS
-                    ],
-                    style=console.INFO_STYLE,
-                )
+            console.info("Implementing test requirements:")
+            console.print_list(
+                render_context.conformance_tests_running_context.current_testing_frid_specifications[
+                    plain_spec.TEST_REQUIREMENTS
+                ],
+                style=console.INFO_STYLE,
+            )
             fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
                 frid=render_context.conformance_tests_running_context.current_testing_frid,
                 module_name=render_context.conformance_tests_running_context.current_testing_module_name,
@@ -72,8 +71,7 @@ class RenderConformanceTests(BaseAction):
                 fr_subfolder_name,
             )
 
-            if render_context.verbose:
-                console.debug(f"Storing conformance test files in subfolder {conformance_tests_folder_name}/")
+            console.debug(f"Storing conformance test files in subfolder {conformance_tests_folder_name}/")
 
             render_context.conformance_tests_running_context.get_conformance_tests_json(
                 render_context.conformance_tests_running_context.current_testing_module_name
@@ -90,27 +88,26 @@ class RenderConformanceTests(BaseAction):
 
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
-        if render_context.verbose:
-            tmp_resources_list = []
-            plain_spec.collect_linked_resources(
-                render_context.plain_source_tree,
-                tmp_resources_list,
-                [
-                    plain_spec.DEFINITIONS,
-                    plain_spec.TEST_REQUIREMENTS,
-                    plain_spec.FUNCTIONAL_REQUIREMENTS,
-                ],
-                False,
-                render_context.frid_context.frid,
-            )
-            console.print_resources(tmp_resources_list, render_context.frid_context.linked_resources)
+        tmp_resources_list = []
+        plain_spec.collect_linked_resources(
+            render_context.plain_source_tree,
+            tmp_resources_list,
+            [
+                plain_spec.DEFINITIONS,
+                plain_spec.TEST_REQUIREMENTS,
+                plain_spec.FUNCTIONAL_REQUIREMENTS,
+            ],
+            False,
+            render_context.frid_context.frid,
+        )
+        console.print_resources(tmp_resources_list, render_context.frid_context.linked_resources)
 
-            console.print_files(
-                "Files sent as input for generating conformance tests:",
-                render_context.build_folder,
-                existing_files_content,
-                style=console.INPUT_STYLE,
-            )
+        console.print_files(
+            "Files sent as input for generating conformance tests:",
+            render_context.build_folder,
+            existing_files_content,
+            style=console.INPUT_STYLE,
+        )
 
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
 
@@ -137,13 +134,12 @@ class RenderConformanceTests(BaseAction):
 
         file_utils.store_response_files(conformance_tests_folder_name, response_files, [])
 
-        if render_context.verbose:
-            console.print_files(
-                "Conformance test files generated:",
-                conformance_tests_folder_name,
-                response_files,
-                style=console.OUTPUT_STYLE,
-            )
+        console.print_files(
+            "Conformance test files generated:",
+            conformance_tests_folder_name,
+            response_files,
+            style=console.OUTPUT_STYLE,
+        )
 
         return self.SUCCESSFUL_OUTCOME, None
 
@@ -169,8 +165,7 @@ class RenderConformanceTests(BaseAction):
             render_context.conformance_tests_running_context.acceptance_tests_completed - 1
         ]
 
-        if render_context.verbose:
-            console.info(f"Generating acceptance test:\n  {acceptance_test}")
+        console.info(f"Generating acceptance test:\n  {acceptance_test}")
 
         response_files = render_context.codeplain_api.render_acceptance_tests(
             render_context.frid_context.frid,

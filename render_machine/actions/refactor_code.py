@@ -16,16 +16,14 @@ class RefactorCode(BaseAction):
             render_context.build_folder
         )
 
-        if render_context.verbose:
-            console.debug(f"Refactoring iteration {render_context.frid_context.refactoring_iteration}.")
+        console.debug(f"Refactoring iteration {render_context.frid_context.refactoring_iteration}.")
 
-        if render_context.verbose:
-            console.print_files(
-                "Files sent as input for refactoring:",
-                render_context.build_folder,
-                existing_files_content,
-                style=console.INPUT_STYLE,
-            )
+        console.print_files(
+            "Files sent as input for refactoring:",
+            render_context.build_folder,
+            existing_files_content,
+            style=console.INPUT_STYLE,
+        )
 
         response_files = render_context.codeplain_api.refactor_source_files_if_needed(
             frid=render_context.frid_context.frid,
@@ -36,14 +34,12 @@ class RefactorCode(BaseAction):
         )
 
         if len(response_files) == 0:
-            if render_context.verbose:
-                console.debug("No files refactored.")
+            console.debug("No files refactored.")
             return self.NO_FILES_REFACTORED_OUTCOME, None
 
         file_utils.store_response_files(render_context.build_folder, response_files, existing_files)
 
-        if render_context.verbose:
-            console.print_files(
-                "Files refactored:", render_context.build_folder, response_files, style=console.OUTPUT_STYLE
-            )
+        console.print_files(
+            "Files refactored:", render_context.build_folder, response_files, style=console.OUTPUT_STYLE
+        )
         return self.SUCCESSFUL_OUTCOME, None

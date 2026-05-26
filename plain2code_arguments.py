@@ -176,7 +176,11 @@ def create_parser():
         "so you can place custom templates here to override the defaults. See --template-dir for more details about template loading.",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true", default=True, help="Enable verbose output (default: enabled)"
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Set default log level to DEBUG for TUI and file logs",
     )
     parser.add_argument("--base-folder", type=str, help="Base folder for the build files")
     parser.add_argument(

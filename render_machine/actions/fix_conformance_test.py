@@ -68,30 +68,29 @@ class FixConformanceTest(BaseAction):
         if conflicting_module_name != current_testing_module_name or conflicting_frid != current_testing_frid:
             render_context.conformance_tests_running_context.conflicting_requirement_count = 0
 
-        if render_context.verbose:
-            tmp_resources_list = []
-            plain_spec.collect_linked_resources(
-                render_context.plain_source_tree,
-                tmp_resources_list,
-                None,
-                False,
-                render_context.frid_context.frid,
-            )
-            console.print_resources(tmp_resources_list, render_context.frid_context.linked_resources)
+        tmp_resources_list = []
+        plain_spec.collect_linked_resources(
+            render_context.plain_source_tree,
+            tmp_resources_list,
+            None,
+            False,
+            render_context.frid_context.frid,
+        )
+        console.print_resources(tmp_resources_list, render_context.frid_context.linked_resources)
 
-            console.print_files(
-                "Implementation files sent as input for fixing conformance tests issues:",
-                render_context.build_folder,
-                existing_files_content,
-                style=console.INPUT_STYLE,
-            )
+        console.print_files(
+            "Implementation files sent as input for fixing conformance tests issues:",
+            render_context.build_folder,
+            existing_files_content,
+            style=console.INPUT_STYLE,
+        )
 
-            console.print_files(
-                "Conformance tests files sent as input for fixing conformance tests issues:",
-                render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
-                existing_conformance_test_files_content,
-                style=console.INPUT_STYLE,
-            )
+        console.print_files(
+            "Conformance tests files sent as input for fixing conformance tests issues:",
+            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
+            existing_conformance_test_files_content,
+            style=console.INPUT_STYLE,
+        )
 
         [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
             render_context.frid_context.frid,
@@ -144,13 +143,12 @@ class FixConformanceTest(BaseAction):
                 file_utils.store_response_files(render_context.build_folder, response_files, existing_files)
                 code_diff_files_content = diff_utils.get_code_diff(response_files, existing_files_content)
                 render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
-                if render_context.verbose:
-                    console.print_files(
-                        "Files fixed:",
-                        render_context.build_folder,
-                        response_files,
-                        style=console.OUTPUT_STYLE,
-                    )
+                console.print_files(
+                    "Files fixed:",
+                    render_context.build_folder,
+                    response_files,
+                    style=console.OUTPUT_STYLE,
+                )
                 render_context.conformance_tests_running_context.should_prepare_testing_environment = True
 
                 # Record which test triggered the change and transition to retry phase
