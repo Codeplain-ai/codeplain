@@ -1,4 +1,5 @@
 import os
+import tempfile
 from typing import Any
 
 import file_utils
@@ -11,6 +12,7 @@ from render_machine.agent.tools import (
     create_submit_fix_for_review,
     grep,
     list_files,
+    ls_files,
     prepare_environment,
     read_file,
     run_conformance_tests,
@@ -66,15 +68,24 @@ class AgentFixConformanceTest(BaseAction):
             "write_file": write_file,
             "read_file": read_file,
             "list_files": list_files,
+            "ls_files": ls_files,
             "grep": grep,
             "submit_fix_for_review": submit_fix_for_review,
         }
 
+        # Save test output to temp file instead of passing directly
+        test_output_file = self._save_test_output_to_file(previous_conformance_tests_issue)
+        linked_resource_paths = self._get_linked_resource_paths(render_context)
+
         task_params = {
             "specifications": specifications,
-            "test_output": previous_conformance_tests_issue,
+            "test_output_file": test_output_file,
+            "linked_resource_paths": linked_resource_paths,
             "acceptance_tests": acceptance_tests,
             "conformance_tests_script": self._read_conformance_tests_script(render_context),
+            "build_folder": render_context.build_folder,
+            "conformance_tests_folder": conformance_test_folder,
+            "module_name": render_context.module_name,
         }
 
         tool_executor = ToolExecutor(available_tools=tools)
@@ -117,6 +128,10 @@ class AgentFixConformanceTest(BaseAction):
             parts.append(
                 f"## Non-Functional Requirements\n{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
             )
+        if specifications.get(plain_spec.TEST_REQUIREMENTS):
+            parts.append(
+                f"## Test Requirements\n{chr(10).join(specifications[plain_spec.TEST_REQUIREMENTS])}"
+            )
         if specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS):
             parts.append(
                 f"## Functional Requirements\n{chr(10).join(specifications[plain_spec.FUNCTIONAL_REQUIREMENTS])}"
@@ -136,3 +151,19 @@ class AgentFixConformanceTest(BaseAction):
             return ""
         with open(script_path, "r", encoding="utf-8") as f:
             return f.read()
+
+    def _save_test_output_to_file(self, test_output: str) -> str:
+        """Save test output to a temp file and return the path."""
+        if not test_output:
+            return ""
+
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".test_output") as f:
+            f.write(test_output)
+            return f.name
+
+    def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
+        """Get list of linked resource paths (not content) for the agent to read if needed."""
+        linked_resources = render_context.frid_context.linked_resources
+        if not linked_resources:
+            return []
+        return list(linked_resources.keys())
