@@ -29,12 +29,6 @@ class SystemConfig:
             console.error(f"Failed to load system configuration: {e}")
             sys.exit(69)
 
-    def get_error_message(self, message_key, **kwargs):
-        """Get a formatted error message by its key."""
-        if message_key not in self.error_messages:
-            raise KeyError(f"Unknown error message key: {message_key}")
-        return self.error_messages[message_key]["message"].format(**kwargs)
-
 
 # Create a singleton instance
 system_config = SystemConfig()

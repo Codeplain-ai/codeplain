@@ -136,16 +136,10 @@ class ScriptOutputType(str, Enum):
 
 
 class TUIComponents(str, Enum):
-    RENDER_MODULE_NAME_WIDGET = "render-module-name-widget"
-    RENDER_ID_WIDGET = "render-id-widget"
     RENDER_STATUS_WIDGET = "render-status-widget"
-    UNIT_TEST_SCRIPT_OUTPUT_WIDGET = "unit-test-script-output-widget"
-    CONFORMANCE_TESTS_SCRIPT_OUTPUT_WIDGET = "conformance-tests-script-output-widget"
-    TESTING_ENVIRONMENT_SCRIPT_OUTPUT_WIDGET = "testing-environment-script-output-widget"
 
     # FRID Progress widgets
     FRID_PROGRESS = "frid-progress"
-    FRID_PROGRESS_HEADER = "frid-progress-header"
     FRID_PROGRESS_RENDER_FR = "frid-progress-render-fr"
     FRID_PROGRESS_UNIT_TEST = "frid-progress-unit-test"
     FRID_PROGRESS_REFACTORING = "frid-progress-refactoring"

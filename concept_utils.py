@@ -2,7 +2,6 @@ import re
 from copy import deepcopy
 from typing import Optional
 
-import mistletoe
 import mistletoe.block_token
 import networkx as nx
 

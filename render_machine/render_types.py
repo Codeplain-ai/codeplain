@@ -139,16 +139,6 @@ class ConformanceTestsRunningContext:
             "test_summary"
         ] = summary
 
-    def get_context_summary(self) -> dict:
-        return {
-            "current_testing_module_name": self.current_testing_module_name,
-            "current_testing_frid": self.current_testing_frid,
-            "fix_attempts": self.fix_attempts,
-            "execution_phase": self.execution_phase.name,
-            "acceptance_test_phase": self.acceptance_test_phase.name,
-            "acceptance_tests_completed": self.acceptance_tests_completed,
-        }
-
 
 @dataclass
 class ScriptExecutionHistory:

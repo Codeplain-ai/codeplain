@@ -67,24 +67,6 @@ def update_progress_item_status(tui, widget_id: str, status: str) -> None:
         clear_progress_item_substates(tui, widget_id)
 
 
-def update_widget_text(tui, widget_id: str, text: str) -> None:
-    """Helper function to safely update a widget's text.
-
-    Args:
-        tui: The Plain2CodeTUI instance
-        widget_id: The widget ID to update
-        text: The new text value
-    """
-    try:
-        widget = tui.query_one(f"#{widget_id}")
-        if widget and hasattr(widget, "update"):
-            widget.update(text)
-    except NoMatches as e:
-        log_to_widget(tui, "WARNING", f"Widget {widget_id} not found: {e}")
-    except Exception as e:
-        log_to_widget(tui, "ERROR", f"Error updating widget {widget_id}: {e}")
-
-
 def get_frid_progress(tui) -> FRIDProgress:
     """Helper function to safely get the FRIDProgress widget.
 
