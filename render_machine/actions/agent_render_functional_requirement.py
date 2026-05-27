@@ -8,13 +8,14 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
-from render_machine.agent.tools import grep, list_files, read_file, write_file
+from render_machine.agent.tools import grep, list_files, ls_files, read_file, write_file
 from render_machine.render_context import RenderContext
 
 RENDER_FUNCTIONAL_REQUIREMENT_TOOLS = {
     "write_file": write_file,
     "read_file": read_file,
     "list_files": list_files,
+    "ls_files": ls_files,
     "grep": grep,
 }
 
@@ -35,8 +36,10 @@ class AgentRenderFunctionalRequirement(BaseAction):
 
         task_params = {
             "specifications": self._build_specifications_text(render_context),
-            "linked_resources": self._build_linked_resources_text(render_context),
+            "linked_resource_paths": self._get_linked_resource_paths(render_context),
             "include_unittests": render_context.should_run_unit_tests(),
+            "build_folder": render_context.build_folder,
+            "module_name": render_context.module_name,
         }
 
         tool_executor = ToolExecutor(available_tools=RENDER_FUNCTIONAL_REQUIREMENT_TOOLS)
@@ -69,13 +72,9 @@ class AgentRenderFunctionalRequirement(BaseAction):
 
         return "\n\n".join(parts)
 
-    def _build_linked_resources_text(self, render_context: RenderContext) -> str:
+    def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
+        """Get list of linked resource paths (not content) for the agent to read if needed."""
         linked_resources = render_context.frid_context.linked_resources
         if not linked_resources:
-            return ""
-
-        parts = []
-        for resource_path, resource_content in linked_resources.items():
-            parts.append(f"### {resource_path}\n```\n{resource_content}\n```")
-
-        return "\n\n".join(parts)
+            return []
+        return list(linked_resources.keys())

@@ -35,12 +35,16 @@ class PrepareTestingEnvironment(BaseAction):
         if exit_code == 0:
             return self.SUCCESSFUL_OUTCOME, None
         else:
+            error_message = "Testing environment preparation failed. Please check the preparation script."
+            if preparation_temp_file_path:
+                error_message += f" Full output available at: {preparation_temp_file_path}"
             return (
                 self.FAILED_OUTCOME,
                 RenderError.encode(
-                    message="Testing environment preparation failed. Please check the preparation script.",
+                    message=error_message,
                     error_type="ENVIRONMENT_ERROR",
                     exit_code=exit_code,
                     script=render_context.prepare_environment_script,
+                    output_file=preparation_temp_file_path,
                 ).to_payload(),
             )

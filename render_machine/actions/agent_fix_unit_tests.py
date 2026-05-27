@@ -9,6 +9,7 @@ from render_machine.agent.tools import (
     MAX_INLINE_OUTPUT_LINES,
     grep,
     list_files,
+    ls_files,
     read_file,
     run_unit_tests,
     write_file,
@@ -20,46 +21,56 @@ FIX_UNIT_TESTS_TOOLS = {
     "write_file": write_file,
     "read_file": read_file,
     "list_files": list_files,
+    "ls_files": ls_files,
     "grep": grep,
 }
 
 
 class AgentFixUnitTests(BaseAction):
     SUCCESSFUL_OUTCOME = "unit_tests_fix_generated"
+    TESTS_PASSED_OUTCOME = "unit_tests_succeeded"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         test_output = previous_action_payload.get("previous_unittests_issue", "") if previous_action_payload else ""
-        test_output = self._truncate_test_output(test_output, render_context)
+        test_output_file = self._save_test_output_to_file(test_output)
+        linked_resource_paths = self._get_linked_resource_paths(render_context)
 
         task_params = {
             "specifications": self._build_specifications_text(render_context),
-            "test_output": test_output,
+            "linked_resource_paths": linked_resource_paths,
+            "test_output_file": test_output_file,
+            "build_folder": render_context.build_folder,
+            "module_name": render_context.module_name,
         }
 
         tool_executor = ToolExecutor(available_tools=FIX_UNIT_TESTS_TOOLS)
-        agent_runner.run("fix_unit_tests", task_params, render_context, tool_executor)
+        response = agent_runner.run("fix_unit_tests", task_params, render_context, tool_executor)
+
+        # Check if agent successfully ran tests and they passed
+        if response.get("status") == "completed":
+            result_text = response.get("result", "")
+            # If the agent's final message indicates tests passed, we can skip running them again
+            if "unit tests passed successfully" in result_text.lower() or "all tests passed" in result_text.lower():
+                return self.TESTS_PASSED_OUTCOME, None
 
         return self.SUCCESSFUL_OUTCOME, None
 
-    def _truncate_test_output(self, test_output: str, render_context: RenderContext) -> str:
+    def _save_test_output_to_file(self, test_output: str) -> str:
+        """Save test output to a temp file and return the path."""
         if not test_output:
-            return test_output
+            return ""
 
-        lines = test_output.split("\n")
-        if len(lines) <= MAX_INLINE_OUTPUT_LINES:
-            return test_output
-
-        # Create a temporary file for the full output
+        # Always create a temp file for test output
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".test_output") as f:
             f.write(test_output)
-            temp_file_path = f.name
+            return f.name
 
-        truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
-        return (
-            f"Output truncated ({len(lines)} total lines). "
-            f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
-        )
+    def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
+        """Get list of linked resource paths (not content) for the agent to read if needed."""
+        linked_resources = render_context.frid_context.linked_resources
+        if not linked_resources:
+            return []
+        return list(linked_resources.keys())
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid

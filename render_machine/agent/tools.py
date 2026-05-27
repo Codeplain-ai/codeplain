@@ -13,13 +13,14 @@ DEFAULT_READ_LIMIT = 200
 BASE_BUILD = "plain_modules"
 BASE_CONFORMANCE_TESTS = "conformance_tests"
 BASE_TEMP = "temp"
+BASE_PROJECT = "project"
 
 
 def _resolve_base_folder(base: str, render_context: RenderContext) -> str:
     """Resolve the base folder from the 'base' parameter.
 
     Args:
-        base: Either "plain_modules" (default), "conformance_tests", or "temp".
+        base: "plain_modules" (default), "conformance_tests", "temp", or "project" (root).
         render_context: The current render context.
 
     Returns:
@@ -41,6 +42,9 @@ def _resolve_base_folder(base: str, render_context: RenderContext) -> str:
     elif base == BASE_TEMP:
         # For temp files, return empty string to indicate absolute path usage
         return ""
+    elif base == BASE_PROJECT:
+        # Project root is the parent of build_folder (plain_modules)
+        return os.path.dirname(render_context.build_folder)
     return render_context.build_folder
 
 
@@ -158,13 +162,39 @@ def write_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
     content = args.get("content", "")
     base = args.get("base", BASE_BUILD)
+
+    # Validate file_path
+    if not file_path:
+        return f"Error: file_path is required"
+
+    # Prevent writing to temp or project folders (read-only)
+    if base == BASE_TEMP:
+        return f"Error: Cannot write to temp folder. Use base='plain_modules' or base='conformance_tests'"
+    if base == BASE_PROJECT:
+        return f"Error: Cannot write to project root. Use base='plain_modules' or base='conformance_tests'"
+
+    # Prevent absolute paths or parent directory traversal in file_path
+    if os.path.isabs(file_path) or file_path.startswith("../"):
+        return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
+
     base_folder = _resolve_base_folder(base, render_context)
     full_path = os.path.join(base_folder, file_path)
 
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    return f"Successfully wrote {file_path} (base: {base})"
+    # Ensure full_path stays within base_folder (prevent path traversal)
+    full_path = os.path.normpath(full_path)
+    base_folder_normalized = os.path.normpath(base_folder)
+    if not full_path.startswith(base_folder_normalized):
+        return f"Error: file_path escapes base folder: {file_path}"
+
+    try:
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Successfully wrote {file_path} (base: {base})"
+    except PermissionError as e:
+        return f"Error: Permission denied writing to '{file_path}' (base: {base}): {e}"
+    except Exception as e:
+        return f"Error writing to '{file_path}' (base: {base}): {e}"
 
 
 def read_file(args: dict, render_context: RenderContext) -> str:
@@ -174,17 +204,38 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     base = args.get("base", BASE_BUILD)
     base_folder = _resolve_base_folder(base, render_context)
 
+    # Validate file_path
+    if not file_path:
+        return f"Error: file_path is required"
+
     # For temp files, file_path is absolute
     if base == BASE_TEMP:
         full_path = file_path
+        if not os.path.isabs(full_path):
+            return f"Error: When base='temp', file_path must be an absolute path, got: {file_path}"
     else:
+        # Prevent absolute paths or parent directory traversal in file_path
+        if os.path.isabs(file_path) or file_path.startswith("../"):
+            return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
+
         full_path = os.path.join(base_folder, file_path)
+
+        # Ensure full_path stays within base_folder (prevent path traversal)
+        full_path = os.path.normpath(full_path)
+        base_folder_normalized = os.path.normpath(base_folder)
+        if not full_path.startswith(base_folder_normalized):
+            return f"Error: file_path escapes base folder: {file_path}"
 
     if not os.path.exists(full_path):
         return f"Error: File '{file_path}' not found (base: {base})"
 
-    with open(full_path, "r", encoding="utf-8") as f:
-        all_lines = f.readlines()
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+    except PermissionError as e:
+        return f"Error: Permission denied reading file '{file_path}' (base: {base}): {e}"
+    except Exception as e:
+        return f"Error reading file '{file_path}' (base: {base}): {e}"
 
     total_lines = len(all_lines)
 
@@ -217,12 +268,36 @@ def list_files(args: dict, render_context: RenderContext) -> str:
     directory_path = args.get("directory_path", "")
     base = args.get("base", BASE_BUILD)
     base_folder = _resolve_base_folder(base, render_context)
+
+    # Validate base_folder is not empty or root
+    if not base_folder or base_folder == "/":
+        return f"Error: Invalid base folder for base='{base}'"
+
+    # Prevent absolute paths or parent directory traversal in directory_path
+    if directory_path and (os.path.isabs(directory_path) or directory_path.startswith("../")):
+        return f"Error: directory_path cannot be absolute or contain parent references (..), got: {directory_path}"
+
     full_path = os.path.join(base_folder, directory_path)
+
+    # Ensure full_path stays within base_folder (prevent path traversal)
+    full_path = os.path.normpath(full_path)
+    base_folder_normalized = os.path.normpath(base_folder)
+    if not full_path.startswith(base_folder_normalized):
+        return f"Error: directory_path escapes base folder: {directory_path}"
 
     if not os.path.exists(full_path):
         return f"Error: Directory '{directory_path}' not found (base: {base})"
 
-    files = file_utils.list_all_text_files(full_path)
+    if not os.path.isdir(full_path):
+        return f"Error: '{directory_path}' is not a directory (base: {base})"
+
+    try:
+        files = file_utils.list_all_text_files(full_path)
+    except PermissionError as e:
+        return f"Error: Permission denied listing files in '{directory_path}' (base: {base}): {e}"
+    except Exception as e:
+        return f"Error listing files in '{directory_path}' (base: {base}): {e}"
+
     if not files:
         return "No files found in directory."
     return "\n".join(files)
@@ -237,7 +312,18 @@ def grep(args: dict, render_context: RenderContext) -> str:
         return "Error: pattern is required"
 
     base_folder = _resolve_base_folder(base, render_context)
+
+    # Prevent absolute paths or parent directory traversal in file_path
+    if file_path and (os.path.isabs(file_path) or file_path.startswith("../")):
+        return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
+
     search_path = os.path.join(base_folder, file_path) if file_path else base_folder
+
+    # Ensure search_path stays within base_folder (prevent path traversal)
+    search_path = os.path.normpath(search_path)
+    base_folder_normalized = os.path.normpath(base_folder)
+    if not search_path.startswith(base_folder_normalized):
+        return f"Error: file_path escapes base folder: {file_path}"
 
     if not os.path.exists(search_path):
         return f"Error: Path '{file_path}' not found (base: {base})"
@@ -269,6 +355,82 @@ def grep(args: dict, render_context: RenderContext) -> str:
     if len(lines) > 100:
         return "\n".join(lines[:100]) + f"\n\n... ({len(lines) - 100} more matches truncated)"
     return "\n".join(lines)
+
+
+def ls_files(args: dict, render_context: RenderContext) -> str:
+    """Permissive ls command wrapper that allows any pattern the agent decides.
+
+    This tool directly executes the ls command with the provided pattern.
+    Use this when you need flexible file listing with wildcards, absolute paths,
+    or other advanced ls features.
+
+    Args:
+        args: Dictionary containing:
+            - pattern (str, optional): Pattern/path to pass to ls command.
+                Can be a glob pattern, absolute path, relative path, or empty.
+                Examples: "*.py", "/etc/", "../src/*.js", "."
+                If empty, lists current directory contents.
+            - options (str, optional): Additional ls options (e.g., "-la", "-lh", "-R")
+                Defaults to "" (no options) for simple listing.
+        render_context: The current render context.
+
+    Returns:
+        String containing ls output or error message.
+    """
+    pattern = args.get("pattern", "")
+    options = args.get("options", "")
+
+    # Build ls command
+    cmd = ["ls"]
+
+    # Add options if provided
+    if options:
+        # Split options in case multiple are provided (e.g., "-l -a")
+        cmd.extend(options.split())
+
+    # Add pattern/path if provided, otherwise ls will list current directory
+    if pattern:
+        cmd.append(pattern)
+
+    # Get the actual current working directory of the Python process
+    current_dir = os.getcwd()
+
+    try:
+        # Run the ls command (inherits current working directory from Python process)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        # Combine stdout and stderr for complete output
+        output = result.stdout
+        if result.stderr:
+            output += f"\n[stderr]: {result.stderr}"
+
+        if result.returncode != 0:
+            return f"Current directory: {current_dir}\nls command failed (exit code {result.returncode}):\n{output}"
+
+        if not output.strip():
+            return f"Current directory: {current_dir}\nDirectory is empty (no files found)"
+
+        # Prepend current working directory to help agent understand context
+        header = f"Current directory: {current_dir}\n"
+
+        # Truncate if output is too long
+        lines = output.strip().split("\n")
+        if len(lines) > 200:
+            return header + "\n".join(lines[:200]) + f"\n\n... ({len(lines) - 200} more lines truncated)"
+
+        return header + output.strip()
+
+    except subprocess.TimeoutExpired:
+        return "Error: ls command timed out (>10 seconds)"
+    except FileNotFoundError:
+        return "Error: ls command not found (are you on Windows? Use WSL or Git Bash)"
+    except Exception as e:
+        return f"Error running ls: {e}"
 
 
 def create_submit_fix_for_review(
@@ -335,6 +497,7 @@ def create_submit_fix_for_review(
         reviewer_tools = {
             "read_file": read_file,
             "list_files": list_files,
+            "ls_files": ls_files,
             "grep": grep,
         }
         reviewer_executor = ToolExecutor(available_tools=reviewer_tools)
