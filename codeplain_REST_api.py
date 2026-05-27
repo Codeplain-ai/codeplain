@@ -108,7 +108,7 @@ class CodeplainAPI:
         if error_code == "InternalServerError":
             raise plain2code_exceptions.InternalServerError(
                 "Internal server error.\n\n"
-                f"Please report the error to support@codeplain.ai with the attached {self.log_file_name} file."
+                "Please report the error to support@codeplain.ai with the attached .log file."
             )
         exception_class = ERROR_CODE_EXCEPTIONS[error_code]
         raise exception_class(message)

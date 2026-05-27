@@ -54,15 +54,6 @@ def is_system_folder_path(file_path: str) -> bool:
     return bool(parts) and parts[0] in SYSTEM_FOLDERS
 
 
-def get_file_type(file_name):
-
-    # Extract the file extension
-    ext = Path(file_name).suffix.lower()  # Convert to lowercase to handle case-insensitive matching
-
-    # Use the dictionary to get the file type, defaulting to 'unknown' if the extension is not found
-    return FILE_EXTENSION_MAPPING.get(ext, "unknown")
-
-
 def list_all_text_files(directory):
     all_files = []
     for root, dirs, files in os.walk(directory, topdown=True):
@@ -122,24 +113,6 @@ def delete_files_and_subfolders(directory):
             except PermissionError:
                 os.chmod(entry.path, stat.S_IWRITE)
                 os.remove(entry.path)
-
-
-def copy_file(source_path, destination_path):
-    # Ensure the destination directory exists
-    os.makedirs(os.path.dirname(destination_path), exist_ok=True)
-
-    # Open the source file in read-binary ('rb') mode
-    with open(source_path, "rb") as source_file:
-        # Open the destination file in write-binary ('wb') mode
-        with open(destination_path, "wb") as destination_file:
-            # Copy the content from source to destination
-            while True:
-                # Read a chunk of the source file
-                chunk = source_file.read(4096)  # Reading in chunks of 4KB
-                if not chunk:
-                    break  # End of file reached
-                # Write the chunk to the destination file
-                destination_file.write(chunk)
 
 
 def add_current_path_if_no_path(filename):

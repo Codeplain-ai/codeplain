@@ -1,10 +1,6 @@
 """Unit tests for cli_output module."""
 
-from datetime import datetime, timezone
-from io import StringIO
 from unittest.mock import Mock, patch
-
-import pytest
 
 from cli_output.status import (
     _create_progress_bar,
