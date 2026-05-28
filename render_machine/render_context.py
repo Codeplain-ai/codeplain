@@ -179,7 +179,11 @@ class RenderContext:
             )
 
     def has_next_frid(self) -> bool:
-        return plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid) is not None
+        next_frid = plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid)
+        if self.render_range is None or len(self.render_range) == 0:
+            return next_frid is not None
+
+        return next_frid is not None and int(next_frid) <= int(self.render_range[-1])
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
@@ -248,7 +252,8 @@ class RenderContext:
         conformance_tests_running_context = self.conformance_tests_running_context
         if conformance_tests_running_context.current_testing_module_name == self.module_name:
             conformance_tests_running_context.current_testing_frid = plain_spec.get_next_frid(
-                self.plain_source_tree, self.conformance_tests_running_context.current_testing_frid
+                self.plain_source_tree,
+                self.conformance_tests_running_context.current_testing_frid,
             )
         else:
             all_frids = list(
