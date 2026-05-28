@@ -13,7 +13,7 @@ if (-not $args[0]) {
 
 $BuildFolder = $args[0]
 
-$GO_BUILD_SUBFOLDER = "go_$BuildFolder"
+$GO_BUILD_SUBFOLDER = Join-Path ([System.IO.Path]::GetTempPath()) "go_$(Split-Path $BuildFolder -Leaf)"
 
 if ($env:VERBOSE -eq "1") {
     Write-Host "Preparing Go build subfolder: $GO_BUILD_SUBFOLDER"
@@ -65,4 +65,7 @@ try {
     exit $exit_code
 } finally {
     Pop-Location
+    if (Test-Path $GO_BUILD_SUBFOLDER) {
+        Remove-Item -Path $GO_BUILD_SUBFOLDER -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }

@@ -6,7 +6,6 @@ import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from liquid2.exceptions import TemplateNotFoundError
@@ -45,7 +44,6 @@ from plain2code_logger import (
     IndentedFormatter,
     LoggingHandler,
     dump_crash_logs,
-    get_log_file_path,
 )
 from plain2code_state import RunState
 from system_config import system_config
@@ -61,8 +59,7 @@ def setup_logging(
     event_bus: EventBus,
     run_state: RunState,
     log_to_file: bool,
-    log_file_name: str,
-    plain_file_path: Optional[str],
+    log_file_path: str,
     headless: bool = False,
 ):
     default_level = logging.DEBUG if args.verbose else logging.INFO
@@ -73,10 +70,9 @@ def setup_logging(
     logging.getLogger("transitions").setLevel(logging.ERROR)
     logging.getLogger("transitions.extensions.diagrams").setLevel(logging.ERROR)
 
-    log_file_path = get_log_file_path(plain_file_path, log_file_name)
-
     # Try to load logging configuration from YAML file (takes precedence over --verbose)
     config_loaded = False
+
     if args.logging_config_path and os.path.exists(args.logging_config_path):
         try:
             with open(args.logging_config_path, "r") as f:
@@ -99,7 +95,7 @@ def setup_logging(
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
 
-    if log_to_file and log_file_path:
+    if log_to_file:
         try:
             file_handler = logging.FileHandler(log_file_path, mode="w", encoding="utf-8")
             file_handler.setFormatter(file_formatter)
@@ -155,8 +151,10 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
     enter_pause_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
+    module_name = os.path.basename(args.filename)
+
     plain_module = plain_modules.PlainModule(
-        args.filename,
+        module_name,
         args.build_folder,
         args.conformance_tests_folder,
         template_dirs,
@@ -317,9 +315,7 @@ def main():  # noqa: C901
         # Suppress Rich console output.
         console.quiet = True
 
-    default_log_level = setup_logging(
-        args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless
-    )
+    default_log_level = setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.headless)
 
     exc_info = None
     error_message = None
