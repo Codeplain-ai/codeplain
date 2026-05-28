@@ -15,7 +15,12 @@ def print_exit_summary(
     """Print render outcome after the TUI exits (terminal restored)."""
     console.quiet = False
 
-    msg = "\n[#79FC96]✓ rendering completed\n\n" if run_state.render_succeeded else "[#FF6B6B]✗ rendering failed\n\n"
+    if run_state.render_succeeded:
+        msg = "\n[#79FC96]✓ rendering completed\n\n"
+    elif run_state.render_cancelled:
+        msg = "\n[#FFFFFF]— rendering canceled\n\n"
+    else:
+        msg = "\n[#FF6B6B]✗ rendering failed\n\n"
     msg += f"  [#8E8F91]render id:\t\t\t[#FFFFFF]{run_state.render_id}\n"
     msg += f"  [#8E8F91]input file:\t\t\t[#FFFFFF]{spec_filename}\n"
     msg += f"  [#8E8F91]generated code folder:\t[#FFFFFF]{run_state.render_generated_code_path or '-'}\n\n"

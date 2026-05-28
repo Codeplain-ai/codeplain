@@ -181,6 +181,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
                     render_choices,
                     system_config.client_version,
                     run_state.render_id,
+                    on_cancel=run_state.set_render_cancelled,
                     css_path="styles.css",
                 )
                 render_choice = app.run()
@@ -189,6 +190,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
                     and render_choice.render_range is None
                     and render_choice.choice_type == "quit"
                 ):
+                    run_state.set_render_cancelled()
                     sys.exit(0)
             elif ask_user and args.headless:
                 # ignore the default choice if it requires user input due to headless mode
@@ -217,7 +219,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
         try:
             module_renderer.render_module()
         except RenderCancelledError:
-            pass  # TUI already closed, nothing to report
+            run_state.set_render_cancelled()  # TUI already closed, nothing to report
         except Exception as e:
             run_state.set_render_succeeded(False)
             render_error.append(e)
@@ -228,8 +230,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
         try:
             module_renderer.render_module()
         except RenderCancelledError:
-            run_state.set_render_succeeded(False)
-            pass
+            run_state.set_render_cancelled()
         return
     else:
         render_thread = threading.Thread(target=run_render, daemon=True)
@@ -242,6 +243,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
             prepare_environment_script=args.prepare_environment_script,
             state_machine_version=system_config.client_version,
             enter_pause_event=enter_pause_event,
+            on_cancel=run_state.set_render_cancelled,
             default_log_level=default_log_level,
             css_path="styles.css",
         )

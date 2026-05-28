@@ -1,3 +1,5 @@
+from typing import Callable, Optional
+
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -24,6 +26,7 @@ class PlainModuleRenderChoiceTUI(App):
         render_choices: dict[str, RenderChoice],
         state_machine_version: str,
         render_id: str,
+        on_cancel: Optional[Callable[[], None]] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -33,6 +36,7 @@ class PlainModuleRenderChoiceTUI(App):
         self.render_id = render_id
         self._expandable_labels: list[dict] = []
         self.render_choices = render_choices
+        self._on_cancel = on_cancel
 
     def get_msg_from_choice(self, render_choice: RenderChoice) -> str:
         if render_choice.choice_type == "module_start":
@@ -190,6 +194,11 @@ class PlainModuleRenderChoiceTUI(App):
     def _select_choice(self, key: str) -> None:
         self.selected_choice = self.render_choices[key]
         self.exit(self.selected_choice)
+
+    def action_quit(self) -> None:
+        if self._on_cancel:
+            self._on_cancel()
+        self.exit()
 
     async def action_copy_selection(self) -> None:
         """Handle ctrl+c: copy selected text if any.
