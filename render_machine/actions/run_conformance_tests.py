@@ -40,7 +40,7 @@ class RunConformanceTests(BaseAction):
             + f"in module {render_context.conformance_tests_running_context.current_testing_module_name}"
             + ")."
         )
-        exit_code, conformance_tests_issue, conformance_tests_temp_file_path = render_utils.execute_script(
+        exit_code, conformance_tests_issue, conformance_tests_temp_log_file_path = render_utils.execute_script(
             conformance_tests_script,
             [render_context.build_folder, conformance_tests_folder_name],
             "Conformance Tests",
@@ -49,7 +49,9 @@ class RunConformanceTests(BaseAction):
             timeout=render_context.test_script_timeout,
             stop_event=render_context.stop_event,
         )
-        render_context.script_execution_history.latest_conformance_test_output_path = conformance_tests_temp_file_path
+        render_context.script_execution_history.latest_conformance_test_output_path = (
+            conformance_tests_temp_log_file_path
+        )
         render_context.script_execution_history.should_update_script_outputs = True
 
         render_context.memory_manager.create_conformance_tests_memory(
