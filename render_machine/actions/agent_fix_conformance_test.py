@@ -23,12 +23,21 @@ from render_machine.render_context import RenderContext
 
 
 class AgentFixConformanceTest(BaseAction):
-    IMPLEMENTATION_CODE_NOT_UPDATED = "implementation_code_not_updated"
-    IMPLEMENTATION_CODE_UPDATED = "implementation_code_updated"
+    FIX_READY_FOR_REVIEW = "fix_ready_for_review"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
+        # Gather all feedback from previous iterations
         previous_conformance_tests_issue = (
             previous_action_payload.get("previous_conformance_tests_issue", "") if previous_action_payload else ""
+        )
+        previous_agent_summary = (
+            previous_action_payload.get("previous_agent_summary", "") if previous_action_payload else ""
+        )
+        review_rejection_feedback = (
+            previous_action_payload.get("review_rejection_feedback", "") if previous_action_payload else ""
+        )
+        prepare_environment_failure = (
+            previous_action_payload.get("prepare_environment_failure", "") if previous_action_payload else ""
         )
 
         console.info(
@@ -37,43 +46,25 @@ class AgentFixConformanceTest(BaseAction):
             f"in module {render_context.conformance_tests_running_context.current_testing_module_name}."
         )
 
-        # Snapshot both implementation and conformance test files
+        # Snapshot files to detect changes later
         _, implementation_snapshot = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         conformance_test_folder = self._get_conformance_test_folder(render_context)
         conformance_snapshot = self._snapshot_folder(conformance_test_folder)
 
-        # Combined snapshot for diff computation (prefix conformance test paths)
-        combined_snapshot = dict(implementation_snapshot)
-        for path, content in conformance_snapshot.items():
-            combined_snapshot[f"conformance_tests/{path}"] = content
-
-        # Build context for the review tool
+        # Build context
         specifications = self._build_specifications_text(render_context)
         acceptance_tests = self._build_acceptance_tests_text(render_context)
 
-        # Create the review tool with captured context
-        conformance_tests_script_content = self._read_conformance_tests_script(render_context)
-        submit_fix_for_review = create_submit_fix_for_review(
-            file_snapshot=combined_snapshot,
-            specifications=specifications,
-            acceptance_tests=acceptance_tests,
-            test_failure=previous_conformance_tests_issue,
-            conformance_test_folder=conformance_test_folder,
-            conformance_tests_script=conformance_tests_script_content,
-        )
-
+        # Only provide code editing tools (no test/review tools)
         tools = {
-            "run_conformance_tests": run_conformance_tests,
-            "prepare_environment": prepare_environment,
             "write_file": write_file,
             "read_file": read_file,
             "list_files": list_files,
             "ls_files": ls_files,
             "grep": grep,
-            "submit_fix_for_review": submit_fix_for_review,
         }
 
-        # Save test output to temp file instead of passing directly
+        # Save test output to temp file
         test_output_file = self._save_test_output_to_file(previous_conformance_tests_issue)
         linked_resource_paths = self._get_linked_resource_paths(render_context)
 
@@ -82,22 +73,42 @@ class AgentFixConformanceTest(BaseAction):
             "test_output_file": test_output_file,
             "linked_resource_paths": linked_resource_paths,
             "acceptance_tests": acceptance_tests,
-            "conformance_tests_script": self._read_conformance_tests_script(render_context),
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_test_folder,
             "module_name": render_context.module_name,
+            "previous_agent_summary": previous_agent_summary,
+            "review_rejection_feedback": review_rejection_feedback,
+            "prepare_environment_failure": prepare_environment_failure,
         }
 
         tool_executor = ToolExecutor(available_tools=tools)
-        agent_runner.run("fix_conformance_tests", task_params, render_context, tool_executor)
+        response = agent_runner.run("fix_conformance_tests", task_params, render_context, tool_executor)
 
-        # Determine if implementation code was modified
-        _, current_files = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
-        implementation_changed = current_files != implementation_snapshot
+        # Extract agent's summary message
+        agent_summary = response.get("result", "") if response.get("status") == "completed" else ""
 
-        if implementation_changed:
-            return self.IMPLEMENTATION_CODE_UPDATED, None
-        return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
+        # Store snapshots and summary for review/test actions
+        combined_snapshot = dict(implementation_snapshot)
+        for path, content in conformance_snapshot.items():
+            combined_snapshot[f"conformance_tests/{path}"] = content
+
+        # Check if code was modified
+        _, current_impl_files = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
+        current_test_files = self._snapshot_folder(conformance_test_folder)
+
+        implementation_changed = current_impl_files != implementation_snapshot
+        tests_changed = current_test_files != conformance_snapshot
+
+        return self.FIX_READY_FOR_REVIEW, {
+            "agent_summary": agent_summary,
+            "file_snapshot": combined_snapshot,
+            "specifications": specifications,
+            "acceptance_tests": acceptance_tests,
+            "previous_conformance_tests_issue": previous_conformance_tests_issue,
+            "conformance_test_folder": conformance_test_folder,
+            "implementation_changed": implementation_changed,
+            "tests_changed": tests_changed,
+        }
 
     def _get_conformance_test_folder(self, render_context: RenderContext) -> str:
         ctx = render_context.conformance_tests_running_context
