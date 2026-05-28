@@ -21,7 +21,7 @@ class RunUnitTests(BaseAction):
         console.info(
             f"Running unit tests script {unittests_script}. (attempt: {render_context.unit_tests_running_context.fix_attempts + 1})"
         )
-        exit_code, unittests_issue, unittests_temp_file_path = render_utils.execute_script(
+        exit_code, unittests_issue, unittests_temp_log_file_path = render_utils.execute_script(
             unittests_script,
             [render_context.build_folder],
             "Unit Tests",
@@ -29,7 +29,7 @@ class RunUnitTests(BaseAction):
             stop_event=render_context.stop_event,
         )
 
-        render_context.script_execution_history.latest_unit_test_output_path = unittests_temp_file_path
+        render_context.script_execution_history.latest_unit_test_output_path = unittests_temp_log_file_path
         render_context.script_execution_history.should_update_script_outputs = True
         if exit_code == 0:
             return self.SUCCESSFUL_OUTCOME, None
