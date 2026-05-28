@@ -70,6 +70,7 @@ class Plain2CodeTUI(App):
         prepare_environment_script: str,
         state_machine_version: str,
         enter_pause_event: threading.Event | None = None,
+        on_cancel: Callable[[], None] | None = None,
         default_log_level: str = "INFO",
         **kwargs,
     ):
@@ -83,6 +84,7 @@ class Plain2CodeTUI(App):
         self.prepare_environment_script: Optional[str] = prepare_environment_script
         self.state_machine_version = state_machine_version
         self.enter_pause_event = enter_pause_event
+        self._on_cancel = on_cancel
         self.default_log_level = default_log_level
         self._render_finished = False
 
@@ -311,4 +313,6 @@ class Plain2CodeTUI(App):
         Note: Force exit may leave files partially written if interrupted during file I/O operations.
         This is acceptable since the folders in which we are writing are git versioned and are reset in the next render.
         """
+        if not self._render_finished and self._on_cancel:
+            self._on_cancel()
         self.exit()

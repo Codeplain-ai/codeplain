@@ -11,6 +11,7 @@ class RunState:
     def __init__(self, spec_filename: str, replay_with: Optional[str] = None):
         self.replay: bool = replay_with is not None
         self.render_succeeded: bool = False
+        self.render_cancelled: bool = False
         self.render_generated_code_path: Optional[str] = None
         self.rendered_functionalities: int = 0
         if replay_with:
@@ -35,6 +36,9 @@ class RunState:
 
     def set_render_succeeded(self, succeeded: bool):
         self.render_succeeded = succeeded
+
+    def set_render_cancelled(self):
+        self.render_cancelled = True
 
     def set_render_generated_code_path(self, generated_code_path: str):
         self.render_generated_code_path = generated_code_path
