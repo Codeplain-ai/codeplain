@@ -167,22 +167,46 @@ def write_file(args: dict, render_context: RenderContext) -> str:
     if not file_path:
         return f"Error: file_path is required"
 
-    # Prevent writing to temp or project folders (read-only)
-    if base == BASE_TEMP:
-        return f"Error: Cannot write to temp folder. Use base='plain_modules' or base='conformance_tests'"
-    if base == BASE_PROJECT:
-        return f"Error: Cannot write to project root. Use base='plain_modules' or base='conformance_tests'"
-
     # Prevent absolute paths or parent directory traversal in file_path
     if os.path.isabs(file_path) or file_path.startswith("../"):
         return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
 
+    # Resolve the base folder from context
     base_folder = _resolve_base_folder(base, render_context)
+
+    # SECURITY: Verify the resolved base folder is one of the allowed write locations
+    build_folder = os.path.normpath(os.path.abspath(render_context.build_folder))
+    conformance_folder = os.path.normpath(os.path.abspath(render_context.conformance_tests_folder))
+
+    # Get actual conformance test folder if in conformance test context
+    ctx = render_context.conformance_tests_running_context
+    if ctx:
+        if render_context.module_name == ctx.current_testing_module_name:
+            conformance_folder = os.path.normpath(os.path.abspath(ctx.get_current_conformance_test_folder_name()))
+        else:
+            folder, _ = render_context.conformance_tests.get_source_conformance_test_folder_name(
+                render_context.module_name,
+                render_context.required_modules,
+                ctx.current_testing_module_name,
+                ctx.get_current_conformance_test_folder_name(),
+            )
+            conformance_folder = os.path.normpath(os.path.abspath(folder))
+
+    base_folder_normalized = os.path.normpath(os.path.abspath(base_folder))
+
+    # Check if base folder is one of the allowed locations
+    allowed_folders = [build_folder, conformance_folder]
+    if base_folder_normalized not in allowed_folders:
+        return (
+            f"Error: Write access denied. Can only write to implementation code folder "
+            f"(base='plain_modules') or conformance tests folder (base='conformance_tests'). "
+            f"Cannot write to temp files or project root."
+        )
+
     full_path = os.path.join(base_folder, file_path)
 
     # Ensure full_path stays within base_folder (prevent path traversal)
     full_path = os.path.normpath(full_path)
-    base_folder_normalized = os.path.normpath(base_folder)
     if not full_path.startswith(base_folder_normalized):
         return f"Error: file_path escapes base folder: {file_path}"
 
@@ -225,6 +249,27 @@ def read_file(args: dict, render_context: RenderContext) -> str:
         base_folder_normalized = os.path.normpath(base_folder)
         if not full_path.startswith(base_folder_normalized):
             return f"Error: file_path escapes base folder: {file_path}"
+
+        # For project base, only allow reading linked resource files
+        if base == BASE_PROJECT:
+            linked_resources = render_context.frid_context.linked_resources if render_context.frid_context else {}
+            if linked_resources:
+                # Check if the requested file is in the linked resources
+                allowed = False
+                for resource_path in linked_resources.keys():
+                    resource_full_path = os.path.normpath(os.path.join(base_folder, resource_path))
+                    if full_path == resource_full_path:
+                        allowed = True
+                        break
+
+                if not allowed:
+                    available_files = ", ".join(linked_resources.keys())
+                    return (
+                        f"Error: Access denied. File '{file_path}' is not in the allowed linked resources.\n"
+                        f"Available linked resources: {available_files}"
+                    )
+            else:
+                return f"Error: No linked resources available for this module. Cannot read from project root."
 
     if not os.path.exists(full_path):
         return f"Error: File '{file_path}' not found (base: {base})"
