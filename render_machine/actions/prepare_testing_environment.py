@@ -12,6 +12,9 @@ class PrepareTestingEnvironment(BaseAction):
     FAILED_OUTCOME = "testing_environment_preparation_failed"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if not render_context.prepare_environment_script:
+            return self.SUCCESSFUL_OUTCOME, None
+
         console.info(
             f"Running testing environment preparation script {render_context.prepare_environment_script} for build folder {render_context.build_folder}."
         )
@@ -26,6 +29,10 @@ class PrepareTestingEnvironment(BaseAction):
         render_context.conformance_tests_running_context.should_prepare_testing_environment = False
         render_context.script_execution_history.latest_testing_environment_output_path = preparation_temp_file_path
         render_context.script_execution_history.should_update_script_outputs = True
+
+        # Store test output file path in conformance tests context for agents to access
+        render_context.conformance_tests_running_context.test_output_file_path = preparation_temp_file_path
+
         if exit_code == 0:
             return self.SUCCESSFUL_OUTCOME, None
         else:

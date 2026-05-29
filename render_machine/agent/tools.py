@@ -10,43 +10,6 @@ from render_machine.render_context import RenderContext
 MAX_INLINE_OUTPUT_LINES = 200
 DEFAULT_READ_LIMIT = 200
 
-BASE_BUILD = "plain_modules"
-BASE_CONFORMANCE_TESTS = "conformance_tests"
-BASE_TEMP = "temp"
-BASE_PROJECT = "project"
-
-
-def _resolve_base_folder(base: str, render_context: RenderContext) -> str:
-    """Resolve the base folder from the 'base' parameter.
-
-    Args:
-        base: "plain_modules" (default), "conformance_tests", "temp", or "project" (root).
-        render_context: The current render context.
-
-    Returns:
-        Absolute path to the resolved folder, or empty string for temp (indicates absolute path usage).
-    """
-    if base == BASE_CONFORMANCE_TESTS:
-        ctx = render_context.conformance_tests_running_context
-        if ctx and render_context.module_name == ctx.current_testing_module_name:
-            return ctx.get_current_conformance_test_folder_name()
-        elif ctx:
-            folder, _ = render_context.conformance_tests.get_source_conformance_test_folder_name(
-                render_context.module_name,
-                render_context.required_modules,
-                ctx.current_testing_module_name,
-                ctx.get_current_conformance_test_folder_name(),
-            )
-            return folder
-        return render_context.conformance_tests_folder
-    elif base == BASE_TEMP:
-        # For temp files, return empty string to indicate absolute path usage
-        return ""
-    elif base == BASE_PROJECT:
-        # Project root is the parent of build_folder (plain_modules)
-        return os.path.dirname(render_context.build_folder)
-    return render_context.build_folder
-
 
 def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     unittests_script = os.path.normpath(render_context.unittests_script)
@@ -72,7 +35,7 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
         return (
             f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
             f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
+            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
         )
     else:
         return f"Tests failed (exit code {exit_code}):\n{truncated}"
@@ -119,7 +82,7 @@ def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
         return (
             f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
             f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
+            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
         )
     else:
         return f"Tests failed (exit code {exit_code}):\n{truncated}"
@@ -152,37 +115,20 @@ def prepare_environment(args: dict, render_context: RenderContext) -> str:
         return (
             f"Environment preparation failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
             f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" and base="temp" to see the complete output.\n\n{truncated}'
+            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
         )
     else:
         return f"Environment preparation failed (exit code {exit_code}):\n{truncated}"
 
 
-def write_file(args: dict, render_context: RenderContext) -> str:
-    file_path = args.get("file_path", "")
-    content = args.get("content", "")
-    base = args.get("base", BASE_BUILD)
+def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
+    """Return normalized absolute paths of folders the agent can write to."""
+    folders = [os.path.normpath(os.path.abspath(render_context.build_folder))]
 
-    # Validate file_path
-    if not file_path:
-        return f"Error: file_path is required"
-
-    # Prevent absolute paths or parent directory traversal in file_path
-    if os.path.isabs(file_path) or file_path.startswith("../"):
-        return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
-
-    # Resolve the base folder from context
-    base_folder = _resolve_base_folder(base, render_context)
-
-    # SECURITY: Verify the resolved base folder is one of the allowed write locations
-    build_folder = os.path.normpath(os.path.abspath(render_context.build_folder))
-    conformance_folder = os.path.normpath(os.path.abspath(render_context.conformance_tests_folder))
-
-    # Get actual conformance test folder if in conformance test context
     ctx = render_context.conformance_tests_running_context
     if ctx:
         if render_context.module_name == ctx.current_testing_module_name:
-            conformance_folder = os.path.normpath(os.path.abspath(ctx.get_current_conformance_test_folder_name()))
+            folders.append(os.path.normpath(os.path.abspath(ctx.get_current_conformance_test_folder_name())))
         else:
             folder, _ = render_context.conformance_tests.get_source_conformance_test_folder_name(
                 render_context.module_name,
@@ -190,97 +136,125 @@ def write_file(args: dict, render_context: RenderContext) -> str:
                 ctx.current_testing_module_name,
                 ctx.get_current_conformance_test_folder_name(),
             )
-            conformance_folder = os.path.normpath(os.path.abspath(folder))
+            folders.append(os.path.normpath(os.path.abspath(folder)))
+    elif render_context.conformance_tests_folder:
+        folders.append(os.path.normpath(os.path.abspath(render_context.conformance_tests_folder)))
 
-    base_folder_normalized = os.path.normpath(os.path.abspath(base_folder))
+    return folders
 
-    # Check if base folder is one of the allowed locations
-    allowed_folders = [build_folder, conformance_folder]
-    if base_folder_normalized not in allowed_folders:
+
+def _get_allowed_read_folders(render_context: RenderContext) -> list[str]:
+    """Return normalized absolute paths of folders the agent can read from."""
+    return _get_allowed_write_folders(render_context)
+
+
+def _get_project_root() -> str:
+    """Return the project root directory (the process CWD)."""
+    return os.getcwd()
+
+
+def _resolve_file_path(file_path: str) -> str:
+    """Resolve a file path to an absolute path.
+
+    Relative paths are resolved against the project root (CWD).
+    Absolute paths are returned as-is (normalized).
+    """
+    if os.path.isabs(file_path):
+        return os.path.normpath(file_path)
+    return os.path.normpath(os.path.join(_get_project_root(), file_path))
+
+
+def _is_within_any(full_path: str, allowed_folders: list[str]) -> bool:
+    """Check if full_path is within any of the allowed folders."""
+    for folder in allowed_folders:
+        if full_path == folder or full_path.startswith(folder + os.sep):
+            return True
+    return False
+
+
+def write_file(args: dict, render_context: RenderContext) -> str:
+    file_path = args.get("file_path", "")
+    content = args.get("content", "")
+
+    if not file_path:
+        return "Error: file_path is required"
+
+    full_path = _resolve_file_path(file_path)
+    allowed_folders = _get_allowed_write_folders(render_context)
+
+    if not _is_within_any(full_path, allowed_folders):
+        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
         return (
-            f"Error: Write access denied. Can only write to implementation code folder "
-            f"(base='plain_modules') or conformance tests folder (base='conformance_tests'). "
-            f"Cannot write to temp files or project root."
+            f"Error: Write access denied for '{file_path}' (resolved to '{full_path}').\n"
+            f"You can only write to files within these folders:\n{folder_list}\n"
+            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
         )
-
-    full_path = os.path.join(base_folder, file_path)
-
-    # Ensure full_path stays within base_folder (prevent path traversal)
-    full_path = os.path.normpath(full_path)
-    if not full_path.startswith(base_folder_normalized):
-        return f"Error: file_path escapes base folder: {file_path}"
 
     try:
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
-        return f"Successfully wrote {file_path} (base: {base})"
+        return f"Successfully wrote '{full_path}'"
     except PermissionError as e:
-        return f"Error: Permission denied writing to '{file_path}' (base: {base}): {e}"
+        return f"Error: Permission denied writing to '{full_path}': {e}"
     except Exception as e:
-        return f"Error writing to '{file_path}' (base: {base}): {e}"
+        return f"Error writing to '{full_path}': {e}"
+
+
+def _get_linked_resource_paths(render_context: RenderContext) -> list[str]:
+    """Return normalized absolute paths for all linked resource files."""
+    linked_resources = render_context.frid_context.linked_resources if render_context.frid_context else {}
+    if not linked_resources:
+        return []
+
+    paths = []
+    for resource_path in linked_resources.keys():
+        full = os.path.normpath(os.path.join(_get_project_root(), resource_path))
+        paths.append(full)
+    return paths
 
 
 def read_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
     offset = args.get("offset")
     limit = args.get("limit")
-    base = args.get("base", BASE_BUILD)
-    base_folder = _resolve_base_folder(base, render_context)
 
-    # Validate file_path
     if not file_path:
-        return f"Error: file_path is required"
+        return "Error: file_path is required"
 
-    # For temp files, file_path is absolute
-    if base == BASE_TEMP:
-        full_path = file_path
-        if not os.path.isabs(full_path):
-            return f"Error: When base='temp', file_path must be an absolute path, got: {file_path}"
-    else:
-        # Prevent absolute paths or parent directory traversal in file_path
-        if os.path.isabs(file_path) or file_path.startswith("../"):
-            return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
+    full_path = _resolve_file_path(file_path)
+    allowed_folders = _get_allowed_read_folders(render_context)
+    linked_resource_paths = _get_linked_resource_paths(render_context)
 
-        full_path = os.path.join(base_folder, file_path)
+    # Check if file is within allowed folders or is a linked resource or a temp file
+    is_in_allowed_folder = _is_within_any(full_path, allowed_folders)
+    is_linked_resource = full_path in linked_resource_paths
+    is_temp_file = full_path.startswith(os.path.normpath("/tmp") + os.sep) or full_path.startswith(
+        os.path.normpath("/var/folders") + os.sep
+    )
 
-        # Ensure full_path stays within base_folder (prevent path traversal)
-        full_path = os.path.normpath(full_path)
-        base_folder_normalized = os.path.normpath(base_folder)
-        if not full_path.startswith(base_folder_normalized):
-            return f"Error: file_path escapes base folder: {file_path}"
-
-        # For project base, only allow reading linked resource files
-        if base == BASE_PROJECT:
-            linked_resources = render_context.frid_context.linked_resources if render_context.frid_context else {}
-            if linked_resources:
-                # Check if the requested file is in the linked resources
-                allowed = False
-                for resource_path in linked_resources.keys():
-                    resource_full_path = os.path.normpath(os.path.join(base_folder, resource_path))
-                    if full_path == resource_full_path:
-                        allowed = True
-                        break
-
-                if not allowed:
-                    available_files = ", ".join(linked_resources.keys())
-                    return (
-                        f"Error: Access denied. File '{file_path}' is not in the allowed linked resources.\n"
-                        f"Available linked resources: {available_files}"
-                    )
-            else:
-                return f"Error: No linked resources available for this module. Cannot read from project root."
+    if not is_in_allowed_folder and not is_linked_resource and not is_temp_file:
+        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
+        resource_list = ""
+        if linked_resource_paths:
+            resource_list = "\nLinked resource files:\n" + "\n".join(f"  - {p}" for p in linked_resource_paths)
+        return (
+            f"Error: Read access denied for '{file_path}' (resolved to '{full_path}').\n"
+            f"You can read files within these folders:\n{folder_list}{resource_list}\n"
+            f"You can also read temporary files (in /tmp/).\n"
+            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
+        )
 
     if not os.path.exists(full_path):
-        return f"Error: File '{file_path}' not found (base: {base})"
+        return f"Error: File not found: '{full_path}'"
 
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             all_lines = f.readlines()
     except PermissionError as e:
-        return f"Error: Permission denied reading file '{file_path}' (base: {base}): {e}"
+        return f"Error: Permission denied reading '{full_path}': {e}"
     except Exception as e:
-        return f"Error reading file '{file_path}' (base: {base}): {e}"
+        return f"Error reading '{full_path}': {e}"
 
     total_lines = len(all_lines)
 
@@ -311,37 +285,34 @@ def read_file(args: dict, render_context: RenderContext) -> str:
 
 def list_files(args: dict, render_context: RenderContext) -> str:
     directory_path = args.get("directory_path", "")
-    base = args.get("base", BASE_BUILD)
-    base_folder = _resolve_base_folder(base, render_context)
 
-    # Validate base_folder is not empty or root
-    if not base_folder or base_folder == "/":
-        return f"Error: Invalid base folder for base='{base}'"
+    if not directory_path:
+        full_path = os.path.normpath(render_context.build_folder)
+    else:
+        full_path = _resolve_file_path(directory_path)
 
-    # Prevent absolute paths or parent directory traversal in directory_path
-    if directory_path and (os.path.isabs(directory_path) or directory_path.startswith("../")):
-        return f"Error: directory_path cannot be absolute or contain parent references (..), got: {directory_path}"
+    allowed_folders = _get_allowed_read_folders(render_context)
 
-    full_path = os.path.join(base_folder, directory_path)
-
-    # Ensure full_path stays within base_folder (prevent path traversal)
-    full_path = os.path.normpath(full_path)
-    base_folder_normalized = os.path.normpath(base_folder)
-    if not full_path.startswith(base_folder_normalized):
-        return f"Error: directory_path escapes base folder: {directory_path}"
+    if not _is_within_any(full_path, allowed_folders):
+        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
+        return (
+            f"Error: Access denied for '{directory_path}' (resolved to '{full_path}').\n"
+            f"You can list files within these folders:\n{folder_list}\n"
+            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
+        )
 
     if not os.path.exists(full_path):
-        return f"Error: Directory '{directory_path}' not found (base: {base})"
+        return f"Error: Directory not found: '{full_path}'"
 
     if not os.path.isdir(full_path):
-        return f"Error: '{directory_path}' is not a directory (base: {base})"
+        return f"Error: Not a directory: '{full_path}'"
 
     try:
         files = file_utils.list_all_text_files(full_path)
     except PermissionError as e:
-        return f"Error: Permission denied listing files in '{directory_path}' (base: {base}): {e}"
+        return f"Error: Permission denied listing files in '{full_path}': {e}"
     except Exception as e:
-        return f"Error listing files in '{directory_path}' (base: {base}): {e}"
+        return f"Error listing files in '{full_path}': {e}"
 
     if not files:
         return "No files found in directory."
@@ -351,27 +322,27 @@ def list_files(args: dict, render_context: RenderContext) -> str:
 def grep(args: dict, render_context: RenderContext) -> str:
     pattern = args.get("pattern", "")
     file_path = args.get("file_path", "")
-    base = args.get("base", BASE_BUILD)
 
     if not pattern:
         return "Error: pattern is required"
 
-    base_folder = _resolve_base_folder(base, render_context)
+    if not file_path:
+        search_path = os.path.normpath(render_context.build_folder)
+    else:
+        search_path = _resolve_file_path(file_path)
 
-    # Prevent absolute paths or parent directory traversal in file_path
-    if file_path and (os.path.isabs(file_path) or file_path.startswith("../")):
-        return f"Error: file_path cannot be absolute or contain parent references (..), got: {file_path}"
+    allowed_folders = _get_allowed_read_folders(render_context)
 
-    search_path = os.path.join(base_folder, file_path) if file_path else base_folder
-
-    # Ensure search_path stays within base_folder (prevent path traversal)
-    search_path = os.path.normpath(search_path)
-    base_folder_normalized = os.path.normpath(base_folder)
-    if not search_path.startswith(base_folder_normalized):
-        return f"Error: file_path escapes base folder: {file_path}"
+    if not _is_within_any(search_path, allowed_folders):
+        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
+        return (
+            f"Error: Access denied for '{file_path}' (resolved to '{search_path}').\n"
+            f"You can search within these folders:\n{folder_list}\n"
+            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
+        )
 
     if not os.path.exists(search_path):
-        return f"Error: Path '{file_path}' not found (base: {base})"
+        return f"Error: Path not found: '{search_path}'"
 
     try:
         cmd = [
@@ -393,8 +364,6 @@ def grep(args: dict, render_context: RenderContext) -> str:
     output = result.stdout
     if not output:
         return f"No matches found for '{pattern}'"
-
-    output = output.replace(base_folder + "/", "")
 
     lines = output.strip().split("\n")
     if len(lines) > 100:
