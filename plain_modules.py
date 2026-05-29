@@ -5,13 +5,17 @@ import os
 import shutil
 from functools import cached_property
 
-from git.exc import NoSuchPathError
+from plain2code_exceptions import GitNotInstalledError, MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
+
+try:
+    from git.exc import NoSuchPathError
+except ImportError:
+    raise GitNotInstalledError("git is not installed. Please install git and try again.")
 
 import git_utils
 import plain_file
 import plain_spec
 from plain2code_console import console
-from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 
 CODEPLAIN_MEMORY_SUBFOLDER = ".memory"

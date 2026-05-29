@@ -25,6 +25,7 @@ from plain2code_console import console
 from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
+    GitNotInstalledError,
     InvalidAPIKey,
     InvalidFridArgument,
     MissingAPIKey,
@@ -356,6 +357,7 @@ def main():  # noqa: C901
                     NetworkConnectionError,
                     ModuleDoesNotExistError,
                     UnsupportedResourceType,
+                    GitNotInstalledError,
                 ),
             ):
                 exc_info = sys.exc_info()

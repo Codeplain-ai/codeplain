@@ -89,3 +89,9 @@ class RenderCancelledError(Exception):
     """Raised when the render is cancelled by the user closing the TUI."""
 
     pass
+
+
+class GitNotInstalledError(Exception):
+    """Raised when git is not installed or not found on PATH."""
+
+    pass
