@@ -1,7 +1,11 @@
+import logging
+import traceback
 from typing import Callable
 
 from render_machine.agent import tools
 from render_machine.render_context import RenderContext
+
+logger = logging.getLogger(__name__)
 
 ToolFunction = Callable[[dict, RenderContext], str]
 
@@ -36,4 +40,9 @@ class ToolExecutor:
         if tool_fn is None:
             return f"Error: Unknown tool '{name}'"
 
-        return tool_fn(args, render_context)
+        try:
+            return tool_fn(args, render_context)
+        except Exception as e:
+            tb = traceback.format_exc()
+            logger.error(f"Tool '{name}' crashed with args {args}:\n{tb}")
+            return f"Error: Tool '{name}' crashed: {type(e).__name__}: {e}\n\nStack trace:\n{tb}"

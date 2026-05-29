@@ -121,6 +121,7 @@ class CodeplainAPI:
         run_state: Optional[RunState],
         num_retries: int = MAX_RETRIES,
         silent: bool = False,
+        timeout: int = 400,  # 10 minutes timeout (server LLM timeout is 270s + buffer)
     ):
         if run_state is not None:
             self._extend_payload_with_run_state(payload, run_state)
@@ -130,7 +131,7 @@ class CodeplainAPI:
 
         for attempt in range(num_retries + 1):
             try:
-                response = requests.post(endpoint_url, headers=headers, json=payload)
+                response = requests.post(endpoint_url, headers=headers, json=payload, timeout=timeout)
 
                 try:
                     response_json = response.json()

@@ -74,18 +74,71 @@ class AgentFixUnitTests(BaseAction):
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
+        specifications, _ = plain_spec.get_specifications_for_frid(
+            render_context.plain_source_tree, frid
+        )
 
         parts = []
         if specifications.get(plain_spec.DEFINITIONS):
-            parts.append(f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}")
+            parts.append(
+                f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}"
+            )
         if specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS):
             parts.append(
-                f"## Non-Functional Requirements\n{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
-            )
-        if specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS):
-            parts.append(
-                f"## Functional Requirements\n{chr(10).join(specifications[plain_spec.FUNCTIONAL_REQUIREMENTS])}"
+                f"## Non-Functional Requirements\n"
+                f"{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
             )
 
+        # Build functional requirements section with all modules
+        func_req_parts = self._build_functional_requirements_section(render_context)
+        if func_req_parts:
+            parts.append(func_req_parts)
+
         return "\n\n".join(parts)
+
+    def _build_functional_requirements_section(self, render_context: RenderContext) -> str:
+        """Build functional requirements section showing all modules and their functionalities."""
+        # Get functionalities from required modules
+        required_modules_functionalities = render_context.get_required_modules_functionalities()
+        current_module = render_context.module_name
+
+        # Get current module's functionalities from specifications
+        frid = render_context.frid_context.frid
+        specifications, _ = plain_spec.get_specifications_for_frid(
+            render_context.plain_source_tree, frid
+        )
+        current_module_func_reqs = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS, [])
+
+        # If no functionalities at all, return empty
+        if not required_modules_functionalities and not current_module_func_reqs:
+            return ""
+
+        sections = ["## Functional Requirements\n"]
+
+        # First, add required modules (all already implemented)
+        for module_name, func_list in required_modules_functionalities.items():
+            sections.append(
+                f"### Module: {module_name} (Already Implemented, for context):\n"
+                f"{chr(10).join(func_list)}"
+            )
+
+        # Then, add current module functionalities
+        if current_module_func_reqs:
+            if len(current_module_func_reqs) > 1:
+                # Split into implemented and current
+                sections.append(
+                    f"### Module: {current_module} (Already Implemented, for context):\n"
+                    f"{chr(10).join(current_module_func_reqs[:-1])}\n"
+                )
+                sections.append(
+                    f"### Module: {current_module} (Currently Being Implemented):\n"
+                    f"{current_module_func_reqs[-1]}"
+                )
+            else:
+                # Only one functionality (the current one)
+                sections.append(
+                    f"### Module: {current_module} (Currently Being Implemented):\n"
+                    f"{current_module_func_reqs[0]}"
+                )
+
+        return "\n\n".join(sections)
