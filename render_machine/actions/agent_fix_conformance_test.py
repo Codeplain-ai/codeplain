@@ -1,5 +1,4 @@
 import os
-import tempfile
 from typing import Any
 
 import file_utils
@@ -27,9 +26,6 @@ class AgentFixConformanceTest(BaseAction):
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         # Gather all feedback from previous iterations
-        previous_conformance_tests_issue = (
-            previous_action_payload.get("previous_conformance_tests_issue", "") if previous_action_payload else ""
-        )
         previous_agent_summary = (
             previous_action_payload.get("previous_agent_summary", "") if previous_action_payload else ""
         )
@@ -64,8 +60,8 @@ class AgentFixConformanceTest(BaseAction):
             "grep": grep,
         }
 
-        # Save test output to temp file
-        test_output_file = self._save_test_output_to_file(previous_conformance_tests_issue)
+        # Get test output file path from context (set by RunConformanceTests)
+        test_output_file = render_context.conformance_tests_running_context.test_output_file_path or ""
         linked_resource_paths = self._get_linked_resource_paths(render_context)
 
         task_params = {
@@ -104,7 +100,6 @@ class AgentFixConformanceTest(BaseAction):
             "file_snapshot": combined_snapshot,
             "specifications": specifications,
             "acceptance_tests": acceptance_tests,
-            "previous_conformance_tests_issue": previous_conformance_tests_issue,
             "conformance_test_folder": conformance_test_folder,
             "implementation_changed": implementation_changed,
             "tests_changed": tests_changed,
@@ -130,25 +125,79 @@ class AgentFixConformanceTest(BaseAction):
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
+        specifications, _ = plain_spec.get_specifications_for_frid(
+            render_context.plain_source_tree, frid
+        )
 
         parts = []
         if specifications.get(plain_spec.DEFINITIONS):
-            parts.append(f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}")
+            parts.append(
+                f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}"
+            )
         if specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS):
             parts.append(
-                f"## Non-Functional Requirements\n{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
+                f"## Non-Functional Requirements\n"
+                f"{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
             )
         if specifications.get(plain_spec.TEST_REQUIREMENTS):
             parts.append(
-                f"## Test Requirements\n{chr(10).join(specifications[plain_spec.TEST_REQUIREMENTS])}"
-            )
-        if specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS):
-            parts.append(
-                f"## Functional Requirements\n{chr(10).join(specifications[plain_spec.FUNCTIONAL_REQUIREMENTS])}"
+                f"## Test Requirements\n"
+                f"{chr(10).join(specifications[plain_spec.TEST_REQUIREMENTS])}"
             )
 
+        # Build functional requirements section with all modules
+        func_req_parts = self._build_functional_requirements_section(render_context)
+        if func_req_parts:
+            parts.append(func_req_parts)
+
         return "\n\n".join(parts)
+
+    def _build_functional_requirements_section(self, render_context: RenderContext) -> str:
+        """Build functional requirements section showing all modules and their functionalities."""
+        # Get functionalities from required modules
+        required_modules_functionalities = render_context.get_required_modules_functionalities()
+        current_module = render_context.module_name
+
+        # Get current module's functionalities from specifications
+        frid = render_context.frid_context.frid
+        specifications, _ = plain_spec.get_specifications_for_frid(
+            render_context.plain_source_tree, frid
+        )
+        current_module_func_reqs = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS, [])
+
+        # If no functionalities at all, return empty
+        if not required_modules_functionalities and not current_module_func_reqs:
+            return ""
+
+        sections = ["## Functional Requirements\n"]
+
+        # First, add required modules (all already implemented)
+        for module_name, func_list in required_modules_functionalities.items():
+            sections.append(
+                f"### Module: {module_name} (Already Implemented, for context):\n"
+                f"{chr(10).join(func_list)}"
+            )
+
+        # Then, add current module functionalities
+        if current_module_func_reqs:
+            if len(current_module_func_reqs) > 1:
+                # Split into implemented and current
+                sections.append(
+                    f"### Module: {current_module} (Already Implemented, for context):\n"
+                    f"{chr(10).join(current_module_func_reqs[:-1])}\n"
+                )
+                sections.append(
+                    f"### Module: {current_module} (Currently Being Implemented):\n"
+                    f"{current_module_func_reqs[-1]}"
+                )
+            else:
+                # Only one functionality (the current one)
+                sections.append(
+                    f"### Module: {current_module} (Currently Being Implemented):\n"
+                    f"{current_module_func_reqs[0]}"
+                )
+
+        return "\n\n".join(sections)
 
     def _build_acceptance_tests_text(self, render_context: RenderContext) -> str:
         acceptance_tests = render_context.conformance_tests_running_context.get_current_acceptance_tests()
@@ -162,15 +211,6 @@ class AgentFixConformanceTest(BaseAction):
             return ""
         with open(script_path, "r", encoding="utf-8") as f:
             return f.read()
-
-    def _save_test_output_to_file(self, test_output: str) -> str:
-        """Save test output to a temp file and return the path."""
-        if not test_output:
-            return ""
-
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".test_output") as f:
-            f.write(test_output)
-            return f.name
 
     def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
         """Get list of linked resource paths (not content) for the agent to read if needed."""

@@ -24,7 +24,6 @@ class ReviewConformanceFixAction(BaseAction):
         file_snapshot = previous_action_payload.get("file_snapshot", {})
         specifications = previous_action_payload.get("specifications", "")
         acceptance_tests = previous_action_payload.get("acceptance_tests", "")
-        test_failure = previous_action_payload.get("previous_conformance_tests_issue", "")
         conformance_test_folder = previous_action_payload.get("conformance_test_folder", "")
         agent_summary = previous_action_payload.get("agent_summary", "")
 
@@ -60,11 +59,14 @@ class ReviewConformanceFixAction(BaseAction):
             with open(render_context.conformance_tests_script, "r", encoding="utf-8") as f:
                 conformance_tests_script = f.read()
 
+        # Get test output file path from context (set by RunConformanceTests)
+        test_output_file = render_context.conformance_tests_running_context.test_output_file_path or ""
+
         # Build task params for the reviewer agent
         review_task_params = {
             "specifications": specifications,
             "acceptance_tests": acceptance_tests,
-            "test_output": test_failure,
+            "test_output_file": test_output_file,
             "diff": diff_str,
             "explanation": agent_summary,
             "conformance_tests_script": conformance_tests_script,
@@ -82,12 +84,13 @@ class ReviewConformanceFixAction(BaseAction):
         }
         reviewer_executor = ToolExecutor(available_tools=reviewer_tools)
 
-        # Run the reviewer agent to completion
+        # Run the reviewer agent to completion (with lower turn limit for reviewers)
         response = agent_runner.run(
             "review_conformance_fix",
             review_task_params,
             render_context,
             reviewer_executor,
+            max_turns=agent_runner.MAX_REVIEWER_TURNS,
         )
 
         # Parse the reviewer's final response for VERDICT

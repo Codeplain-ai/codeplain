@@ -54,6 +54,9 @@ class RunConformanceTests(BaseAction):
         )
         render_context.script_execution_history.should_update_script_outputs = True
 
+        # Store test output file path in conformance tests context for agents to access
+        render_context.conformance_tests_running_context.test_output_file_path = conformance_tests_temp_file_path
+
         render_context.memory_manager.create_conformance_tests_memory(
             render_context, exit_code, conformance_tests_issue
         )
