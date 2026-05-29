@@ -1,4 +1,3 @@
-import importlib.resources
 import logging
 import logging.config
 import os
@@ -53,7 +52,7 @@ from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 
-DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
+DEFAULT_TEMPLATE_DIRS = "standard_template_library"
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 
 
