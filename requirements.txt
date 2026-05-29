@@ -1,4 +1,4 @@
-python-liquid2==0.3.0
+python-liquid2==0.4.0
 mistletoe==1.3.0
 python-frontmatter==1.3.0
 requests==2.34.0
