@@ -30,12 +30,12 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     if total_lines <= MAX_INLINE_OUTPUT_LINES:
         return f"Tests failed (exit code {exit_code}):\n{output}"
 
-    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
+    truncated = "\n".join(lines[-MAX_INLINE_OUTPUT_LINES:])
     if temp_file_path:
         return (
-            f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
-            f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
+            f"Tests failed (exit code {exit_code}). "
+            f"Full output of the tests is available at: {temp_file_path}\n"
+            f'Use read_file with file_path="{temp_file_path}" to see the complete output.'
         )
     else:
         return f"Tests failed (exit code {exit_code}):\n{truncated}"
@@ -327,7 +327,8 @@ def grep(args: dict, render_context: RenderContext) -> str:
         return "Error: pattern is required"
 
     if not file_path:
-        search_path = os.path.normpath(render_context.build_folder)
+        # Default to build folder (use absolute path for consistent validation)
+        search_path = os.path.normpath(os.path.abspath(render_context.build_folder))
     else:
         search_path = _resolve_file_path(file_path)
 
