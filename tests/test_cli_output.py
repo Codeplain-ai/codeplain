@@ -62,7 +62,7 @@ class TestDisplayCreditLine:
             "type": "free",
             "total": 50,
             "remaining": 4,
-            "period_end": "2026-06-01T00:00:00+00:00",
+            "period_end": "2028-12-01T00:00:00+00:00",
         }
         _display_credit_line(plan_credits)
 
@@ -70,7 +70,7 @@ class TestDisplayCreditLine:
         call_args = mock_console.print.call_args[0][0]
         assert "Free trial" in call_args
         assert "4 of 50 remaining" in call_args
-        assert "expires Jun 1, 2026" in call_args
+        assert "expires Dec 1, 2028" in call_args
 
     @patch("cli_output.status.console")
     def test_display_active_pro_plan(self, mock_console):
@@ -110,13 +110,13 @@ class TestDisplayCreditLine:
             "type": "free",
             "total": 50,
             "remaining": 0,
-            "period_end": "2026-06-01T00:00:00+00:00",
+            "period_end": "2028-12-01T00:00:00+00:00",
         }
         _display_credit_line(plan_credits)
 
         call_args = mock_console.print.call_args[0][0]
         assert "0 of 50 remaining" in call_args
-        assert "expires Jun 1, 2026" in call_args
+        assert "expires Dec 1, 2028" in call_args
 
     @patch("cli_output.status.console")
     def test_timezone_naive_datetime(self, mock_console):
@@ -141,14 +141,14 @@ class TestDisplayPurchasedCreditLine:
         bucket = {
             "total": 100,
             "remaining": 20,
-            "expiry_date": "2026-06-12T00:00:00+00:00",
+            "expiry_date": "2028-12-12T00:00:00+00:00",
         }
         _display_purchased_credit_line(bucket)
 
         call_args = mock_console.print.call_args[0][0]
         assert "Purchased" in call_args
         assert "20 of 100 remaining" in call_args
-        assert "expires Jun 12, 2026" in call_args
+        assert "expires Dec 12, 2028" in call_args
 
     @patch("cli_output.status.console")
     def test_display_expired_purchased_credits(self, mock_console):
@@ -185,7 +185,7 @@ class TestDisplayStatusMessage:
         """Test when user has active plan credits."""
         plan_credits = {
             "remaining": 10,
-            "period_end": "2026-06-01T00:00:00+00:00",
+            "period_end": "2028-12-01T00:00:00+00:00",
         }
         _display_status_message(plan_credits, [])
 
@@ -211,7 +211,7 @@ class TestDisplayStatusMessage:
         """Test when user has no credits remaining."""
         plan_credits = {
             "remaining": 0,
-            "period_end": "2026-06-01T00:00:00+00:00",
+            "period_end": "2028-12-01T00:00:00+00:00",
         }
         _display_status_message(plan_credits, [])
 
@@ -268,7 +268,7 @@ class TestPrintStatus:
                 "type": "free",
                 "total": 50,
                 "remaining": 10,
-                "period_end": "2026-06-01T00:00:00+00:00",
+                "period_end": "2028-12-01T00:00:00+00:00",
             },
             "purchased_credits": [],
         }

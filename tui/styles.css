@@ -137,7 +137,7 @@ TestScriptsContainer {
   height: auto;
   color: #888;
   border: solid #888;
-  padding-top: 1;
+  padding-top: 0;
 }
 
 .test-scripts-title {
