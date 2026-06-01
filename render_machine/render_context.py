@@ -187,6 +187,10 @@ class RenderContext:
     def _get_first_frid_conformance_test_running_context(self, module: PlainModule | None):
         conformance_tests_running_context = self.conformance_tests_running_context
 
+        # Clear fix agent session when moving to a new FRID
+        self._cleanup_fix_agent_session()
+        conformance_tests_running_context.fix_agent_session_id = None
+
         if module is None:
             conformance_tests_running_context.current_testing_module_name = self.module_name
             if not conformance_tests_running_context.conformance_tests_json_has_module_populated(
@@ -226,6 +230,11 @@ class RenderContext:
 
     def get_next_conformance_tests_running_context(self):
         conformance_tests_running_context = self.conformance_tests_running_context
+
+        # Clear fix agent session when moving to next FRID
+        self._cleanup_fix_agent_session()
+        conformance_tests_running_context.fix_agent_session_id = None
+
         if conformance_tests_running_context.current_testing_module_name == self.module_name:
             conformance_tests_running_context.current_testing_frid = plain_spec.get_next_frid(
                 self.plain_source_tree,
@@ -552,6 +561,16 @@ class RenderContext:
 
         # Should never reach here
         raise RuntimeError(f"Unexpected execution phase: {ctx.execution_phase}")
+
+    def _cleanup_fix_agent_session(self):
+        """Explicitly end the fix agent session on the server."""
+        session_id = self.conformance_tests_running_context.fix_agent_session_id
+        if session_id:
+            try:
+                self.codeplain_api.agent_end_session(session_id, self.run_state)
+            except Exception:
+                # Session may already be expired/removed - ignore errors
+                pass
 
     def start_render_completed(self):
         self.run_state.set_render_succeeded(True)

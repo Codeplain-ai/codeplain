@@ -544,12 +544,34 @@ class CodeplainAPI:
         }
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def agent_continue(self, session_id: str, tool_results: list[dict], run_state: RunState):
+    def agent_continue(self, session_id: str, tool_results: list[dict], run_state: RunState, keep_session_alive: bool = False):
         endpoint_url = f"{self.api_url}/agent/continue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
         payload = {
             "session_id": session_id,
             "tool_results": tool_results,
+            "keep_session_alive": keep_session_alive,
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def agent_continue_with_message(self, session_id: str, message: str, run_state: RunState):
+        """Continue an agent session by adding a new user message (without tool results)."""
+        endpoint_url = f"{self.api_url}/agent/continue"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "session_id": session_id,
+            "tool_results": [],  # Empty tool results
+            "user_message": message,  # Additional context as user message
+            "keep_session_alive": True,  # Keep session alive for continuation
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def agent_end_session(self, session_id: str, run_state: RunState):
+        """Explicitly end an agent session and remove it from the server."""
+        endpoint_url = f"{self.api_url}/agent/end"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "session_id": session_id,
         }
         return self.post_request(endpoint_url, headers, payload, run_state)
 

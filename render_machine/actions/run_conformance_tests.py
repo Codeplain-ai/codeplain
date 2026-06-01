@@ -62,6 +62,10 @@ class RunConformanceTests(BaseAction):
         )
 
         if exit_code == 0:
+            # Tests passed - cleanup and clear the fix agent session
+            render_context._cleanup_fix_agent_session()
+            render_context.conformance_tests_running_context.fix_agent_session_id = None
+
             if (
                 render_context.conformance_tests_running_context.current_testing_module_name
                 == render_context.module_name
