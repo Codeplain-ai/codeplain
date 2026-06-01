@@ -64,21 +64,87 @@ class AgentFixConformanceTest(BaseAction):
         test_output_file = render_context.conformance_tests_running_context.test_output_file_path or ""
         linked_resource_paths = self._get_linked_resource_paths(render_context)
 
-        task_params = {
-            "specifications": specifications,
-            "test_output_file": test_output_file,
-            "linked_resource_paths": linked_resource_paths,
-            "acceptance_tests": acceptance_tests,
-            "build_folder": render_context.build_folder,
-            "conformance_tests_folder": conformance_test_folder,
-            "module_name": render_context.module_name,
-            "previous_agent_summary": previous_agent_summary,
-            "review_rejection_feedback": review_rejection_feedback,
-            "prepare_environment_failure": prepare_environment_failure,
-        }
-
         tool_executor = ToolExecutor(available_tools=tools)
-        response = agent_runner.run("fix_conformance_tests", task_params, render_context, tool_executor)
+
+        # Check if this is a continuation of an existing fix session
+        session_id = render_context.conformance_tests_running_context.fix_agent_session_id
+
+        if session_id is None:
+            # First attempt - start new agent session
+            task_params = {
+                "specifications": specifications,
+                "test_output_file": test_output_file,
+                "linked_resource_paths": linked_resource_paths,
+                "acceptance_tests": acceptance_tests,
+                "build_folder": render_context.build_folder,
+                "conformance_tests_folder": conformance_test_folder,
+                "module_name": render_context.module_name,
+                "keep_session_alive": True,  # Mark this as a persistent session
+            }
+            response = agent_runner.run(
+                "fix_conformance_tests",
+                task_params,
+                render_context,
+                tool_executor,
+                keep_session_alive=True,  # Keep session alive for future continuations
+            )
+
+            # Store session ID for future attempts
+            if "session_id" in response:
+                render_context.conformance_tests_running_context.fix_agent_session_id = response["session_id"]
+        else:
+            # Subsequent attempt - continue existing session with new information
+            additional_context = self._build_continuation_message(
+                test_output_file=test_output_file,
+                review_rejection_feedback=review_rejection_feedback,
+                prepare_environment_failure=prepare_environment_failure,
+            )
+
+            try:
+                response = agent_runner.continue_session(
+                    session_id=session_id,
+                    additional_context=additional_context,
+                    render_context=render_context,
+                    tool_executor=tool_executor,
+                )
+            except Exception as e:
+                # If session not found (404) or expired, start a fresh session
+                # This happens when the agent hits max turns or session expires
+                if "404" in str(e) or "not found" in str(e).lower():
+                    console.warning(
+                        f"Previous fix session expired or hit max turns. Starting fresh session with accumulated context."
+                    )
+                    render_context.conformance_tests_running_context.fix_agent_session_id = None
+
+                    # Start new session with full context (includes previous failure info)
+                    task_params = {
+                        "specifications": specifications,
+                        "test_output_file": test_output_file,
+                        "linked_resource_paths": linked_resource_paths,
+                        "acceptance_tests": acceptance_tests,
+                        "build_folder": render_context.build_folder,
+                        "conformance_tests_folder": conformance_test_folder,
+                        "module_name": render_context.module_name,
+                        "keep_session_alive": True,
+                        # Include context from previous attempts (if available)
+                        "previous_agent_summary": previous_agent_summary if previous_agent_summary else None,
+                        "review_rejection_feedback": review_rejection_feedback if review_rejection_feedback else None,
+                        "prepare_environment_failure": prepare_environment_failure if prepare_environment_failure else None,
+                    }
+                    response = agent_runner.run(
+                        "fix_conformance_tests",
+                        task_params,
+                        render_context,
+                        tool_executor,
+                        keep_session_alive=True,
+                    )
+
+                    # Store new session ID
+                    if "session_id" in response:
+                        render_context.conformance_tests_running_context.fix_agent_session_id = response["session_id"]
+                else:
+                    # Re-raise other errors
+                    raise
 
         # Extract agent's summary message
         agent_summary = response.get("result", "") if response.get("status") == "completed" else ""
@@ -218,3 +284,50 @@ class AgentFixConformanceTest(BaseAction):
         if not linked_resources:
             return []
         return list(linked_resources.keys())
+
+    def _build_continuation_message(
+        self, test_output_file: str, review_rejection_feedback: str, prepare_environment_failure: str
+    ) -> str:
+        """Build a message to continue the agent session with new test results and feedback."""
+        parts = ["## Update on Your Previous Fix Attempt\n"]
+
+        # Review feedback
+        if review_rejection_feedback:
+            parts.append("### Review Result: REJECTED\n")
+            parts.append(f"The reviewer rejected your fix with this feedback:\n\n{review_rejection_feedback}\n")
+            parts.append("Please address the reviewer's concerns and try again.\n")
+        else:
+            parts.append("### Review Result: APPROVED\n")
+            parts.append("Your fix was approved by the reviewer.\n")
+
+        # Environment preparation result
+        if prepare_environment_failure:
+            parts.append("\n### Environment Preparation: FAILED\n")
+            parts.append(
+                f"The environment preparation (build/compile) failed:\n\n{prepare_environment_failure}\n"
+            )
+            parts.append(
+                "Please fix the build/compilation issues before the tests can run. "
+                "The test output file below may be outdated.\n"
+            )
+
+        # Test result
+        parts.append("\n### Test Execution Result: FAILED\n")
+        if test_output_file:
+            parts.append(
+                f"The conformance tests were run and they FAILED. "
+                f"The test output is available at: {test_output_file}\n\n"
+                f'Use read_file(file_path="{test_output_file}") to see the full test output.\n'
+            )
+        else:
+            parts.append(
+                "The conformance tests were run and they FAILED, but no test output file is available.\n"
+            )
+
+        parts.append(
+            "\nPlease analyze the failure, learn from your previous attempt(s), "
+            "and implement a fix that addresses the root cause. "
+            "You have full access to your conversation history to see what you've already tried."
+        )
+
+        return "\n".join(parts)

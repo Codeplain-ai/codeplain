@@ -95,6 +95,7 @@ class ConformanceTestsRunningContext:
         self.previous_conformance_tests_issue_module: Optional[str] = None
         self.code_diff_files: Optional[dict[str, str]] = None
         self.test_output_file_path: Optional[str] = None
+        self.fix_agent_session_id: Optional[str] = None  # Persistent session for fix agent
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]
