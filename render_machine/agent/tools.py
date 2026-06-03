@@ -9,6 +9,7 @@ from render_machine.render_context import RenderContext
 
 MAX_INLINE_OUTPUT_LINES = 200
 DEFAULT_READ_LIMIT = 200
+MAX_LINE_LENGTH = 10000  # Max characters per line to prevent context explosion
 
 
 def run_unit_tests(args: dict, render_context: RenderContext) -> str:
@@ -268,7 +269,18 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     end = start + max_lines
 
     selected_lines = all_lines[start:end]
-    content = "".join(selected_lines)
+
+    # Truncate extremely long lines to prevent context explosion
+    # (e.g., minified JS, base64, single-line JSON)
+    truncated_lines = []
+    for i, line in enumerate(selected_lines):
+        if len(line) > MAX_LINE_LENGTH:
+            truncated = line[:MAX_LINE_LENGTH] + f"... [line truncated, {len(line)} total chars]\n"
+            truncated_lines.append(truncated)
+        else:
+            truncated_lines.append(line)
+
+    content = "".join(truncated_lines)
 
     # Add metadata if file was truncated
     if end < total_lines or start > 0:
