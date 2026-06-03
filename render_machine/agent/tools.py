@@ -332,6 +332,20 @@ def list_files(args: dict, render_context: RenderContext) -> str:
 
 
 def grep(args: dict, render_context: RenderContext) -> str:
+    """Search for a pattern using the grep command.
+
+    This tool directly executes the grep command with provided arguments.
+    By default searches recursively with line numbers in common source code files.
+
+    Args:
+        args: Dictionary containing:
+            - pattern (str, required): Pattern to search for.
+            - file_path (str, optional): Path to search within. Defaults to build folder.
+        render_context: The current render context.
+
+    Returns:
+        String containing grep output or error message.
+    """
     pattern = args.get("pattern", "")
     file_path = args.get("file_path", "")
 
@@ -339,49 +353,88 @@ def grep(args: dict, render_context: RenderContext) -> str:
         return "Error: pattern is required"
 
     if not file_path:
-        # Default to build folder (use absolute path for consistent validation)
-        search_path = os.path.normpath(os.path.abspath(render_context.build_folder))
+        # Default to build folder
+        search_path = render_context.build_folder
     else:
         search_path = _resolve_file_path(file_path)
 
     allowed_folders = _get_allowed_read_folders(render_context)
+    resolved_search = os.path.normpath(os.path.abspath(search_path))
 
-    if not _is_within_any(search_path, allowed_folders):
+    if not _is_within_any(resolved_search, allowed_folders):
         folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
         return (
-            f"Error: Access denied for '{file_path}' (resolved to '{search_path}').\n"
+            f"Error: Access denied for '{file_path or 'build folder'}' (resolved to '{resolved_search}').\n"
             f"You can search within these folders:\n{folder_list}\n"
             f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
         )
 
-    if not os.path.exists(search_path):
-        return f"Error: Path not found: '{search_path}'"
+    if not os.path.exists(resolved_search):
+        return f"Error: Path not found: '{resolved_search}'"
+
+    # Build grep command
+    cmd = [
+        "grep",
+        "-rn",  # recursive with line numbers
+        "--include=*.py",
+        "--include=*.js",
+        "--include=*.ts",
+        "--include=*.java",
+        "--include=*.cs",
+        "--include=*.rb",
+        "--include=*.go",
+        "--include=*.rs",
+        "--include=*.c",
+        "--include=*.cpp",
+        "--include=*.h",
+        "--include=*.hpp",
+        "--include=*.txt",
+        "--include=*.json",
+        "--include=*.yaml",
+        "--include=*.yml",
+        "--include=*.toml",
+        "--include=*.cfg",
+        "--include=*.ini",
+        "--include=*.md",
+        "--include=*.sh",
+        "--include=*.bat",
+        "--include=*.ps1",
+        pattern,
+        search_path,
+    ]
 
     try:
-        cmd = [
-            "grep", "-rn",
-            "--include=*.py", "--include=*.js", "--include=*.ts", "--include=*.java",
-            "--include=*.cs", "--include=*.rb", "--include=*.go", "--include=*.rs",
-            "--include=*.c", "--include=*.cpp", "--include=*.h", "--include=*.hpp",
-            "--include=*.txt", "--include=*.json", "--include=*.yaml", "--include=*.yml",
-            "--include=*.toml", "--include=*.cfg", "--include=*.ini",
-            "--include=*.md", "--include=*.sh", "--include=*.bat", "--include=*.ps1",
-            pattern, search_path,
-        ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+        # Combine stdout and stderr for complete output
+        output = result.stdout
+        if result.stderr:
+            output += f"\n[stderr]: {result.stderr}"
+
+        # grep returns exit code 1 when no matches found (not an error)
+        if result.returncode == 1 and not output.strip():
+            return f"No matches found for '{pattern}' in '{search_path}'"
+
+        # Other non-zero exit codes are actual errors
+        if result.returncode not in (0, 1):
+            return f"grep command failed (exit code {result.returncode}):\n{output}"
+
+        if not output.strip():
+            return f"No matches found for '{pattern}' in '{search_path}'"
+
+        # Truncate if output is too long
+        lines = output.strip().split("\n")
+        if len(lines) > 100:
+            return "\n".join(lines[:100]) + f"\n\n... ({len(lines) - 100} more matches truncated)"
+
+        return output.strip()
+
     except subprocess.TimeoutExpired:
-        return "Error: Search timed out"
+        return "Error: grep command timed out (>10 seconds)"
+    except FileNotFoundError:
+        return "Error: grep command not found (are you on Windows? Use WSL or Git Bash)"
     except Exception as e:
         return f"Error running grep: {e}"
-
-    output = result.stdout
-    if not output:
-        return f"No matches found for '{pattern}'"
-
-    lines = output.strip().split("\n")
-    if len(lines) > 100:
-        return "\n".join(lines[:100]) + f"\n\n... ({len(lines) - 100} more matches truncated)"
-    return "\n".join(lines)
 
 
 def ls_files(args: dict, render_context: RenderContext) -> str:
