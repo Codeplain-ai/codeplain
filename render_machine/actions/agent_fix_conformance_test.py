@@ -9,6 +9,8 @@ from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
     create_submit_fix_for_review,
+    delete_file,
+    edit_file,
     grep,
     list_files,
     ls_files,
@@ -53,7 +55,9 @@ class AgentFixConformanceTest(BaseAction):
 
         # Only provide code editing tools (no test/review tools)
         tools = {
+            "edit_file": edit_file,
             "write_file": write_file,
+            "delete_file": delete_file,
             "read_file": read_file,
             "list_files": list_files,
             "ls_files": ls_files,
@@ -129,7 +133,9 @@ class AgentFixConformanceTest(BaseAction):
                         # Include context from previous attempts (if available)
                         "previous_agent_summary": previous_agent_summary if previous_agent_summary else None,
                         "review_rejection_feedback": review_rejection_feedback if review_rejection_feedback else None,
-                        "prepare_environment_failure": prepare_environment_failure if prepare_environment_failure else None,
+                        "prepare_environment_failure": (
+                            prepare_environment_failure if prepare_environment_failure else None
+                        ),
                     }
                     response = agent_runner.run(
                         "fix_conformance_tests",
@@ -191,25 +197,18 @@ class AgentFixConformanceTest(BaseAction):
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(
-            render_context.plain_source_tree, frid
-        )
+        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
 
         parts = []
         if specifications.get(plain_spec.DEFINITIONS):
-            parts.append(
-                f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}"
-            )
+            parts.append(f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}")
         if specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS):
             parts.append(
                 f"## Non-Functional Requirements\n"
                 f"{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
             )
         if specifications.get(plain_spec.TEST_REQUIREMENTS):
-            parts.append(
-                f"## Test Requirements\n"
-                f"{chr(10).join(specifications[plain_spec.TEST_REQUIREMENTS])}"
-            )
+            parts.append(f"## Test Requirements\n" f"{chr(10).join(specifications[plain_spec.TEST_REQUIREMENTS])}")
 
         # Build functional requirements section with all modules
         func_req_parts = self._build_functional_requirements_section(render_context)
@@ -226,9 +225,7 @@ class AgentFixConformanceTest(BaseAction):
 
         # Get current module's functionalities from specifications
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(
-            render_context.plain_source_tree, frid
-        )
+        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
         current_module_func_reqs = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS, [])
 
         # If no functionalities at all, return empty
@@ -240,8 +237,7 @@ class AgentFixConformanceTest(BaseAction):
         # First, add required modules (all already implemented)
         for module_name, func_list in required_modules_functionalities.items():
             sections.append(
-                f"### Module: {module_name} (Already Implemented, for context):\n"
-                f"{chr(10).join(func_list)}"
+                f"### Module: {module_name} (Already Implemented, for context):\n" f"{chr(10).join(func_list)}"
             )
 
         # Then, add current module functionalities
@@ -253,14 +249,12 @@ class AgentFixConformanceTest(BaseAction):
                     f"{chr(10).join(current_module_func_reqs[:-1])}\n"
                 )
                 sections.append(
-                    f"### Module: {current_module} (Currently Being Implemented):\n"
-                    f"{current_module_func_reqs[-1]}"
+                    f"### Module: {current_module} (Currently Being Implemented):\n" f"{current_module_func_reqs[-1]}"
                 )
             else:
                 # Only one functionality (the current one)
                 sections.append(
-                    f"### Module: {current_module} (Currently Being Implemented):\n"
-                    f"{current_module_func_reqs[0]}"
+                    f"### Module: {current_module} (Currently Being Implemented):\n" f"{current_module_func_reqs[0]}"
                 )
 
         return "\n\n".join(sections)
@@ -303,9 +297,7 @@ class AgentFixConformanceTest(BaseAction):
         # Environment preparation result
         if prepare_environment_failure:
             parts.append("\n### Environment Preparation: FAILED\n")
-            parts.append(
-                f"The environment preparation (build/compile) failed:\n\n{prepare_environment_failure}\n"
-            )
+            parts.append(f"The environment preparation (build/compile) failed:\n\n{prepare_environment_failure}\n")
             parts.append(
                 "Please fix the build/compilation issues before the tests can run. "
                 "The test output file below may be outdated.\n"
@@ -317,12 +309,10 @@ class AgentFixConformanceTest(BaseAction):
             parts.append(
                 f"The conformance tests were run and they FAILED. "
                 f"The test output is available at: {test_output_file}\n\n"
-                f'Use read_file(file_path="{test_output_file}") to see the full test output.\n'
+                f'Use the read_file tool with file_path="{test_output_file}" to explore the test output.\n'
             )
         else:
-            parts.append(
-                "The conformance tests were run and they FAILED, but no test output file is available.\n"
-            )
+            parts.append("The conformance tests were run and they FAILED, but no test output file is available.\n")
 
         parts.append(
             "\nPlease analyze the failure, learn from your previous attempt(s), "

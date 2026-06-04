@@ -3,7 +3,7 @@ from plain2code_state import RunState
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.render_context import RenderContext
 
-MAX_AGENT_TURNS = 60
+MAX_AGENT_TURNS = 100
 MAX_REVIEWER_TURNS = 30
 
 
