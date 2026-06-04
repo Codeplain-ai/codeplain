@@ -288,11 +288,11 @@ class AgentFixConformanceTest(BaseAction):
         # Review feedback
         if review_rejection_feedback:
             parts.append("### Review Result: REJECTED\n")
-            parts.append(f"The reviewer rejected your fix with this feedback:\n\n{review_rejection_feedback}\n")
+            parts.append(f"A reviewer examined your fix and evaluated it according to the engineering integrity guidelines. The reviewer rejected your fix with this feedback:\n\n{review_rejection_feedback}\n")
             parts.append("Please address the reviewer's concerns and try again.\n")
         else:
             parts.append("### Review Result: APPROVED\n")
-            parts.append("Your fix was approved by the reviewer.\n")
+            parts.append("A reviewer examined your fix and evaluated it according to the engineering integrity guidelines. Your fix was approved by the reviewer.\n")
 
         # Environment preparation result
         if prepare_environment_failure:
@@ -314,10 +314,11 @@ class AgentFixConformanceTest(BaseAction):
         else:
             parts.append("The conformance tests were run and they FAILED, but no test output file is available.\n")
 
-        parts.append(
-            "\nPlease analyze the failure, learn from your previous attempt(s), "
-            "and implement a fix that addresses the root cause. "
-            "You have full access to your conversation history to see what you've already tried."
-        )
+        parts.append("\nFollow the following instructions to implement a fix:\n")
+        parts.append("1. Thoroughly read the test output file, the environment preparation failure file and in the case of a review rejection, the reviewer feedback and understand the context of the failure.\n")
+        parts.append("2. Explore the failing test code and the implementation code that is being tested to understand the core issue behind the failure.\n")
+        parts.append("3. Implement a fix that addresses the root cause.\n")
+        parts.append("4. Verify the fix by reading the edited files to ensure the fix is correct.\n")
+        parts.append("5. Provide a summary of what you changed and why.\n")
 
         return "\n".join(parts)
