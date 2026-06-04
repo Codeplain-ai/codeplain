@@ -226,6 +226,13 @@ def create_parser():
         help="Continue generation starting from this specific functionality (e.g. `2`). "
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
+    render_range_group.add_argument(
+        "--rerender",
+        type=frid_string,
+        help="Re-render a single already-rendered functionality (e.g. `2`). "
+        "Adds a new commit on top of the current HEAD without reverting any prior work. "
+        "Only top-level integer FRIDs are supported.",
+    )
 
     parser.add_argument(
         "--force-render",

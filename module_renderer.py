@@ -27,6 +27,7 @@ class ModuleRenderer:
         event_bus: EventBus,
         stop_event: threading.Event | None = None,
         enter_pause_event: threading.Event | None = None,
+        is_rerender: bool = False,
     ):
         self.codeplainAPI = codeplainAPI
         self.plain_module = plain_module
@@ -37,6 +38,7 @@ class ModuleRenderer:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
+        self.is_rerender = is_rerender
 
     def _build_render_context_for_module(
         self,
@@ -65,6 +67,7 @@ class ModuleRenderer:
             test_script_timeout=self.args.test_script_timeout,
             stop_event=self.stop_event,
             enter_pause_event=self.enter_pause_event,
+            is_rerender=self.is_rerender,
         )
 
     def _render_module(

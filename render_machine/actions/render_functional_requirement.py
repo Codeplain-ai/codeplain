@@ -60,6 +60,8 @@ class RenderFunctionalRequirement(BaseAction):
                 render_context.get_required_modules_functionalities(),
                 render_context.should_run_unit_tests(),
                 render_context.run_state,
+                is_reimplementation=render_context.is_rerender,
+                old_functional_requirement_text=render_context.old_frid_spec,
             )
         except FunctionalRequirementTooComplex as e:
             error_message = f"The functionality:\n{render_context.frid_context.functional_requirement_text}\n is too complex to be implemented. Please break down the functionality into smaller parts ({str(e)})."
