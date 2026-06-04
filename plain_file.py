@@ -91,6 +91,12 @@ def check_section_for_linked_resources(section):
                 f"Plain syntax error: Only relative links are allowed (text: {link.node.children[0].content}, target: {link.node.target})."
             )
 
+        if not os.path.exists(link.node.target):
+            raise PlainSyntaxError(f"Plain syntax error: Link {link.node.target} does not exist.")
+
+        if not os.path.isfile(link.node.target):
+            raise PlainSyntaxError(f"Plain syntax error: Link {link.node.target} must be a file.")
+
         if len(link.node.children) != 1:
             raise PlainSyntaxError(f"Plain syntax error: Link must have text specified (link: {link.node.target}).")
 

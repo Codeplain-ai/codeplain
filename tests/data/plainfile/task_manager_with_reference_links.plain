@@ -29,9 +29,9 @@
 
 - Implement the entry point for :App:.
 
-- Show :TaskList:. The details of the user interface are provided in the file [task_list_ui_specification.yaml](task_list_ui_specification.yaml).
+- Show :TaskList:. The details of the user interface are provided in the file [task_list_ui_specification.yaml](tests/data/plainfile/task_list_ui_specification.yaml).
 
-- :User: should be able to add :Task:. Only valid :Task: items can be added. The details of the user interface are provided in the file [add_new_task_modal_specification.yaml](add_new_task_modal_specification.yaml).
+- :User: should be able to add :Task:. Only valid :Task: items can be added. The details of the user interface are provided in the file [add_new_task_modal_specification.yaml](tests/data/plainfile/add_new_task_modal_specification.yaml).
 
 - :User: should be able to delete :Task:.
 

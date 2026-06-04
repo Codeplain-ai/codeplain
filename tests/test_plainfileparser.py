@@ -115,8 +115,8 @@ def test_reference_link_parsing(get_test_data_path):
         [get_test_data_path("data/plainfile")],
     )
     asserted_resources = [
-        "task_list_ui_specification.yaml",
-        "add_new_task_modal_specification.yaml",
+        "tests/data/plainfile/task_list_ui_specification.yaml",
+        "tests/data/plainfile/add_new_task_modal_specification.yaml",
     ]
     for functional_requirement in plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS]:
         if "linked_resources" not in functional_requirement:
@@ -143,13 +143,13 @@ def test_reference_link_parsing(get_test_data_path):
     assert plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS][1]["linked_resources"] == [
         {
             "text": "task_list_ui_specification.yaml",
-            "target": "task_list_ui_specification.yaml",
+            "target": "tests/data/plainfile/task_list_ui_specification.yaml",
         }
     ]
     assert plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS][2]["linked_resources"] == [
         {
             "text": "add_new_task_modal_specification.yaml",
-            "target": "add_new_task_modal_specification.yaml",
+            "target": "tests/data/plainfile/add_new_task_modal_specification.yaml",
         }
     ]
 
