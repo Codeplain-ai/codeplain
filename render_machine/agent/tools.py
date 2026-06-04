@@ -1,3 +1,4 @@
+import difflib
 import os
 import subprocess
 from typing import Callable
@@ -173,6 +174,151 @@ def _is_within_any(full_path: str, allowed_folders: list[str]) -> bool:
     return False
 
 
+def edit_file(args: dict, render_context: RenderContext) -> str:
+    """Edit a file using search and replace with fuzzy matching for robustness.
+
+    Args:
+        args: Dictionary containing:
+            - file_path (str): Path to the file to edit
+            - search (str): Text to search for in the file
+            - replace (str): Text to replace the search text with
+        render_context: The current render context
+
+    Returns:
+        Success message or error description
+    """
+    file_path = args.get("file_path", "")
+    search_text = args.get("search", "")
+    replace_text = args.get("replace", "")
+
+    if not file_path:
+        return "Error: file_path is required"
+    if not search_text:
+        return "Error: search parameter is required"
+    if "replace" not in args:  # Check if key exists, allow empty string
+        return "Error: replace parameter is required (can be empty string for deletion)"
+
+    # Check if search and replace are identical (no-op)
+    if search_text == replace_text:
+        return (
+            f"Warning: No changes made to '{file_path}'. "
+            f"The search and replace texts are identical. "
+            f"If you intended to modify the file, please provide different replacement text."
+        )
+
+    full_path = _resolve_file_path(file_path)
+    allowed_folders = _get_allowed_write_folders(render_context)
+
+    if not _is_within_any(full_path, allowed_folders):
+        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
+        return (
+            f"Error: Write access denied for '{file_path}' (resolved to '{full_path}').\n"
+            f"You can only edit files within these folders:\n{folder_list}\n"
+            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
+        )
+
+    # Check if file exists
+    if not os.path.exists(full_path):
+        return f"Error: File not found: '{full_path}'. Use write_file to create new files."
+
+    # Read the current file content
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            original_content = f.read()
+    except PermissionError as e:
+        return f"Error: Permission denied reading '{full_path}': {e}"
+    except Exception as e:
+        return f"Error reading '{full_path}': {e}"
+
+    # Try exact match first
+    if search_text in original_content:
+        # Count occurrences
+        count = original_content.count(search_text)
+        if count > 1:
+            return (
+                f"Error: Search text found {count} times in '{full_path}'. "
+                f"Please provide a more specific search string that uniquely identifies the text to replace."
+            )
+
+        # Perform replacement
+        new_content = original_content.replace(search_text, replace_text, 1)
+
+        # Write the updated content
+        try:
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            return f"Successfully edited '{full_path}' (exact match)"
+        except PermissionError as e:
+            return f"Error: Permission denied writing to '{full_path}': {e}"
+        except Exception as e:
+            return f"Error writing to '{full_path}': {e}"
+
+    # Exact match failed - try fuzzy matching with whitespace normalization
+    # This handles minor whitespace differences
+    search_lines = search_text.splitlines()
+    content_lines = original_content.splitlines()
+
+    if not search_lines:
+        return "Error: Search text is empty or contains only whitespace"
+
+    best_ratio = 0.0
+    best_match_start = -1
+    best_match_end = -1
+
+    # Sliding window to find best match
+    for i in range(len(content_lines) - len(search_lines) + 1):
+        window = content_lines[i : i + len(search_lines)]
+        ratio = difflib.SequenceMatcher(None, search_lines, window).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match_start = i
+            best_match_end = i + len(search_lines)
+
+    # If we found a good fuzzy match (>90% similarity)
+    if best_ratio > 0.9:
+        matched_text = "\n".join(content_lines[best_match_start:best_match_end])
+
+        # Perform replacement
+        before = "\n".join(content_lines[:best_match_start])
+        after = "\n".join(content_lines[best_match_end:])
+
+        # Reconstruct content
+        parts = []
+        if before:
+            parts.append(before)
+        if replace_text:
+            parts.append(replace_text)
+        if after:
+            parts.append(after)
+
+        new_content = "\n".join(parts)
+
+        # Preserve trailing newline if original had one
+        if original_content.endswith("\n") and not new_content.endswith("\n"):
+            new_content += "\n"
+
+        # Write the updated content
+        try:
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            return (
+                f"Successfully edited '{full_path}' (fuzzy match with {best_ratio:.1%} similarity).\n"
+                f"Matched text:\n{matched_text[:200]}{'...' if len(matched_text) > 200 else ''}"
+            )
+        except PermissionError as e:
+            return f"Error: Permission denied writing to '{full_path}': {e}"
+        except Exception as e:
+            return f"Error writing to '{full_path}': {e}"
+
+    # No good match found
+    return (
+        f"Error: Search text not found in '{full_path}'. "
+        f"Best match was {best_ratio:.1%} similar (threshold is 90%).\n"
+        f"Please verify the search text matches the actual file content. "
+        f"Use read_file to view the current content."
+    )
+
+
 def write_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
     content = args.get("content", "")
@@ -200,6 +346,51 @@ def write_file(args: dict, render_context: RenderContext) -> str:
         return f"Error: Permission denied writing to '{full_path}': {e}"
     except Exception as e:
         return f"Error writing to '{full_path}': {e}"
+
+
+def delete_file(args: dict, render_context: RenderContext) -> str:
+    """Delete a file from the project.
+
+    Args:
+        args: Dictionary containing:
+            - file_path (str): Path to the file to delete
+        render_context: The current render context
+
+    Returns:
+        Success message or error description
+    """
+    file_path = args.get("file_path", "")
+
+    if not file_path:
+        return "Error: file_path is required"
+
+    full_path = _resolve_file_path(file_path)
+    allowed_folders = _get_allowed_write_folders(render_context)
+
+    if not _is_within_any(full_path, allowed_folders):
+        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
+        return (
+            f"Error: Delete access denied for '{file_path}' (resolved to '{full_path}').\n"
+            f"You can only delete files within these folders:\n{folder_list}\n"
+            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
+        )
+
+    # Check if file exists
+    if not os.path.exists(full_path):
+        return f"Error: File not found: '{full_path}'. Nothing to delete."
+
+    # Check if it's a file (not a directory)
+    if os.path.isdir(full_path):
+        return f"Error: '{full_path}' is a directory. Use appropriate directory deletion if needed, or delete individual files."
+
+    # Delete the file
+    try:
+        os.remove(full_path)
+        return f"Successfully deleted '{full_path}'"
+    except PermissionError as e:
+        return f"Error: Permission denied deleting '{full_path}': {e}"
+    except Exception as e:
+        return f"Error deleting '{full_path}': {e}"
 
 
 def _get_linked_resource_paths(render_context: RenderContext) -> list[str]:
@@ -260,7 +451,7 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     total_lines = len(all_lines)
 
     # Apply offset (1-based)
-    start = 0
+    start = max(0,total_lines-DEFAULT_READ_LIMIT)
     if offset is not None:
         start = max(0, int(offset) - 1)
 
@@ -361,11 +552,18 @@ def grep(args: dict, render_context: RenderContext) -> str:
     allowed_folders = _get_allowed_read_folders(render_context)
     resolved_search = os.path.normpath(os.path.abspath(search_path))
 
-    if not _is_within_any(resolved_search, allowed_folders):
+    # Check if path is within allowed folders or is a temp file
+    is_in_allowed_folder = _is_within_any(resolved_search, allowed_folders)
+    is_temp_file = resolved_search.startswith(os.path.normpath("/tmp") + os.sep) or resolved_search.startswith(
+        os.path.normpath("/var/folders") + os.sep
+    )
+
+    if not is_in_allowed_folder and not is_temp_file:
         folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
         return (
             f"Error: Access denied for '{file_path or 'build folder'}' (resolved to '{resolved_search}').\n"
             f"You can search within these folders:\n{folder_list}\n"
+            f"You can also search temporary files (in /tmp/ or /var/folders/).\n"
             f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
         )
 
@@ -477,12 +675,7 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
 
     try:
         # Run the ls command (inherits current working directory from Python process)
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
         # Combine stdout and stderr for complete output
         output = result.stdout

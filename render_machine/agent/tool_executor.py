@@ -12,7 +12,9 @@ ToolFunction = Callable[[dict, RenderContext], str]
 DEFAULT_TOOLS: dict[str, ToolFunction] = {
     "run_unit_tests": tools.run_unit_tests,
     "run_conformance_tests": tools.run_conformance_tests,
+    "edit_file": tools.edit_file,
     "write_file": tools.write_file,
+    "delete_file": tools.delete_file,
     "read_file": tools.read_file,
     "list_files": tools.list_files,
     "ls_files": tools.ls_files,

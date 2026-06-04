@@ -7,11 +7,13 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
-from render_machine.agent.tools import grep, list_files, ls_files, read_file, write_file
+from render_machine.agent.tools import delete_file, edit_file, grep, list_files, ls_files, read_file, write_file
 from render_machine.render_context import RenderContext
 
 RENDER_FUNCTIONAL_REQUIREMENT_TOOLS = {
+    "edit_file": edit_file,
     "write_file": write_file,
+    "delete_file": delete_file,
     "read_file": read_file,
     "list_files": list_files,
     "ls_files": ls_files,
@@ -55,15 +57,11 @@ class AgentRenderFunctionalRequirement(BaseAction):
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(
-            render_context.plain_source_tree, frid
-        )
+        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
 
         parts = []
         if specifications.get(plain_spec.DEFINITIONS):
-            parts.append(
-                f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}"
-            )
+            parts.append(f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}")
         if specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS):
             parts.append(
                 f"## Non-Functional Requirements\n"
@@ -85,9 +83,7 @@ class AgentRenderFunctionalRequirement(BaseAction):
 
         # Get current module's functionalities from specifications
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(
-            render_context.plain_source_tree, frid
-        )
+        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
         current_module_func_reqs = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS, [])
 
         # If no functionalities at all, return empty
@@ -99,8 +95,7 @@ class AgentRenderFunctionalRequirement(BaseAction):
         # First, add required modules (all already implemented)
         for module_name, func_list in required_modules_functionalities.items():
             sections.append(
-                f"### Module: {module_name} (Already Implemented, for context):\n"
-                f"{chr(10).join(func_list)}"
+                f"### Module: {module_name} (Already Implemented, for context):\n" f"{chr(10).join(func_list)}"
             )
 
         # Then, add current module functionalities

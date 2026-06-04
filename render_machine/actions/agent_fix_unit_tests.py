@@ -7,6 +7,8 @@ from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
     MAX_INLINE_OUTPUT_LINES,
+    delete_file,
+    edit_file,
     grep,
     list_files,
     ls_files,
@@ -18,7 +20,9 @@ from render_machine.render_context import RenderContext
 
 FIX_UNIT_TESTS_TOOLS = {
     "run_unit_tests": run_unit_tests,
+    "edit_file": edit_file,
     "write_file": write_file,
+    "delete_file": delete_file,
     "read_file": read_file,
     "list_files": list_files,
     "ls_files": ls_files,
@@ -74,15 +78,11 @@ class AgentFixUnitTests(BaseAction):
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(
-            render_context.plain_source_tree, frid
-        )
+        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
 
         parts = []
         if specifications.get(plain_spec.DEFINITIONS):
-            parts.append(
-                f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}"
-            )
+            parts.append(f"## Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}")
         if specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS):
             parts.append(
                 f"## Non-Functional Requirements\n"
@@ -104,9 +104,7 @@ class AgentFixUnitTests(BaseAction):
 
         # Get current module's functionalities from specifications
         frid = render_context.frid_context.frid
-        specifications, _ = plain_spec.get_specifications_for_frid(
-            render_context.plain_source_tree, frid
-        )
+        specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
         current_module_func_reqs = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS, [])
 
         # If no functionalities at all, return empty
@@ -118,8 +116,7 @@ class AgentFixUnitTests(BaseAction):
         # First, add required modules (all already implemented)
         for module_name, func_list in required_modules_functionalities.items():
             sections.append(
-                f"### Module: {module_name} (Already Implemented, for context):\n"
-                f"{chr(10).join(func_list)}"
+                f"### Module: {module_name} (Already Implemented, for context):\n" f"{chr(10).join(func_list)}"
             )
 
         # Then, add current module functionalities
@@ -131,14 +128,12 @@ class AgentFixUnitTests(BaseAction):
                     f"{chr(10).join(current_module_func_reqs[:-1])}\n"
                 )
                 sections.append(
-                    f"### Module: {current_module} (Currently Being Implemented):\n"
-                    f"{current_module_func_reqs[-1]}"
+                    f"### Module: {current_module} (Currently Being Implemented):\n" f"{current_module_func_reqs[-1]}"
                 )
             else:
                 # Only one functionality (the current one)
                 sections.append(
-                    f"### Module: {current_module} (Currently Being Implemented):\n"
-                    f"{current_module_func_reqs[0]}"
+                    f"### Module: {current_module} (Currently Being Implemented):\n" f"{current_module_func_reqs[0]}"
                 )
 
         return "\n\n".join(sections)
