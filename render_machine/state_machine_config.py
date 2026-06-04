@@ -55,12 +55,9 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitConformanceTestsChanges(
                 git_utils.CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
-                git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
             ),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value}": AnalyzeSpecificationAmbiguity(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}": FinishFunctionalRequirement(
-                git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
-            ),
+            f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}": FinishFunctionalRequirement(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
             States.RENDER_COMPLETED.value: CreateDist(),
