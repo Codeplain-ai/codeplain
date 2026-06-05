@@ -307,7 +307,7 @@ class PlainModule:
     def load_module_metadata(self) -> dict | None:
         return metadata_utils.load_metadata(self.module_metadata_path())
 
-    def update_frid_in_module_metadata(self, frid: str) -> None:
+    def update_frid_in_module_metadata(self, frid: str, update_source_hash: bool = False) -> None:
         # Store the raw FR markdown (with any {{ code_variable }} placeholders intact), exactly
         # as save_module_metadata and the change-detection diff read it. Storing the rendered
         # text (code variables already substituted) would make the diff report a spurious edit
@@ -321,6 +321,8 @@ class PlainModule:
         else:
             functionalities.append(frid_text)
         metadata[MODULE_FUNCTIONALITIES] = functionalities
+        if update_source_hash:
+            metadata["source_hash"] = self.get_module_source_hash()
 
         metadata_utils.write_metadata(self.module_metadata_path(), metadata)
 
