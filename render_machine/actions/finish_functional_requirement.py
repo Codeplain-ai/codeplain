@@ -12,6 +12,7 @@ class FinishFunctionalRequirement(BaseAction):
         render_context.plain_module.update_frid_in_module_metadata(
             render_context.frid_context.frid,
             render_context.frid_context.functional_requirement_text,
+            update_source_hash=render_context.is_rerender,
         )
 
         commit_message = (

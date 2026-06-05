@@ -108,7 +108,7 @@ class PlainModule:
         with open(metadata_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def update_frid_in_module_metadata(self, frid: str, frid_text: str) -> None:
+    def update_frid_in_module_metadata(self, frid: str, frid_text: str, update_source_hash: bool = False) -> None:
         metadata = self.load_module_metadata() or {}
         functionalities = metadata.get(MODULE_FUNCTIONALITIES, [])
         frid_index = int(frid) - 1
@@ -117,6 +117,8 @@ class PlainModule:
         else:
             functionalities.append(frid_text)
         metadata[MODULE_FUNCTIONALITIES] = functionalities
+        if update_source_hash:
+            metadata["source_hash"] = self.get_module_source_hash()
 
         codeplain_folder = self.get_codeplain_folder()
         os.makedirs(codeplain_folder, exist_ok=True)
