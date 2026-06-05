@@ -108,6 +108,21 @@ class PlainModule:
         with open(metadata_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
+    def update_frid_in_module_metadata(self, frid: str, frid_text: str) -> None:
+        metadata = self.load_module_metadata() or {}
+        functionalities = metadata.get(MODULE_FUNCTIONALITIES, [])
+        frid_index = int(frid) - 1
+        if frid_index < len(functionalities):
+            functionalities[frid_index] = frid_text
+        else:
+            functionalities.append(frid_text)
+        metadata[MODULE_FUNCTIONALITIES] = functionalities
+
+        codeplain_folder = self.get_codeplain_folder()
+        os.makedirs(codeplain_folder, exist_ok=True)
+        with open(self.module_metadata_path(), "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=4)
+
     def get_module_source_hash(self) -> str:
         return plain_spec.get_hash_value([self.plain_source] + self.resources_list)
 
