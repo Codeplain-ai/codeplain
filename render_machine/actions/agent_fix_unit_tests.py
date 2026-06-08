@@ -14,11 +14,13 @@ from render_machine.agent.tools import (
     ls_files,
     read_file,
     run_unit_tests,
+    think,
     write_file,
 )
 from render_machine.render_context import RenderContext
 
 FIX_UNIT_TESTS_TOOLS = {
+    "think": think,
     "run_unit_tests": run_unit_tests,
     "edit_file": edit_file,
     "write_file": write_file,
@@ -43,6 +45,7 @@ class AgentFixUnitTests(BaseAction):
             "specifications": self._build_specifications_text(render_context),
             "linked_resource_paths": linked_resource_paths,
             "test_output_file": test_output_file,
+            "unit_tests_script_path": render_context.unittests_script or "",
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
         }

@@ -701,6 +701,29 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
         return f"Error running ls: {e}"
 
 
+def think(args: dict, render_context: RenderContext) -> str:
+    """Log the agent's reasoning or progress note to the user.
+
+    Use this to narrate what you are doing, what you found, or what you are about to do next.
+    Call it before major steps (exploration, planning, implementing) and after finding something
+    significant. This is the primary way to keep the user informed during long tasks.
+
+    Args:
+        args: Dictionary containing:
+            - message (str, required): The thought or progress note to display to the user.
+        render_context: The current render context.
+
+    Returns:
+        Empty string (acknowledgement).
+    """
+    from plain2code_console import console
+
+    message = args.get("message", "")
+    if message:
+        console.info(f"[Agent] {message}")
+    return ""
+
+
 def create_submit_fix_for_review(
     file_snapshot: dict[str, str],
     specifications: str,
