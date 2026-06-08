@@ -53,12 +53,6 @@ class ReviewConformanceFixAction(BaseAction):
         for file_path, file_diff in diff_text.items():
             diff_str += f"--- {file_path}\n{file_diff}\n\n"
 
-        # Read conformance tests script if available
-        conformance_tests_script = ""
-        if render_context.conformance_tests_script and os.path.exists(render_context.conformance_tests_script):
-            with open(render_context.conformance_tests_script, "r", encoding="utf-8") as f:
-                conformance_tests_script = f.read()
-
         # Get test output file path from context (set by RunConformanceTests)
         test_output_file = render_context.conformance_tests_running_context.test_output_file_path or ""
 
@@ -69,7 +63,7 @@ class ReviewConformanceFixAction(BaseAction):
             "test_output_file": test_output_file,
             "diff": diff_str,
             "explanation": agent_summary,
-            "conformance_tests_script": conformance_tests_script,
+            "conformance_tests_script_path": render_context.conformance_tests_script or "",
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_test_folder,
             "module_name": render_context.module_name,
