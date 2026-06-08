@@ -82,6 +82,7 @@ class AgentFixConformanceTest(BaseAction):
                 "acceptance_tests": acceptance_tests,
                 "build_folder": render_context.build_folder,
                 "conformance_tests_folder": conformance_test_folder,
+                "conformance_tests_script_path": render_context.conformance_tests_script or "",
                 "module_name": render_context.module_name,
                 "keep_session_alive": True,  # Mark this as a persistent session
             }
@@ -128,6 +129,7 @@ class AgentFixConformanceTest(BaseAction):
                         "acceptance_tests": acceptance_tests,
                         "build_folder": render_context.build_folder,
                         "conformance_tests_folder": conformance_test_folder,
+                        "conformance_tests_script_path": render_context.conformance_tests_script or "",
                         "module_name": render_context.module_name,
                         "keep_session_alive": True,
                         # Include context from previous attempts (if available)
@@ -283,20 +285,15 @@ class AgentFixConformanceTest(BaseAction):
         self, test_output_file: str, review_rejection_feedback: str, prepare_environment_failure: str
     ) -> str:
         """Build a message to continue the agent session with new test results and feedback."""
-        parts = ["## Update on Your Previous Fix Attempt\n"]
+        parts = []
 
         # Review feedback
         if review_rejection_feedback:
-            parts.append("### Review Result: REJECTED\n")
-            parts.append(f"A reviewer examined your fix and evaluated it according to the engineering integrity guidelines. The reviewer rejected your fix with this feedback:\n\n{review_rejection_feedback}\n")
+            parts.append("The reviewer examined your fix and evaluated it according to the engineering integrity guidelines. The reviewer rejected your fix with this reviewer feedback:\n\n{review_rejection_feedback}\n")
             parts.append("Please address the reviewer's concerns and try again.\n")
-        else:
-            parts.append("### Review Result: APPROVED\n")
-            parts.append("A reviewer examined your fix and evaluated it according to the engineering integrity guidelines. Your fix was approved by the reviewer.\n")
 
         # Environment preparation result
         if prepare_environment_failure:
-            parts.append("\n### Environment Preparation: FAILED\n")
             parts.append(f"The environment preparation (build/compile) failed:\n\n{prepare_environment_failure}\n")
             parts.append(
                 "Please fix the build/compilation issues before the tests can run. "
@@ -304,19 +301,23 @@ class AgentFixConformanceTest(BaseAction):
             )
 
         # Test result
-        parts.append("\n### Test Execution Result: FAILED\n")
         if test_output_file:
             parts.append(
-                f"The conformance tests were run and they FAILED. "
-                f"The test output is available at: {test_output_file}\n\n"
-                f'Use the read_file tool with file_path="{test_output_file}" to explore the test output.\n'
+                f"Your fix was evaluated by running the conformance tests using the conformance tests script, but the tests still failed. "
+                f"The test script output was saved to a file which is available at: {test_output_file}\n\n"
             )
         else:
-            parts.append("The conformance tests were run and they FAILED, but no test output file is available.\n")
+            parts.append("Your fix was evaluating by running the conformance tests using the conformance tests script, but the tests still failed, and no test output file is available.\n")
 
-        parts.append("\nFollow the following instructions to implement a fix:\n")
-        parts.append("1. Thoroughly read the test output file, the environment preparation failure file and in the case of a review rejection, the reviewer feedback and understand the context of the failure.\n")
-        parts.append("2. Explore the failing test code and the implementation code that is being tested to understand the core issue behind the failure.\n")
+        parts.append("\nFix the failing tests:\n")
+        parts.append("1. Thoroughly read the:\n")
+        if test_output_file:
+            parts.append(f"  - The test output file at: {test_output_file}\n")
+        if prepare_environment_failure:
+            parts.append(f"  - The environment preparation failure\n")
+        if review_rejection_feedback:
+            parts.append(f"  - The reviewer feedback\n")
+        parts.append("2. Locate and read the failing test code and the implementation code that is being tested. Make sure you understand the root cause of the failing tests.\n")
         parts.append("3. Implement a fix that addresses the root cause.\n")
         parts.append("4. Verify the fix by reading the edited files to ensure the fix is correct.\n")
         parts.append("5. Provide a summary of what you changed and why.\n")

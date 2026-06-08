@@ -476,10 +476,10 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     if end < total_lines or start > 0:
         shown_start = start + 1
         shown_end = min(end, total_lines)
-        header = f"[Showing lines {shown_start}-{shown_end} of {total_lines} total]\n"
+        header = f"[Showing lines {shown_start}-{shown_end} of {total_lines} total. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n"
         return header + content
     elif total_lines > max_lines:
-        header = f"[Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more.]\n"
+        header = f"[Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n "
         return header + "".join(all_lines[:max_lines])
 
     return content
@@ -525,7 +525,7 @@ def grep(args: dict, render_context: RenderContext) -> str:
     """Search for a pattern using the grep command.
 
     This tool directly executes the grep command with provided arguments.
-    By default searches recursively with line numbers in common source code files.
+    By default searches recursively with line numbers, excluding build artifacts and dependency directories.
 
     Args:
         args: Dictionary containing:
@@ -573,29 +573,22 @@ def grep(args: dict, render_context: RenderContext) -> str:
     cmd = [
         "grep",
         "-rn",  # recursive with line numbers
-        "--include=*.py",
-        "--include=*.js",
-        "--include=*.ts",
-        "--include=*.java",
-        "--include=*.cs",
-        "--include=*.rb",
-        "--include=*.go",
-        "--include=*.rs",
-        "--include=*.c",
-        "--include=*.cpp",
-        "--include=*.h",
-        "--include=*.hpp",
-        "--include=*.txt",
-        "--include=*.json",
-        "--include=*.yaml",
-        "--include=*.yml",
-        "--include=*.toml",
-        "--include=*.cfg",
-        "--include=*.ini",
-        "--include=*.md",
-        "--include=*.sh",
-        "--include=*.bat",
-        "--include=*.ps1",
+        "--exclude-dir=.git",
+        "--exclude-dir=__pycache__",
+        "--exclude-dir=node_modules",
+        "--exclude-dir=.venv",
+        "--exclude-dir=venv",
+        "--exclude-dir=.mypy_cache",
+        "--exclude-dir=.pytest_cache",
+        "--exclude-dir=dist",
+        "--exclude-dir=build",
+        "--exclude=*.pyc",
+        "--exclude=*.class",
+        "--exclude=*.so",
+        "--exclude=*.o",
+        "--exclude=*.a",
+        "--exclude=*.dll",
+        "--exclude=*.exe",
         pattern,
         search_path,
     ]
@@ -684,13 +677,14 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
             output += f"\n[stderr]: {result.stderr}"
 
         if result.returncode != 0:
-            return f"Current directory: {current_dir}\nls command failed (exit code {result.returncode}):\n{output}"
+            return f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n ls command failed (exit code {result.returncode}):\n{output}"
 
         if not output.strip():
-            return f"Current directory: {current_dir}\nDirectory is empty (no files found)"
+            return f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n Directory is empty (no files found)"
 
         # Prepend current working directory to help agent understand context
         header = f"Current directory: {current_dir}\n"
+        header += "Running ls command: " + shell_cmd + "\n"
 
         # Truncate if output is too long
         lines = output.strip().split("\n")
