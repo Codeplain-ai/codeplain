@@ -17,6 +17,7 @@ from render_machine.actions.exit_with_error import ExitWithError
 from render_machine.actions.finish_functional_requirement import FinishFunctionalRequirement
 from render_machine.actions.agent_fix_conformance_test import AgentFixConformanceTest
 from render_machine.actions.agent_fix_unit_tests import AgentFixUnitTests
+from render_machine.actions.agent_render_conformance_tests import AgentRenderConformanceTests
 from render_machine.actions.agent_render_functional_requirement import AgentRenderFunctionalRequirement
 from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
@@ -41,6 +42,7 @@ class StateMachineConfig:
         fix_unit_tests_action = AgentFixUnitTests() if use_agent else FixUnitTests()
         fix_conformance_action = AgentFixConformanceTest() if use_agent else FixConformanceTest()
         render_action = AgentRenderFunctionalRequirement() if use_agent else RenderFunctionalRequirement()
+        render_conformance_action = AgentRenderConformanceTests() if use_agent else RenderConformanceTests()
         return {
             States.RENDER_INITIALISED.value: PrepareRepositories(),
             f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}": render_action,
@@ -55,7 +57,7 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.STEP_COMPLETED.value}": CommitImplementationCodeChanges(
                 git_utils.REFACTORED_CODE_COMMIT_MESSAGE
             ),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}": RenderConformanceTests(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}": render_conformance_action,
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}": RunConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}": fix_conformance_action,
@@ -97,6 +99,7 @@ class StateMachineConfig:
             FinishFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CreateDist.SUCCESSFUL_OUTCOME: triggers.FINISH_RENDER,
             RenderConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_READY,
+            AgentRenderConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_READY,
             PrepareTestingEnvironment.SUCCESSFUL_OUTCOME: triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
             PrepareTestingEnvironment.FAILED_OUTCOME: triggers.HANDLE_ERROR,
             RunConformanceTests.SUCCESSFUL_OUTCOME: triggers.MOVE_TO_NEXT_CONFORMANCE_TEST,
