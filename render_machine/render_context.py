@@ -389,9 +389,7 @@ class RenderContext:
             return False
 
         terminal_frid = (
-            list(plain_spec.get_frids(self.plain_source_tree))[-1]
-            if self.is_rerender
-            else ctx.frid_being_implemented
+            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_rerender else ctx.frid_being_implemented
         )
         return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
 
@@ -513,6 +511,14 @@ class RenderContext:
         self._setup_test_specifications()
 
         if ctx.current_conformance_tests_exist():
+            if self.is_rerender and ctx.current_testing_frid == ctx.frid_being_implemented:
+                # already tested in the initial phase — skip and advance to next
+                self.conformance_tests_running_context = self._get_next_test_to_run()
+                ctx = self.conformance_tests_running_context
+                self._setup_test_specifications()
+                if not ctx.current_conformance_tests_exist():
+                    return
+
             # Check if this is the implementation FRID (last test to run)
             if self._has_reached_implementation_frid():
                 # Reached implementation FRID - only re-run it if code changed during regression
@@ -528,6 +534,7 @@ class RenderContext:
 
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
+    # TODO why is this in the context and not part of the state machine (in an action)
     # ========== Main Conformance Test Orchestration ==========
 
     def start_conformance_tests_for_frid(self):
