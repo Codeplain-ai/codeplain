@@ -382,11 +382,18 @@ class RenderContext:
     def _has_reached_implementation_frid(self) -> bool:
         """Check if regression has reached the FRID being implemented."""
         ctx = self.conformance_tests_running_context
-        return (
+        if not (
             ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
             and ctx.current_testing_module_name == self.module_name
-            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
+        ):
+            return False
+
+        terminal_frid = (
+            list(plain_spec.get_frids(self.plain_source_tree))[-1]
+            if self.is_rerender
+            else ctx.frid_being_implemented
         )
+        return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
