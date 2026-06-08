@@ -37,7 +37,6 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
         return (
             f"Tests failed (exit code {exit_code}). "
             f"Full output of the tests is available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" to see the complete output.'
         )
     else:
         return f"Tests failed (exit code {exit_code}):\n{truncated}"
@@ -674,8 +673,10 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
     current_dir = os.getcwd()
 
     try:
-        # Run the ls command (inherits current working directory from Python process)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        # Run the ls command with shell=True to enable glob expansion
+        # Join command parts into a single string for shell execution
+        shell_cmd = " ".join(cmd)
+        result = subprocess.run(shell_cmd, capture_output=True, text=True, timeout=10, shell=True, cwd=current_dir)
 
         # Combine stdout and stderr for complete output
         output = result.stdout
