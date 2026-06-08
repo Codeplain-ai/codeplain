@@ -230,7 +230,6 @@ def create_parser():
         "--rerender",
         type=frid_string,
         help="Re-render a single already-rendered functionality (e.g. `2`). "
-        "Adds a new commit on top of the current HEAD without reverting any prior work. "
         "Only top-level integer FRIDs are supported.",
     )
 
