@@ -17,6 +17,7 @@ from render_machine.agent.tools import (
     prepare_environment,
     read_file,
     run_conformance_tests,
+    think,
     write_file,
 )
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -55,6 +56,7 @@ class AgentFixConformanceTest(BaseAction):
 
         # Only provide code editing tools (no test/review tools)
         tools = {
+            "think": think,
             "edit_file": edit_file,
             "write_file": write_file,
             "delete_file": delete_file,
@@ -83,6 +85,7 @@ class AgentFixConformanceTest(BaseAction):
                 "build_folder": render_context.build_folder,
                 "conformance_tests_folder": conformance_test_folder,
                 "conformance_tests_script_path": render_context.conformance_tests_script or "",
+                "prepare_environment_script_path": render_context.prepare_environment_script or "",
                 "module_name": render_context.module_name,
                 "keep_session_alive": True,  # Mark this as a persistent session
             }
@@ -130,6 +133,7 @@ class AgentFixConformanceTest(BaseAction):
                         "build_folder": render_context.build_folder,
                         "conformance_tests_folder": conformance_test_folder,
                         "conformance_tests_script_path": render_context.conformance_tests_script or "",
+                        "prepare_environment_script_path": render_context.prepare_environment_script or "",
                         "module_name": render_context.module_name,
                         "keep_session_alive": True,
                         # Include context from previous attempts (if available)
