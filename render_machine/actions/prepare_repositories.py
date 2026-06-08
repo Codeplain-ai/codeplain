@@ -106,8 +106,7 @@ class PrepareRepositories(BaseAction):
         module_metadata = render_context.plain_module.load_module_metadata()
         if not module_metadata or "functionalities" not in module_metadata:
             render_context.dispatch_error(
-                "module_metadata.json is missing or incomplete. "
-                "Please re-render the module from the beginning."
+                "module_metadata.json is missing or incomplete. " "Please re-render the module from the beginning."
             )
             return "error", None
 
