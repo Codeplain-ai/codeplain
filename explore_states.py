@@ -48,7 +48,7 @@ def _load_transitions() -> List[Dict[str, Any]]:
 
     config = StateMachineConfig()
     ctx = _StubRenderContext()
-    return config.get_transitions(ctx)
+    return config.get_transitions(ctx)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
