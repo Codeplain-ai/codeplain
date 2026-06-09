@@ -14,13 +14,11 @@ from render_machine.agent.tools import (
     ls_files,
     read_file,
     run_unit_tests,
-    think,
     write_file,
 )
 from render_machine.render_context import RenderContext
 
 FIX_UNIT_TESTS_TOOLS = {
-    "think": think,
     "run_unit_tests": run_unit_tests,
     "edit_file": edit_file,
     "write_file": write_file,

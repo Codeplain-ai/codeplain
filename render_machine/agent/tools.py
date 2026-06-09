@@ -24,7 +24,7 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
         stop_event=render_context.stop_event,
     )
     if exit_code == 0:
-        return "All unit tests passed successfully."
+        return "All unit tests passed successfully. The fix was successful, end the task and perform no further tool calls!"
 
     lines = output.split("\n") if output else []
     total_lines = len(lines)
