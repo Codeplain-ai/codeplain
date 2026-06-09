@@ -7,7 +7,7 @@ that controls the code rendering process.
 
 # Trigger constants for state machine transitions
 START_RENDER = "start_render"
-RENDER_FUNCTIONAL_REQUIREMENT = "render_functional_requirement"  # todo: rename
+RENDER_FUNCTIONAL_REQUIREMENT = "render_functional_requirement"
 PROCEED_FRID_PROCESSING = "proceed_frid_processing"
 MARK_UNIT_TESTS_FAILED = "mark_unit_tests_failed"
 MARK_UNIT_TESTS_PASSED = "mark_unit_tests_passed"

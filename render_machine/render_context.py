@@ -1,6 +1,6 @@
 import threading
 from copy import deepcopy
-from typing import Optional
+from typing import Callable, Optional
 
 import file_utils
 import git_utils
@@ -195,18 +195,9 @@ class RenderContext:
     def should_run_conformance_tests(self) -> bool:
         return self.conformance_tests_script is not None
 
-    def finish_frid_implementation_step(self):
-        pass
-
     def start_unittests_processing(self):
         self.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
         self.run_state.increment_unittest_batch_id()
-
-    def start_unittests_processing_in_implementation(self):
-        self.start_unittests_processing()
-
-    def start_unittests_processing_in_refactoring(self):
-        self.start_unittests_processing()
 
     def _get_first_frid_conformance_test_running_context(self, module: PlainModule | None):
         conformance_tests_running_context = self.conformance_tests_running_context
@@ -280,9 +271,6 @@ class RenderContext:
 
         return conformance_tests_running_context
 
-    def start_unittests_processing_in_conformance_tests(self):
-        self.start_unittests_processing()
-
     def finish_unittests_processing(self):
         existing_files = file_utils.list_all_text_files(self.build_folder)
 
@@ -294,39 +282,32 @@ class RenderContext:
                 self.frid_context.changed_files.add(file_name)
         self.unit_tests_running_context.fix_attempts = 1
 
-    def finish_unittests_processing_during_implementation(self):
-        self.finish_unittests_processing()
-
-    def start_fixing_unit_tests(self):
+    def start_fixing_unit_tests(self, on_limit_exceeded: Callable):
         self.unit_tests_running_context.fix_attempts += 1
-
         if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
+            on_limit_exceeded()
+
+    def _on_unit_test_limit_exceeded_in_implementation(self):
+        self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
+
+    def _on_unit_test_limit_exceeded_in_conformance_tests(self):
+        self.functional_requirements_render_attempts_failed_unit_during_conformance_tests += 1
+        if (
+            self.functional_requirements_render_attempts_failed_unit_during_conformance_tests
+            >= MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS
+        ):
+            error_msg = f"Failed to adjust the unit tests after implementation code was update while fixing the conformance tests for functionality {self.frid_context.frid} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
+            self.dispatch_error(error_msg)
+        else:
+            console.info(
+                f"Failed to adjust the unit tests after implementation code was updated while fixing the conformance tests for functionality {self.frid_context.frid}."
+            )
+            console.info(f"Restarting rendering the functionality {self.frid_context.frid} from scratch.")
             self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
 
-    def start_fixing_unit_tests_in_conformance_tests(self):
-        self.unit_tests_running_context.fix_attempts += 1
-
-        if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
-            self.functional_requirements_render_attempts_failed_unit_during_conformance_tests += 1
-            if (
-                self.functional_requirements_render_attempts_failed_unit_during_conformance_tests
-                >= MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS
-            ):
-                error_msg = f"Failed to adjust unit tests after implementation code was update while fixing conformance tests for functionality {self.frid_context.frid} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
-                self.dispatch_error(error_msg)
-            else:
-                console.info(
-                    f"Failed to adjust unit tests after implementation code was update while fixing conformance tests for functionality {self.frid_context.frid}."
-                )
-                console.info(f"Restarting rendering the functionality {self.frid_context.frid} from scratch.")
-                self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
-
-    def start_fixing_unit_tests_in_refactoring(self):
-        self.unit_tests_running_context.fix_attempts += 1
-
-        if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
-            git_utils.revert_changes(self.build_folder)
-            self.machine.dispatch(triggers.START_NEW_REFACTORING_ITERATION)
+    def _on_unit_test_limit_exceeded_in_refactoring(self):
+        git_utils.revert_changes(self.build_folder)
+        self.machine.dispatch(triggers.START_NEW_REFACTORING_ITERATION)
 
     def start_refactoring_code(self):
 
@@ -340,9 +321,6 @@ class RenderContext:
                 f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {self.frid_context.frid}."
             )
             self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
-
-    def finish_refactoring_code(self):
-        pass
 
     def start_testing_environment_preparation(self):
         if (
