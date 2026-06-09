@@ -17,7 +17,6 @@ from render_machine.agent.tools import (
     prepare_environment,
     read_file,
     run_conformance_tests,
-    think,
     write_file,
 )
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -56,7 +55,6 @@ class AgentFixConformanceTest(BaseAction):
 
         # Only provide code editing tools (no test/review tools)
         tools = {
-            "think": think,
             "edit_file": edit_file,
             "write_file": write_file,
             "delete_file": delete_file,
