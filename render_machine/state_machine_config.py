@@ -133,10 +133,7 @@ class StateMachineConfig:
                     "name": States.CONFORMANCE_TESTING_INITIALISED.value,
                     "on_enter": render_context.start_conformance_tests_for_frid,
                 },
-                {
-                    "name": States.CONFORMANCE_TEST_GENERATED.value,
-                    "on_enter": render_context.start_testing_environment_preparation,
-                },
+                States.CONFORMANCE_TEST_GENERATED.value,
                 States.CONFORMANCE_TEST_ENV_PREPARED.value,
                 {
                     "name": States.CONFORMANCE_TEST_FAILED.value,

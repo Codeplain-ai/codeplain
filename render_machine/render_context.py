@@ -310,13 +310,6 @@ class RenderContext:
             )
             self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
 
-    def start_testing_environment_preparation(self):
-        if (
-            self.prepare_environment_script is None
-            or not self.conformance_tests_running_context.should_prepare_testing_environment
-        ):
-            self.machine.dispatch(triggers.MARK_TESTING_ENVIRONMENT_PREPARED)
-
     def start_conformance_tests_processing(self):
         console.info("Implementing conformance tests...")
         current_frid_specifications, _ = plain_spec.get_specifications_for_frid(
@@ -534,7 +527,6 @@ class RenderContext:
 
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
-    # TODO why is this in the context and not part of the state machine (in an action)
     # ========== Main Conformance Test Orchestration ==========
 
     def start_conformance_tests_for_frid(self):
