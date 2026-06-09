@@ -23,7 +23,6 @@ from render_machine.render_types import (
 )
 
 MAX_UNITTEST_FIX_ATTEMPTS = 20
-MAX_CODE_GENERATION_RETRIES = 2
 MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
 MAX_REFACTORING_ITERATIONS = 5
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
@@ -163,20 +162,6 @@ class RenderContext:
             functional_requirement_render_attempts=0,
         )
         return
-
-    def check_frid_iteration_limit(self):
-        if self.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functionality {self.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
-            self.dispatch_error(error_msg)
-
-        self.frid_context.functional_requirement_render_attempts += 1
-
-        if self.frid_context.functional_requirement_render_attempts > 1:
-            # this if is intended just for logging
-            console.info(
-                f"Unittests could not be fixed after rendering the functionality. "
-                f"Restarting rendering the functionality {self.frid_context.frid} from scratch."
-            )
 
     def has_next_frid(self) -> bool:
         next_frid = plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid)

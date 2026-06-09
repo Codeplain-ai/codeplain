@@ -73,6 +73,7 @@ class StateMachineConfig:
             PrepareRepositories.SUCCESSFUL_OUTCOME: triggers.START_RENDER,
             RenderFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.RENDER_FUNCTIONAL_REQUIREMENT,
             RenderFunctionalRequirement.FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME: triggers.HANDLE_ERROR,
+            RenderFunctionalRequirement.ITERATION_LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
             RunUnitTests.SUCCESSFUL_OUTCOME: triggers.MARK_UNIT_TESTS_PASSED,
             RunUnitTests.FAILED_OUTCOME: triggers.MARK_UNIT_TESTS_FAILED,
             RunUnitTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
@@ -183,10 +184,7 @@ class StateMachineConfig:
                 "on_exit": render_context.finish_implementing_frid,
                 "children": [
                     {"name": States.STEP_COMPLETED.value},
-                    {
-                        "name": States.READY_FOR_FRID_IMPLEMENTATION.value,
-                        "on_enter": render_context.check_frid_iteration_limit,
-                    },
+                    States.READY_FOR_FRID_IMPLEMENTATION.value,
                     self.get_processing_unit_tests_states(
                         render_context, render_context._on_unit_test_limit_exceeded_in_implementation
                     ),
