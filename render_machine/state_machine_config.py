@@ -5,7 +5,6 @@ This module defines the hierarchical state machine structure, transitions, and a
 used by the CodeRenderer to orchestrate the code generation workflow.
 """
 
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
 import git_utils
@@ -28,46 +27,6 @@ from render_machine.actions.run_unit_tests import RunUnitTests
 from render_machine.actions.summarize_conformance_tests import SummarizeConformanceTests
 from render_machine.render_context import RenderContext
 from render_machine.states import States
-
-
-@dataclass
-class UnitTestsStateConfig:
-    """Dataclass for unit test state configuration."""
-
-    unit_tests_failed_on_enter_function: Callable
-    on_enter_action: Callable
-    on_exit_action: Callable
-
-
-class UnitTestsConfig:
-    """Provides configurations for different unit test scenarios."""
-
-    @staticmethod
-    def for_refactoring(render_context: RenderContext) -> UnitTestsStateConfig:
-        """Configuration for unit tests during refactoring."""
-        return UnitTestsStateConfig(
-            unit_tests_failed_on_enter_function=render_context.start_fixing_unit_tests_in_refactoring,
-            on_enter_action=render_context.start_unittests_processing_in_refactoring,
-            on_exit_action=render_context.finish_unittests_processing,
-        )
-
-    @staticmethod
-    def for_conformance_tests(render_context: RenderContext) -> UnitTestsStateConfig:
-        """Configuration for unit tests during conformance tests."""
-        return UnitTestsStateConfig(
-            unit_tests_failed_on_enter_function=render_context.start_fixing_unit_tests_in_conformance_tests,
-            on_enter_action=render_context.start_unittests_processing_in_conformance_tests,
-            on_exit_action=render_context.finish_unittests_processing,
-        )
-
-    @staticmethod
-    def for_implementation(render_context: RenderContext) -> UnitTestsStateConfig:
-        """Configuration for unit tests during initial implementation."""
-        return UnitTestsStateConfig(
-            unit_tests_failed_on_enter_function=render_context.start_fixing_unit_tests,
-            on_enter_action=render_context.start_unittests_processing_in_implementation,
-            on_exit_action=render_context.finish_unittests_processing_during_implementation,
-        )
 
 
 class StateMachineConfig:
@@ -137,26 +96,21 @@ class StateMachineConfig:
             AnalyzeSpecificationAmbiguity.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
         }
 
-    def get_processing_unit_tests_states(self, config: UnitTestsStateConfig) -> Dict[str, Any]:
-        """Create the processing unit tests state configuration based on the provided configuration.
-
-        Args:
-            config: A dataclass containing the configuration for the unit test state.
-
-        Returns:
-            Dictionary defining the processing unit tests hierarchical state.
-        """
-        children = [
-            States.UNIT_TESTS_READY.value,
-            {"name": States.UNIT_TESTS_FAILED.value, "on_enter": config.unit_tests_failed_on_enter_function},
-        ]
-
+    def get_processing_unit_tests_states(
+        self, render_context: RenderContext, on_limit_exceeded: Callable
+    ) -> Dict[str, Any]:
         return {
             "name": States.PROCESSING_UNIT_TESTS.value,
             "initial": States.UNIT_TESTS_READY.value,
-            "on_enter": config.on_enter_action,
-            "on_exit": config.on_exit_action,
-            "children": children,
+            "on_enter": render_context.start_unittests_processing,
+            "on_exit": render_context.finish_unittests_processing,
+            "children": [
+                States.UNIT_TESTS_READY.value,
+                {
+                    "name": States.UNIT_TESTS_FAILED.value,
+                    "on_enter": lambda: render_context.start_fixing_unit_tests(on_limit_exceeded),
+                },
+            ],
         }
 
     def get_postprocessing_conformance_tests_states(self) -> Dict[str, Any]:
@@ -191,7 +145,9 @@ class StateMachineConfig:
                     "on_enter": render_context.start_fixing_conformance_tests,
                     "on_exit": render_context.finish_fixing_conformance_tests,
                 },
-                self.get_processing_unit_tests_states(UnitTestsConfig.for_conformance_tests(render_context)),
+                self.get_processing_unit_tests_states(
+                    render_context, render_context._on_unit_test_limit_exceeded_in_conformance_tests
+                ),
                 self.get_postprocessing_conformance_tests_states(),
             ],
         }
@@ -209,10 +165,11 @@ class StateMachineConfig:
             "name": States.REFACTORING_CODE.value,
             "initial": States.READY_FOR_REFACTORING.value,
             "on_enter": render_context.start_refactoring_code,
-            "on_exit": render_context.finish_refactoring_code,
             "children": [
                 States.READY_FOR_REFACTORING.value,
-                self.get_processing_unit_tests_states(UnitTestsConfig.for_refactoring(render_context)),
+                self.get_processing_unit_tests_states(
+                    render_context, render_context._on_unit_test_limit_exceeded_in_refactoring
+                ),
                 States.STEP_COMPLETED.value,
             ],
         }
@@ -225,12 +182,14 @@ class StateMachineConfig:
                 "on_enter": render_context.start_implementing_frid,
                 "on_exit": render_context.finish_implementing_frid,
                 "children": [
-                    {"name": States.STEP_COMPLETED.value, "on_exit": render_context.finish_frid_implementation_step},
+                    {"name": States.STEP_COMPLETED.value},
                     {
                         "name": States.READY_FOR_FRID_IMPLEMENTATION.value,
                         "on_enter": render_context.check_frid_iteration_limit,
                     },
-                    self.get_processing_unit_tests_states(UnitTestsConfig.for_implementation(render_context)),
+                    self.get_processing_unit_tests_states(
+                        render_context, render_context._on_unit_test_limit_exceeded_in_implementation
+                    ),
                     refactoring_code_states,
                     self.get_processing_conformance_tests_states(render_context),
                     States.FRID_FULLY_IMPLEMENTED.value,
