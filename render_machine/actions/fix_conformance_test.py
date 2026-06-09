@@ -11,7 +11,6 @@ from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 from render_machine.render_types import TestExecutionPhase
 
-
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
 
