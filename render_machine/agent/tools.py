@@ -173,6 +173,13 @@ def _is_within_any(full_path: str, allowed_folders: list[str]) -> bool:
     return False
 
 
+def _track_file_change(full_path: str, render_context: RenderContext):
+    """Record original file content before modification for revert-on-rejection."""
+    ctx = render_context.conformance_tests_running_context
+    if ctx:
+        ctx.track_file_before_modification(full_path)
+
+
 def edit_file(args: dict, render_context: RenderContext) -> str:
     """Edit a file using search and replace with fuzzy matching for robustness.
 
@@ -242,6 +249,9 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
         # Perform replacement
         new_content = original_content.replace(search_text, replace_text, 1)
 
+        # Track original before writing
+        _track_file_change(full_path, render_context)
+
         # Write the updated content
         try:
             with open(full_path, "w", encoding="utf-8") as f:
@@ -296,6 +306,9 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
         if original_content.endswith("\n") and not new_content.endswith("\n"):
             new_content += "\n"
 
+        # Track original before writing
+        _track_file_change(full_path, render_context)
+
         # Write the updated content
         try:
             with open(full_path, "w", encoding="utf-8") as f:
@@ -335,6 +348,8 @@ def write_file(args: dict, render_context: RenderContext) -> str:
             f"You can only write to files within these folders:\n{folder_list}\n"
             f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
         )
+
+    _track_file_change(full_path, render_context)
 
     try:
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -381,6 +396,9 @@ def delete_file(args: dict, render_context: RenderContext) -> str:
     # Check if it's a file (not a directory)
     if os.path.isdir(full_path):
         return f"Error: '{full_path}' is a directory. Use appropriate directory deletion if needed, or delete individual files."
+
+    # Track original before deleting
+    _track_file_change(full_path, render_context)
 
     # Delete the file
     try:

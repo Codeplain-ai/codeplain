@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Optional
@@ -89,6 +90,11 @@ class ConformanceTestsRunningContext:
 
         self.regenerating_conformance_tests: bool = False
 
+        # Tracks original file contents before fix agent modifies them.
+        # Key: absolute file path, Value: original content (or None if file didn't exist).
+        # Used to revert changes when the reviewer rejects a fix.
+        self.file_change_tracker: dict[str, Optional[str]] = {}
+
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
         self.previous_conformance_tests_issue_frid: Optional[str] = None
@@ -140,6 +146,33 @@ class ConformanceTestsRunningContext:
         self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
             "test_summary"
         ] = summary
+
+    def reset_file_change_tracker(self):
+        """Clear the file change tracker (call at the start of each fix attempt and after approval)."""
+        self.file_change_tracker = {}
+
+    def track_file_before_modification(self, absolute_path: str):
+        """Record original file content before first modification. No-op if already tracked."""
+        if absolute_path in self.file_change_tracker:
+            return
+        if os.path.exists(absolute_path):
+            with open(absolute_path, "r", encoding="utf-8") as f:
+                self.file_change_tracker[absolute_path] = f.read()
+        else:
+            self.file_change_tracker[absolute_path] = None
+
+    def revert_tracked_changes(self):
+        """Revert all tracked files to their original state."""
+        for absolute_path, original_content in self.file_change_tracker.items():
+            if original_content is None:
+                # File didn't exist before — delete it
+                if os.path.exists(absolute_path):
+                    os.remove(absolute_path)
+            else:
+                os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+                with open(absolute_path, "w", encoding="utf-8") as f:
+                    f.write(original_content)
+        self.file_change_tracker = {}
 
 
 @dataclass
