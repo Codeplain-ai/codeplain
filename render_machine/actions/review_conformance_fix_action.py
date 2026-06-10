@@ -101,6 +101,7 @@ class ReviewConformanceFixAction(BaseAction):
         console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
         console.info("Reverting rejected changes...")
         ctx.revert_tracked_changes()
+        result_text += "\nThe rejected changes have been reverted. Propose a new fix."
         return self.REJECTED, {
             "rejection_feedback": result_text,
             "previous_agent_summary": agent_summary,
