@@ -91,11 +91,17 @@ class ReviewConformanceFixAction(BaseAction):
 
         # Parse the reviewer's final response for VERDICT
         result_text = response.get("result", "")
+        ctx = render_context.conformance_tests_running_context
         if "VERDICT: APPROVED" in result_text.upper():
             console.info("[green]Review APPROVED[/green]")
+            if ctx:
+                ctx.reset_file_change_tracker()
             return self.APPROVED, {"rejection_feedback": ""}
         else:
             console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
+            if ctx:
+                console.info("Reverting rejected changes...")
+                ctx.revert_tracked_changes()
             return self.REJECTED, {
                 "rejection_feedback": result_text,
                 "previous_agent_summary": agent_summary,
