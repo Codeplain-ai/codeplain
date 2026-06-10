@@ -44,6 +44,9 @@ class AgentFixConformanceTest(BaseAction):
             f"in module {render_context.conformance_tests_running_context.current_testing_module_name}."
         )
 
+        # Reset tracker so this fix attempt starts with a clean slate
+        render_context.conformance_tests_running_context.reset_file_change_tracker()
+
         # Snapshot files to detect changes later
         _, implementation_snapshot = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         conformance_test_folder = self._get_conformance_test_folder(render_context)
