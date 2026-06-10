@@ -1,25 +1,20 @@
 import os
 from typing import Any
 
-import file_utils
 import plain_spec
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
-    create_submit_fix_for_review,
     delete_file,
     edit_file,
     grep,
     list_files,
     ls_files,
-    prepare_environment,
     read_file,
-    run_conformance_tests,
     write_file,
 )
-from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 
 
@@ -47,10 +42,7 @@ class AgentFixConformanceTest(BaseAction):
         # Reset tracker so this fix attempt starts with a clean slate
         render_context.conformance_tests_running_context.reset_file_change_tracker()
 
-        # Snapshot files to detect changes later
-        _, implementation_snapshot = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         conformance_test_folder = self._get_conformance_test_folder(render_context)
-        conformance_snapshot = self._snapshot_folder(conformance_test_folder)
 
         # Build context
         specifications = self._build_specifications_text(render_context)
@@ -162,26 +154,11 @@ class AgentFixConformanceTest(BaseAction):
         # Extract agent's summary message
         agent_summary = response.get("result", "") if response.get("status") == "completed" else ""
 
-        # Store snapshots and summary for review/test actions
-        combined_snapshot = dict(implementation_snapshot)
-        for path, content in conformance_snapshot.items():
-            combined_snapshot[f"conformance_tests/{path}"] = content
-
-        # Check if code was modified
-        _, current_impl_files = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
-        current_test_files = self._snapshot_folder(conformance_test_folder)
-
-        implementation_changed = current_impl_files != implementation_snapshot
-        tests_changed = current_test_files != conformance_snapshot
-
         return self.FIX_READY_FOR_REVIEW, {
             "agent_summary": agent_summary,
-            "file_snapshot": combined_snapshot,
             "specifications": specifications,
             "acceptance_tests": acceptance_tests,
             "conformance_test_folder": conformance_test_folder,
-            "implementation_changed": implementation_changed,
-            "tests_changed": tests_changed,
         }
 
     def _get_conformance_test_folder(self, render_context: RenderContext) -> str:
@@ -195,12 +172,6 @@ class AgentFixConformanceTest(BaseAction):
             ctx.get_current_conformance_test_folder_name(),
         )
         return folder
-
-    def _snapshot_folder(self, folder: str) -> dict[str, str]:
-        if not os.path.exists(folder):
-            return {}
-        files = file_utils.list_all_text_files(folder)
-        return file_utils.get_existing_files_content(folder, files)
 
     def _build_specifications_text(self, render_context: RenderContext) -> str:
         frid = render_context.frid_context.frid
