@@ -6,7 +6,6 @@ from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 
-
 MAX_REFACTORING_ITERATIONS = 5
 
 
