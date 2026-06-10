@@ -80,6 +80,7 @@ class StateMachineConfig:
             FixUnitTests.SUCCESSFUL_OUTCOME: triggers.MARK_UNIT_TESTS_READY,
             RefactorCode.SUCCESSFUL_OUTCOME: triggers.REFACTOR_CODE,
             RefactorCode.NO_FILES_REFACTORED_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
+            RefactorCode.ITERATION_LIMIT_EXCEEDED_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CommitImplementationCodeChanges.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             FinishFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CreateDist.SUCCESSFUL_OUTCOME: triggers.FINISH_RENDER,
@@ -160,7 +161,6 @@ class StateMachineConfig:
         refactoring_code_states = {
             "name": States.REFACTORING_CODE.value,
             "initial": States.READY_FOR_REFACTORING.value,
-            "on_enter": render_context.start_refactoring_code,
             "children": [
                 States.READY_FOR_REFACTORING.value,
                 self.get_processing_unit_tests_states(

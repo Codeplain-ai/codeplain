@@ -23,7 +23,6 @@ from render_machine.render_types import (
 )
 
 MAX_UNITTEST_FIX_ATTEMPTS = 20
-MAX_REFACTORING_ITERATIONS = 5
 MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS = 2
 
 
@@ -291,19 +290,6 @@ class RenderContext:
     def _on_unit_test_limit_exceeded_in_refactoring(self):
         git_utils.revert_changes(self.build_folder)
         self.machine.dispatch(triggers.START_NEW_REFACTORING_ITERATION)
-
-    def start_refactoring_code(self):
-
-        if self.frid_context.refactoring_iteration == 0:
-            console.info("Refactoring the generated code...")
-
-        self.frid_context.refactoring_iteration += 1
-
-        if self.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
-            console.info(
-                f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {self.frid_context.frid}."
-            )
-            self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
 
     def start_conformance_tests_processing(self):
         console.info("Implementing conformance tests...")
