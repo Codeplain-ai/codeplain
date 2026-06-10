@@ -2,7 +2,6 @@ import os
 from typing import Any
 
 import diff_utils
-import file_utils
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -21,7 +20,6 @@ class ReviewConformanceFixAction(BaseAction):
             return self.REJECTED, {"rejection_feedback": "No fix provided"}
 
         # Extract data from agent's payload
-        file_snapshot = previous_action_payload.get("file_snapshot", {})
         specifications = previous_action_payload.get("specifications", "")
         acceptance_tests = previous_action_payload.get("acceptance_tests", "")
         conformance_test_folder = previous_action_payload.get("conformance_test_folder", "")
@@ -29,22 +27,26 @@ class ReviewConformanceFixAction(BaseAction):
 
         console.info("Reviewing conformance test fix...")
 
-        # Compute diff between snapshot and current state
+        ctx = render_context.conformance_tests_running_context
+
+        # Compute diff from the file change tracker (tracks originals before modification)
+        if not ctx or not ctx.file_change_tracker:
+            console.warning("No changes detected in fix. Approving by default.")
+            return self.APPROVED, {"rejection_feedback": ""}
+
         current_files = {}
-        all_impl_files = file_utils.list_all_text_files(render_context.build_folder)
-        for file_path in all_impl_files:
-            full_path = os.path.join(render_context.build_folder, file_path)
-            with open(full_path, "r", encoding="utf-8") as f:
-                current_files[file_path] = f.read()
+        original_files = {}
+        for absolute_path, original_content in ctx.file_change_tracker.items():
+            relative_path = os.path.relpath(absolute_path)
+            if original_content is not None:
+                original_files[relative_path] = original_content
+            if os.path.exists(absolute_path):
+                with open(absolute_path, "r", encoding="utf-8") as f:
+                    current_files[relative_path] = f.read()
+            else:
+                current_files[relative_path] = ""
 
-        if conformance_test_folder and os.path.exists(conformance_test_folder):
-            ct_files = file_utils.list_all_text_files(conformance_test_folder)
-            for file_path in ct_files:
-                full_path = os.path.join(conformance_test_folder, file_path)
-                with open(full_path, "r", encoding="utf-8") as f:
-                    current_files[f"conformance_tests/{file_path}"] = f.read()
-
-        diff_text = diff_utils.get_code_diff(current_files, file_snapshot)
+        diff_text = diff_utils.get_code_diff(current_files, original_files)
         if not diff_text:
             console.warning("No changes detected in fix. Approving by default.")
             return self.APPROVED, {"rejection_feedback": ""}
@@ -91,18 +93,15 @@ class ReviewConformanceFixAction(BaseAction):
 
         # Parse the reviewer's final response for VERDICT
         result_text = response.get("result", "")
-        ctx = render_context.conformance_tests_running_context
         if "VERDICT: APPROVED" in result_text.upper():
             console.info("[green]Review APPROVED[/green]")
-            if ctx:
-                ctx.reset_file_change_tracker()
+            ctx.reset_file_change_tracker()
             return self.APPROVED, {"rejection_feedback": ""}
-        else:
-            console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
-            if ctx:
-                console.info("Reverting rejected changes...")
-                ctx.revert_tracked_changes()
-            return self.REJECTED, {
-                "rejection_feedback": result_text,
-                "previous_agent_summary": agent_summary,
-            }
+
+        console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
+        console.info("Reverting rejected changes...")
+        ctx.revert_tracked_changes()
+        return self.REJECTED, {
+            "rejection_feedback": result_text,
+            "previous_agent_summary": agent_summary,
+        }
