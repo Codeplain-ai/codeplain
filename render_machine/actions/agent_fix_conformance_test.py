@@ -60,7 +60,8 @@ class AgentFixConformanceTest(BaseAction):
         }
 
         # Get test output file path from context (set by RunConformanceTests)
-        test_output_file = render_context.conformance_tests_running_context.test_output_file_path or ""
+        test_output_file = render_context.script_execution_history.latest_conformance_test_output_path or ""
+        prepare_environment_output_file = render_context.script_execution_history.latest_testing_environment_output_path or ""
         linked_resource_paths = self._get_linked_resource_paths(render_context)
 
         tool_executor = ToolExecutor(available_tools=tools)
@@ -73,6 +74,7 @@ class AgentFixConformanceTest(BaseAction):
             task_params = {
                 "specifications": specifications,
                 "test_output_file": test_output_file,
+                "prepare_environment_output_file": prepare_environment_output_file,
                 "linked_resource_paths": linked_resource_paths,
                 "acceptance_tests": acceptance_tests,
                 "build_folder": render_context.build_folder,
