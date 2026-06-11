@@ -34,7 +34,7 @@ class PrepareTestingEnvironment(BaseAction):
         render_context.script_execution_history.should_update_script_outputs = True
 
         # Store test output file path in conformance tests context for agents to access
-        render_context.conformance_tests_running_context.test_output_file_path = preparation_temp_file_path
+        #render_context.conformance_tests_running_context.test_output_file_path = preparation_temp_file_path
 
         if exit_code == 0:
             return self.SUCCESSFUL_OUTCOME, None

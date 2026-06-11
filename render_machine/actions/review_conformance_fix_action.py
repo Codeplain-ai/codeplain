@@ -56,13 +56,15 @@ class ReviewConformanceFixAction(BaseAction):
             diff_str += f"--- {file_path}\n{file_diff}\n\n"
 
         # Get test output file path from context (set by RunConformanceTests)
-        test_output_file = render_context.conformance_tests_running_context.test_output_file_path or ""
+        test_output_file = render_context.script_execution_history.latest_conformance_test_output_path or ""
+        prepare_environment_output_file = render_context.script_execution_history.latest_testing_environment_output_path or ""
 
         # Build task params for the reviewer agent
         review_task_params = {
             "specifications": specifications,
             "acceptance_tests": acceptance_tests,
             "test_output_file": test_output_file,
+            "prepare_environment_output_file": prepare_environment_output_file,
             "diff": diff_str,
             "explanation": agent_summary,
             "conformance_tests_script_path": render_context.conformance_tests_script or "",
