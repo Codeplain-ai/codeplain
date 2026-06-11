@@ -42,6 +42,7 @@ class CodeRenderer:
     def run(self):
         """Execute the main rendering workflow."""
         self.render_context.event_bus.publish(RenderModuleStarted(module_name=self.render_context.module_name))
+        self.render_context.run_state.current_module = self.render_context.module_name
         previous_action_payload = None
         previous_state = None
 
@@ -63,6 +64,7 @@ class CodeRenderer:
                 )
             )
             previous_state = deepcopy(self.render_context.state)
+            self.render_context.run_state.current_render_state = self.render_context.state
             self.render_context.script_execution_history.should_update_script_outputs = False
 
             self.render_context.previous_action_payload = previous_action_payload
