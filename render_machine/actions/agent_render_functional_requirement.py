@@ -27,13 +27,12 @@ class AgentRenderFunctionalRequirement(BaseAction):
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         render_utils.revert_changes_for_frid(render_context)
 
-        if render_context.verbose:
-            msg = "-------------------------------------\n"
-            msg += f"Module: {render_context.module_name}\n"
-            msg += f"Rendering functionality {render_context.frid_context.frid}:\n"
-            msg += f"{render_context.frid_context.functional_requirement_text}\n"
-            msg += "-------------------------------------"
-            console.info(msg)
+        msg = "-------------------------------------\n"
+        msg += f"Module: {render_context.module_name}\n"
+        msg += f"Rendering functionality {render_context.frid_context.frid}:\n"
+        msg += f"{render_context.frid_context.functional_requirement_text}\n"
+        msg += "-------------------------------------"
+        console.info(msg)
 
         task_params = {
             "specifications": self._build_specifications_text(render_context),

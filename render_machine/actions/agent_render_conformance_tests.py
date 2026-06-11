@@ -43,14 +43,13 @@ class AgentRenderConformanceTests(BaseAction):
 
     def _render_conformance_tests(self, render_context: RenderContext):
         if not render_context.conformance_tests_running_context.current_conformance_tests_exist():
-            if render_context.verbose:
-                console.info("Agent implementing test requirements:")
-                console.print_list(
-                    render_context.conformance_tests_running_context.current_testing_frid_specifications[
-                        plain_spec.TEST_REQUIREMENTS
-                    ],
-                    style=console.INFO_STYLE,
-                )
+            console.info("Agent implementing test requirements:")
+            console.print_list(
+                render_context.conformance_tests_running_context.current_testing_frid_specifications[
+                    plain_spec.TEST_REQUIREMENTS
+                ],
+                style=console.INFO_STYLE,
+            )
 
             fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
                 frid=render_context.conformance_tests_running_context.current_testing_frid,
@@ -71,8 +70,7 @@ class AgentRenderConformanceTests(BaseAction):
                 fr_subfolder_name,
             )
 
-            if render_context.verbose:
-                console.debug(f"Agent storing conformance test files in subfolder {conformance_tests_folder_name}/")
+            console.debug(f"Agent storing conformance test files in subfolder {conformance_tests_folder_name}/")
 
             render_context.conformance_tests_running_context.get_conformance_tests_json(
                 render_context.conformance_tests_running_context.current_testing_module_name
@@ -124,8 +122,7 @@ class AgentRenderConformanceTests(BaseAction):
             render_context.conformance_tests_running_context.acceptance_tests_completed - 1
         ]
 
-        if render_context.verbose:
-            console.info(f"Agent generating acceptance test:\n  {acceptance_test}")
+        console.info(f"Agent generating acceptance test:\n  {acceptance_test}")
 
         task_params = {
             "specifications": self._build_specifications_text(render_context),

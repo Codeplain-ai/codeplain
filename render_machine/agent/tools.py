@@ -18,7 +18,6 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
     exit_code, output, temp_file_path = render_utils.execute_script(
         unittests_script,
         [render_context.build_folder],
-        render_context.verbose,
         "Unit Tests",
         timeout=render_context.test_script_timeout,
         stop_event=render_context.stop_event,
@@ -64,7 +63,6 @@ def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
     exit_code, output, temp_file_path = render_utils.execute_script(
         conformance_tests_script,
         script_args,
-        render_context.verbose,
         "Conformance Tests",
         timeout=render_context.test_script_timeout,
         stop_event=render_context.stop_event,
@@ -97,7 +95,6 @@ def prepare_environment(args: dict, render_context: RenderContext) -> str:
     exit_code, output, temp_file_path = render_utils.execute_script(
         script,
         [render_context.build_folder],
-        render_context.verbose,
         "Testing Environment Preparation",
         timeout=render_context.test_script_timeout,
         stop_event=render_context.stop_event,
