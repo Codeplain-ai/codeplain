@@ -49,12 +49,34 @@ from plain2code_logger import (
     get_log_file_path,
 )
 from plain2code_state import RunState
+from plain2code_telemetry import capture_crash, initialize_telemetry
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 
 DEFAULT_TEMPLATE_DIRS = importlib.resources.files("standard_template_library")
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
+
+# Exceptions that represent expected, user-facing error conditions. They are
+# reported to the user directly and must never be sent to Sentry as crashes.
+EXPECTED_EXCEPTIONS = (
+    InvalidFridArgument,
+    FileNotFoundError,
+    MissingResource,
+    TemplateNotFoundError,
+    PlainSyntaxError,
+    MissingPreviousFunctionalitiesError,
+    MissingAPIKey,
+    InvalidAPIKey,
+    OutdatedClientVersion,
+    ConflictingRequirements,
+    RenderingCreditBalanceTooLow,
+    NetworkConnectionError,
+    ModuleDoesNotExistError,
+    UnsupportedResourceType,
+    GitNotInstalledError,
+    SystemExit,
+)
 
 
 def setup_logging(
@@ -324,6 +346,8 @@ def main():  # noqa: C901
         args, event_bus, run_state, args.log_to_file, args.log_file_name, args.filename, args.headless
     )
 
+    initialize_telemetry()
+
     exc_info = None
     error_message = None
 
@@ -340,36 +364,17 @@ def main():  # noqa: C901
         else:
             error_message = str(e) if str(e) else repr(e)
 
-            if not isinstance(
-                e,
-                (
-                    InvalidFridArgument,
-                    FileNotFoundError,
-                    MissingResource,
-                    TemplateNotFoundError,
-                    PlainSyntaxError,
-                    MissingPreviousFunctionalitiesError,
-                    MissingAPIKey,
-                    InvalidAPIKey,
-                    OutdatedClientVersion,
-                    ConflictingRequirements,
-                    RenderingCreditBalanceTooLow,
-                    NetworkConnectionError,
-                    ModuleDoesNotExistError,
-                    UnsupportedResourceType,
-                    GitNotInstalledError,
-                ),
-            ):
+            if not isinstance(e, EXPECTED_EXCEPTIONS):
                 exc_info = sys.exc_info()
     finally:
+        if exc_info:
+            dump_crash_logs(args, run_state)
+            capture_crash(exc_info, run_state, args)
         print_exit_summary(
             run_state,
             args.filename,
             error_message=error_message,
         )
-        if exc_info:
-            # Log traceback
-            dump_crash_logs(args, run_state)
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)

@@ -74,6 +74,11 @@ After completing the installation steps above, you can immediately test the syst
   python hello_world.py
   ```
 
+### Crash reporting
+
+If the plain2code client crashes unexpectedly, it sends an anonymous crash report to Codeplain to help improve the tool. To disable crash reporting, set the `CODEPLAIN_NO_TELEMETRY=1` flag.
+
+
 ## Releasing
 
 Releases are built and published with [uv](https://docs.astral.sh/uv/). The version is read from `_version.py`.
