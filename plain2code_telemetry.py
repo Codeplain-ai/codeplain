@@ -29,8 +29,13 @@ FLUSH_TIMEOUT_SECONDS = 2
 # Local variable names whose values may contain proprietary spec or generated
 # code content and must be scrubbed from stack traces (extends Sentry's
 # default denylist, which already covers api_key, auth, secrets etc.).
+# "headers" and "x-api-key" cover the request headers local in
+# codeplain_REST_api.post_request; the default denylist only has the
+# underscore form "x_api_key".
 SCRUB_DENYLIST = DEFAULT_DENYLIST + [
     "authorization",
+    "headers",
+    "x-api-key",
     "plain_source",
     "plain_source_tree",
     "full_plain_source",
@@ -71,7 +76,7 @@ def initialize_telemetry(**init_overrides: Any) -> bool:
                 ModulesIntegration(),
             ],
             include_local_variables=True,
-            event_scrubber=EventScrubber(denylist=SCRUB_DENYLIST),
+            event_scrubber=EventScrubber(denylist=SCRUB_DENYLIST, recursive=True),
             shutdown_timeout=FLUSH_TIMEOUT_SECONDS,
         )
         init_kwargs.update(init_overrides)

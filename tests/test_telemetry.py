@@ -1,3 +1,4 @@
+import json
 import sys
 from argparse import Namespace
 
@@ -8,12 +9,7 @@ from sentry_sdk.transport import Transport
 
 import plain2code_telemetry
 from plain2code_state import RunState
-from plain2code_telemetry import (
-    NO_TELEMETRY_ENV_VAR,
-    capture_crash,
-    initialize_telemetry,
-    telemetry_enabled,
-)
+from plain2code_telemetry import NO_TELEMETRY_ENV_VAR, capture_crash, initialize_telemetry, telemetry_enabled
 
 
 class CaptureTransport(Transport):
@@ -130,6 +126,55 @@ def test_local_variables_are_scrubbed(transport):
     crash_frame_vars = frames[-1]["vars"]
     assert crash_frame_vars["api_key"] == "[Filtered]"
     assert crash_frame_vars["plain_source"] == "[Filtered]"
+
+
+def test_request_headers_local_is_scrubbed(transport):
+    """The `headers` local in codeplain_REST_api.post_request holds the API key
+    (X-API-Key); the whole variable must be filtered from stack traces."""
+    init_with_transport(transport)
+
+    # Built at runtime so the secret never appears in the source-context lines
+    # that Sentry attaches to stack frames.
+    secret = "".join(["super", "-secret-", "key"])
+
+    def crash_with_headers_local():
+        headers = {"X-API-Key": secret, "Content-Type": "application/json"}  # noqa: F841
+        raise KeyError("boom")
+
+    try:
+        crash_with_headers_local()
+    except KeyError:
+        exc_info = sys.exc_info()
+
+    assert capture_crash(exc_info, None, make_args())
+    sentry_sdk.flush(timeout=2)
+
+    frames = transport.events[0]["exception"]["values"][0]["stacktrace"]["frames"]
+    crash_frame_vars = frames[-1]["vars"]
+    assert crash_frame_vars["headers"] == "[Filtered]"
+    assert secret not in json.dumps(transport.events[0], default=str)
+
+
+def test_nested_sensitive_keys_are_scrubbed(transport):
+    """Scrubbing is recursive: sensitive keys nested inside dict locals are
+    filtered even when the variable name itself is innocuous."""
+    init_with_transport(transport)
+
+    secret = "".join(["nested", "-secret-", "key"])
+
+    def crash_with_nested_secret():
+        request_info = {"url": "https://api.codeplain.ai", "x-api-key": secret}  # noqa: F841
+        raise KeyError("boom")
+
+    try:
+        crash_with_nested_secret()
+    except KeyError:
+        exc_info = sys.exc_info()
+
+    assert capture_crash(exc_info, None, make_args())
+    sentry_sdk.flush(timeout=2)
+
+    assert secret not in json.dumps(transport.events[0], default=str)
 
 
 def test_environment_defaults_to_production(transport):
