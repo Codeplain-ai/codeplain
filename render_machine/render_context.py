@@ -162,6 +162,7 @@ class RenderContext:
             linked_resources=linked_resources,
             functional_requirement_render_attempts=0,
         )
+        self.run_state.current_frid = frid
         return
 
     def check_frid_iteration_limit(self):

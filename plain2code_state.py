@@ -23,6 +23,10 @@ class RunState:
         self.unittest_batch_id: int = 0
         self.render_time_accumulated: int = 0
         self.last_render_start_timestamp: float = time.monotonic()
+        # Mirrored from the render state machine for crash reporting; not authoritative.
+        self.current_module: Optional[str] = None
+        self.current_frid: Optional[str] = None
+        self.current_render_state: Optional[str] = None
 
     def increment_call_count(self):
         self.call_count += 1
