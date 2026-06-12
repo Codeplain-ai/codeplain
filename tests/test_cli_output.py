@@ -198,7 +198,7 @@ class TestDisplayStatusMessage:
         purchased_credits = [
             {
                 "remaining": 20,
-                "expiry_date": "2026-06-12T00:00:00+00:00",
+                "expiry_date": "2030-06-12T00:00:00+00:00",
             }
         ]
         _display_status_message(None, purchased_credits)
