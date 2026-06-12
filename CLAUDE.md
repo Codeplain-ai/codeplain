@@ -228,10 +228,20 @@ The tool can be run from any directory by providing an absolute or relative path
 `standard_template_library/` is a git subtree sourced from the `plainlang-examples` repository. It is **not** updated automatically — you must pull changes manually when the templates change upstream:
 
 ```bash
-git subtree pull --prefix=standard_template_library git@github.com:Codeplain-ai/plainlang-examples.git main --squash
+git subtree pull --prefix=standard_template_library git@github.com:Codeplain-ai/plainlang-examples.git subtree/standard-template-library --squash
 ```
 
 The subtree does not track a branch pointer. The branch (`main` above) is just an argument passed at pull time — git uses the `git-subtree-split` hash embedded in the commit history to determine what's new since the last sync.
+
+**Important:** You must pull from the `subtree/standard-template-library` branch, not `main`. This is a split branch containing only the `standard_template_library/` subdirectory contents at root level. Pulling from `main` would bring in the entire `plainlang-examples` repo.
+
+If the split branch is outdated, regenerate it first in `plainlang-examples`:
+
+```bash
+# In plainlang-examples/
+git subtree split --prefix=standard_template_library -b subtree/standard-template-library
+git push origin subtree/standard-template-library
+```
 
 ### Windows Support
 Windows users must use WSL (Windows Subsystem for Linux). The codebase has some platform-specific script handling (`.ps1` for Windows, `.sh` for Unix).
