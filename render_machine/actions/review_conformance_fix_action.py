@@ -14,25 +14,33 @@ class ReviewConformanceFixAction(BaseAction):
     APPROVED = "fix_approved"
     REJECTED = "fix_rejected"
 
-    def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
-        if not previous_action_payload:
-            console.error("ReviewConformanceFixAction called without payload")
-            return self.REJECTED, {"rejection_feedback": "No fix provided"}
+    def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        ctx = render_context.conformance_tests_running_context
 
-        # Extract data from agent's payload
-        specifications = previous_action_payload.get("specifications", "")
-        acceptance_tests = previous_action_payload.get("acceptance_tests", "")
-        conformance_test_folder = previous_action_payload.get("conformance_test_folder", "")
-        agent_summary = previous_action_payload.get("agent_summary", "")
+        # A fix's integrity is reviewed only after it has already made the conformance
+        # tests pass, so this action is reached via the test-run transition rather than
+        # directly from the fix agent. The reviewer inputs are therefore read from the
+        # context (stashed by the fix agent), not from the previous action's payload.
+        review_context = (ctx.fix_review_context if ctx else None) or {}
+        specifications = review_context.get("specifications", "")
+        acceptance_tests = review_context.get("acceptance_tests", "")
+        conformance_test_folder = review_context.get("conformance_test_folder", "")
+        fix_summary = ctx.last_fix_summary if ctx else {}
 
         console.info("Reviewing conformance test fix...")
 
-        ctx = render_context.conformance_tests_running_context
+        # We are now consuming the pending review; clear it so subsequent passing
+        # test runs (e.g. during regression) are not re-routed back into review.
+        if ctx:
+            ctx.pending_fix_review = False
 
         # Compute diff from the file change tracker (tracks originals before modification)
         if not ctx or not ctx.file_change_tracker:
             console.warning("No changes detected in fix. Approving by default.")
-            return self.APPROVED, {"rejection_feedback": ""}
+            if ctx:
+                ctx.last_fix_diff = ""
+                render_context.finalize_accepted_conformance_fix()
+            return self.APPROVED, {"review_rejection_feedback": ""}
 
         current_files = {}
         original_files = {}
@@ -49,15 +57,31 @@ class ReviewConformanceFixAction(BaseAction):
         diff_text = diff_utils.get_code_diff(current_files, original_files)
         if not diff_text:
             console.warning("No changes detected in fix. Approving by default.")
-            return self.APPROVED, {"rejection_feedback": ""}
+            ctx.last_fix_diff = ""
+            render_context.finalize_accepted_conformance_fix()
+            return self.APPROVED, {"review_rejection_feedback": ""}
 
         diff_str = ""
         for file_path, file_diff in diff_text.items():
             diff_str += f"--- {file_path}\n{file_diff}\n\n"
 
+        # Stash the diff so the next fix cycle can record it into fix_history.
+        # The file change tracker is reset (on approval) or reverted (on rejection)
+        # right after this, so this is the last point the diff is available.
+        ctx.last_fix_diff = diff_str
+
         # Get test output file path from context (set by RunConformanceTests)
         test_output_file = render_context.script_execution_history.latest_conformance_test_output_path or ""
-        prepare_environment_output_file = render_context.script_execution_history.latest_testing_environment_output_path or ""
+        prepare_environment_output_file = (
+            render_context.script_execution_history.latest_testing_environment_output_path or ""
+        )
+
+        # Build explanation from structured fix summary
+        explanation = ""
+        if fix_summary:
+            explanation = (
+                f"Root cause: {fix_summary.get('root_cause', 'N/A')}\nChanges: {fix_summary.get('changes_made', 'N/A')}"
+            )
 
         # Build task params for the reviewer agent
         review_task_params = {
@@ -66,7 +90,7 @@ class ReviewConformanceFixAction(BaseAction):
             "test_output_file": test_output_file,
             "prepare_environment_output_file": prepare_environment_output_file,
             "diff": diff_str,
-            "explanation": agent_summary,
+            "explanation": explanation,
             "conformance_tests_script_path": render_context.conformance_tests_script or "",
             "prepare_environment_script_path": render_context.prepare_environment_script or "",
             "build_folder": render_context.build_folder,
@@ -98,13 +122,16 @@ class ReviewConformanceFixAction(BaseAction):
         if "VERDICT: APPROVED" in result_text.upper():
             console.info("[green]Review APPROVED[/green]")
             ctx.reset_file_change_tracker()
-            return self.APPROVED, {"rejection_feedback": ""}
+            # The fix is accepted and the tests already pass: release the fix agent
+            # session and clear unresolved memory, the cleanup previously done by
+            # RunConformanceTests on a passing run (now deferred until acceptance).
+            render_context.finalize_accepted_conformance_fix()
+            return self.APPROVED, {"review_rejection_feedback": ""}
 
         console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
         console.info("Reverting rejected changes...")
         ctx.revert_tracked_changes()
         result_text += "\nThe rejected changes have been reverted. Propose a new fix."
         return self.REJECTED, {
-            "rejection_feedback": result_text,
-            "previous_agent_summary": agent_summary,
+            "review_rejection_feedback": result_text,
         }

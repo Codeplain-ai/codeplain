@@ -54,25 +54,27 @@ class RunConformanceTests(BaseAction):
         )
         render_context.script_execution_history.should_update_script_outputs = True
 
-        # Store test output file path in conformance tests context for agents to access
-        #render_context.conformance_tests_running_context.test_output_file_path = conformance_tests_temp_log_file_path
-
         render_context.memory_manager.create_conformance_tests_memory(
             render_context, exit_code, conformance_tests_issue
         )
 
         if exit_code == 0:
-            # Tests passed - cleanup and clear the fix agent session
-            render_context._cleanup_fix_agent_session()
-            render_context.conformance_tests_running_context.fix_agent_session_id = None
+            # Tests passed. If this pass was produced by a fix awaiting integrity
+            # review, defer cleanup until the review approves — otherwise the fix
+            # agent session would be torn down before a possible reviewer rejection,
+            # which needs the session to continue for the next attempt.
+            if not render_context.conformance_tests_running_context.pending_fix_review:
+                # Cleanup and clear the fix agent session
+                render_context._cleanup_fix_agent_session()
+                render_context.conformance_tests_running_context.fix_agent_session_id = None
 
-            if (
-                render_context.conformance_tests_running_context.current_testing_module_name
-                == render_context.module_name
-                and render_context.conformance_tests_running_context.current_testing_frid
-                == render_context.frid_context.frid
-            ):
-                render_context.memory_manager.delete_unresolved_memory_files()
+                if (
+                    render_context.conformance_tests_running_context.current_testing_module_name
+                    == render_context.module_name
+                    and render_context.conformance_tests_running_context.current_testing_frid
+                    == render_context.frid_context.frid
+                ):
+                    render_context.memory_manager.delete_unresolved_memory_files()
             return self.SUCCESSFUL_OUTCOME, None
 
         if exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:

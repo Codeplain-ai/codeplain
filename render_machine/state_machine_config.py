@@ -9,24 +9,24 @@ from typing import Any, Callable, Dict, List
 
 import git_utils
 from render_machine import triggers
+from render_machine.actions.agent_fix_conformance_test import AgentFixConformanceTest
+from render_machine.actions.agent_fix_unit_tests import AgentFixUnitTests
+from render_machine.actions.agent_render_conformance_tests import AgentRenderConformanceTests
+from render_machine.actions.agent_render_functional_requirement import AgentRenderFunctionalRequirement
 from render_machine.actions.analyze_specification_ambiguity import AnalyzeSpecificationAmbiguity
 from render_machine.actions.commit_conformance_tests_changes import CommitConformanceTestsChanges
 from render_machine.actions.commit_implementation_code_changes import CommitImplementationCodeChanges
 from render_machine.actions.create_dist import CreateDist
 from render_machine.actions.exit_with_error import ExitWithError
 from render_machine.actions.finish_functional_requirement import FinishFunctionalRequirement
-from render_machine.actions.agent_fix_conformance_test import AgentFixConformanceTest
-from render_machine.actions.agent_fix_unit_tests import AgentFixUnitTests
-from render_machine.actions.agent_render_conformance_tests import AgentRenderConformanceTests
-from render_machine.actions.agent_render_functional_requirement import AgentRenderFunctionalRequirement
 from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
-from render_machine.actions.review_conformance_fix_action import ReviewConformanceFixAction
 from render_machine.actions.prepare_repositories import PrepareRepositories
 from render_machine.actions.prepare_testing_environment import PrepareTestingEnvironment
 from render_machine.actions.refactor_code import RefactorCode
 from render_machine.actions.render_conformance_tests import RenderConformanceTests
 from render_machine.actions.render_functional_requirement import RenderFunctionalRequirement
+from render_machine.actions.review_conformance_fix_action import ReviewConformanceFixAction
 from render_machine.actions.run_conformance_tests import RunConformanceTests
 from render_machine.actions.run_unit_tests import RunUnitTests
 from render_machine.actions.summarize_conformance_tests import SummarizeConformanceTests
@@ -61,8 +61,8 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}": RunConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}": fix_conformance_action,
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPLIED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}": ReviewConformanceFixAction(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPROVED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitConformanceTestsChanges(
                 git_utils.CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
@@ -107,7 +107,7 @@ class StateMachineConfig:
             RunConformanceTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
             FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED: triggers.MARK_CONFORMANCE_TESTS_READY,
             FixConformanceTest.IMPLEMENTATION_CODE_UPDATED: triggers.MARK_UNIT_TESTS_READY,
-            AgentFixConformanceTest.FIX_READY_FOR_REVIEW: triggers.MARK_FIX_READY_FOR_REVIEW,
+            AgentFixConformanceTest.FIX_APPLIED: triggers.MARK_FIX_APPLIED,
             ReviewConformanceFixAction.APPROVED: triggers.MARK_FIX_APPROVED,
             ReviewConformanceFixAction.REJECTED: triggers.MARK_FIX_REJECTED,
             FixConformanceTest.LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
@@ -160,8 +160,8 @@ class StateMachineConfig:
                 States.CONFORMANCE_TEST_GENERATED.value,
                 States.CONFORMANCE_TEST_ENV_PREPARED.value,
                 States.CONFORMANCE_TEST_FAILED.value,
+                States.CONFORMANCE_FIX_APPLIED.value,
                 States.CONFORMANCE_FIX_READY_FOR_REVIEW.value,
-                States.CONFORMANCE_FIX_APPROVED.value,
                 self.get_processing_unit_tests_states(
                     render_context, render_context._on_unit_test_limit_exceeded_in_conformance_tests
                 ),
@@ -385,37 +385,50 @@ class StateMachineConfig:
                 "trigger": triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
             },
-            # New: Agent fixes code → Review → Prepare → Test flow
+            # Agent flow: fix code → prepare env → run tests. The integrity review is
+            # deferred until AFTER the tests pass, so a fix that fails the tests goes
+            # straight back to fixing without spending a review.
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
-                "trigger": triggers.MARK_FIX_READY_FOR_REVIEW,
-                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}",
+                "trigger": triggers.MARK_FIX_APPLIED,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPLIED.value}",
             },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPLIED.value}",
+                "trigger": triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPLIED.value}",
+                "trigger": triggers.HANDLE_ERROR,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
+            },
+            # Review APPROVED: tests already pass, so continue the test orchestration
+            # (regression / completion) as if the run had simply passed.
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}",
                 "trigger": triggers.MARK_FIX_APPROVED,
-                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPROVED.value}",
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
             },
+            # Review REJECTED: changes are reverted (in the action), go back to fixing.
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}",
                 "trigger": triggers.MARK_FIX_REJECTED,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
             },
+            # Tests passed. If the pass was produced by a fix awaiting review, route into
+            # the reviewer first; otherwise continue to the next test as usual.
             {
-                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPROVED.value}",
-                "trigger": triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
-                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
+                "trigger": triggers.MOVE_TO_NEXT_CONFORMANCE_TEST,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}",
+                "conditions": render_context.has_pending_conformance_fix_review,
             },
-            {
-                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPROVED.value}",
-                "trigger": triggers.HANDLE_ERROR,
-                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
-            },
-            # Existing transitions
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
                 "trigger": triggers.MOVE_TO_NEXT_CONFORMANCE_TEST,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
+                "unless": render_context.has_pending_conformance_fix_review,
             },
             # Legacy transitions (for non-agent mode)
             {

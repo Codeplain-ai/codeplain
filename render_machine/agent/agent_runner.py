@@ -1,10 +1,13 @@
+import json
+
 from plain2code_console import console
-from plain2code_state import RunState
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.render_context import RenderContext
 
 MAX_AGENT_TURNS = 100
 MAX_REVIEWER_TURNS = 30
+
+TERMINAL_TOOLS = {"submit_fix"}
 
 
 def run(
@@ -45,6 +48,13 @@ def run(
     turn_count = 0
     while response.get("status") == "tool_calls" and turn_count < max_turns:
         turn_count += 1
+
+        terminal_result = _extract_terminal_tool(response["calls"])
+        if terminal_result is not None:
+            # Agent called a terminal tool — end the loop, use its args as structured result
+            response = _build_terminal_response(terminal_result, response.get("session_id"))
+            break
+
         tool_results = tool_executor.execute_calls(response["calls"], render_context)
 
         response = render_context.codeplain_api.agent_continue(
@@ -70,6 +80,7 @@ def continue_session(
     render_context: RenderContext,
     tool_executor: ToolExecutor | None = None,
     max_turns: int | None = None,
+    pending_tool_call_id: str | None = None,
 ) -> dict:
     """Continue an existing agent session with additional context.
 
@@ -79,6 +90,11 @@ def continue_session(
         render_context: The current render context.
         tool_executor: Optional custom tool executor. Uses default if not provided.
         max_turns: Optional maximum number of turns. Defaults to MAX_AGENT_TURNS.
+        pending_tool_call_id: If the previous turn ended on an unanswered terminal tool
+            call (e.g. submit_fix), the additional context is delivered as that call's
+            tool result instead of a new user message. This keeps the agent's tool loop
+            intact so Gemini's prompt cache (and thought signatures) survive across fix
+            attempts, instead of being invalidated by a new user turn.
 
     Returns:
         The final response from the agent (status "completed" or "failed").
@@ -89,17 +105,32 @@ def continue_session(
     if max_turns is None:
         max_turns = MAX_AGENT_TURNS
 
-    # Send the additional context as a "user message" by using empty tool results
-    # with the context embedded as a special message
-    response = render_context.codeplain_api.agent_continue_with_message(
-        session_id=session_id,
-        message=additional_context,
-        run_state=render_context.run_state,
-    )
+    if pending_tool_call_id:
+        # Answer the open terminal tool call with the feedback as its result. This
+        # continues the same tool loop (no new user turn), preserving prompt caching.
+        response = render_context.codeplain_api.agent_continue(
+            session_id=session_id,
+            tool_results=[{"call_id": pending_tool_call_id, "output": additional_context}],
+            run_state=render_context.run_state,
+            keep_session_alive=True,
+        )
+    else:
+        # No open tool call to answer — fall back to adding the context as a user message.
+        response = render_context.codeplain_api.agent_continue_with_message(
+            session_id=session_id,
+            message=additional_context,
+            run_state=render_context.run_state,
+        )
 
     turn_count = 0
     while response.get("status") == "tool_calls" and turn_count < max_turns:
         turn_count += 1
+
+        terminal_result = _extract_terminal_tool(response["calls"])
+        if terminal_result is not None:
+            response = _build_terminal_response(terminal_result, session_id)
+            break
+
         tool_results = tool_executor.execute_calls(response["calls"], render_context)
 
         response = render_context.codeplain_api.agent_continue(
@@ -117,3 +148,30 @@ def continue_session(
         console.warning(f"Agent session '{session_id}' ended with status: {response.get('status')}")
 
     return response
+
+
+def _build_terminal_response(terminal_result: dict, session_id: str | None) -> dict:
+    """Build the completion response for a terminal tool call.
+
+    Includes the terminal call's id so the caller can later answer it with a tool
+    result (keeping the tool loop — and prompt cache — intact across continuations).
+    """
+    return {
+        "status": "completed",
+        "result": json.dumps(terminal_result["args"]),
+        "session_id": session_id,
+        "terminal_tool": terminal_result["name"],
+        "terminal_tool_args": terminal_result["args"],
+        "terminal_tool_call_id": terminal_result.get("id"),
+    }
+
+
+def _extract_terminal_tool(calls: list[dict]) -> dict | None:
+    """Check if any tool call is a terminal tool (e.g. submit_fix).
+
+    Returns the terminal call if found, or None if no terminal tool is present.
+    """
+    for call in calls:
+        if call.get("name") in TERMINAL_TOOLS:
+            return call
+    return None

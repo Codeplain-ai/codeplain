@@ -35,6 +35,22 @@ class ImplementationCodeHelpers:
         return ImplementationCodeHelpers.remove_system_folder_paths_from_code_diff(previous_frid_code_diff)
 
     @staticmethod
+    def get_conformance_tests_diff(conformance_tests_folder: str, plain_source_tree: dict, frid: str):
+        """Diff of the conformance tests since the previous functionality's commit.
+
+        The conformance tests folder is committed per functionality (with the
+        "functionality fully implemented" message), so diffing the working tree
+        against the previous functionality's commit surfaces the conformance tests
+        just rendered for the current functionality.
+        """
+        conformance_tests_diff = git_utils.diff(
+            conformance_tests_folder,
+            plain_spec.get_previous_frid(plain_source_tree, frid),
+        )
+
+        return ImplementationCodeHelpers.remove_system_folder_paths_from_code_diff(conformance_tests_diff)
+
+    @staticmethod
     def get_fixed_implementation_code_diff(build_folder: str, frid: str):
         fixed_implementation_code_diff = git_utils.get_fixed_implementation_code_diff(build_folder, frid)
         if fixed_implementation_code_diff is None:

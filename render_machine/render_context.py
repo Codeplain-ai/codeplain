@@ -562,6 +562,31 @@ class RenderContext:
         # Should never reach here
         raise RuntimeError(f"Unexpected execution phase: {ctx.execution_phase}")
 
+    def has_pending_conformance_fix_review(self) -> bool:
+        """Whether an applied fix is awaiting integrity review.
+
+        Used as a transition condition so that a passing conformance test run routes
+        into the reviewer only when it was produced by a fix that has not been
+        reviewed yet (not on the initial run or on plain regression passes).
+        """
+        return self.conformance_tests_running_context.pending_fix_review
+
+    def finalize_accepted_conformance_fix(self):
+        """Release fix-agent state once a fix is accepted (tests pass AND review approves).
+
+        Mirrors the cleanup RunConformanceTests performs on a passing run, which is
+        now deferred until the review approves so that the persistent fix-agent
+        session survives a reviewer rejection (the next fix attempt continues it).
+        """
+        ctx = self.conformance_tests_running_context
+        self._cleanup_fix_agent_session()
+        ctx.fix_agent_session_id = None
+        ctx.fix_agent_pending_tool_call_id = None
+        ctx.pending_fix_review = False
+        ctx.fix_review_context = None
+        if ctx.current_testing_module_name == self.module_name and ctx.current_testing_frid == self.frid_context.frid:
+            self.memory_manager.delete_unresolved_memory_files()
+
     def _cleanup_fix_agent_session(self):
         """Explicitly end the fix agent session on the server."""
         session_id = self.conformance_tests_running_context.fix_agent_session_id

@@ -33,10 +33,7 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
 
     truncated = "\n".join(lines[-MAX_INLINE_OUTPUT_LINES:])
     if temp_file_path:
-        return (
-            f"Tests failed (exit code {exit_code}). "
-            f"Full output of the tests is available at: {temp_file_path}\n"
-        )
+        return f"Tests failed (exit code {exit_code}). " f"Full output of the tests is available at: {temp_file_path}\n"
     else:
         return f"Tests failed (exit code {exit_code}):\n{truncated}"
 
@@ -465,7 +462,7 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     total_lines = len(all_lines)
 
     # Apply offset (1-based)
-    start = max(0,total_lines-DEFAULT_READ_LIMIT)
+    start = max(0, total_lines - DEFAULT_READ_LIMIT)
     if offset is not None:
         start = max(0, int(offset) - 1)
 
@@ -491,11 +488,11 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     if end < total_lines or start > 0:
         shown_start = start + 1
         shown_end = min(end, total_lines)
-        header = f"[Showing lines {shown_start}-{shown_end} of {total_lines} total. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n"
-        return header + content
+        header = f"[The file is too large to display all lines. Showing lines {shown_start}-{shown_end} of {total_lines} total. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n"
+        return header + "\n\n '```\n" + content + "\n```\n"
     elif total_lines > max_lines:
-        header = f"[Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n "
-        return header + "".join(all_lines[:max_lines])
+        header = f"[The file is too large to display all lines. Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n "
+        return header + "\n\n '```\n" + "".join(all_lines[:max_lines]) + "\n```\n"
 
     return content
 
@@ -695,7 +692,9 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
             return f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n ls command failed (exit code {result.returncode}):\n{output}"
 
         if not output.strip():
-            return f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n Directory is empty (no files found)"
+            return (
+                f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n Directory is empty (no files found)"
+            )
 
         # Prepend current working directory to help agent understand context
         header = f"Current directory: {current_dir}\n"
@@ -737,6 +736,43 @@ def think(args: dict, render_context: RenderContext) -> str:
     if message:
         console.info(f"[Agent] {message}")
     return ""
+
+
+def write_memory(args: dict, render_context: RenderContext) -> str:
+    """Write a persistent memory note for future fixing agents.
+
+    Notes are stored in the module's agent memory folder and injected into the context
+    of future agent sessions. Writing to an existing file name overwrites the note.
+
+    Args:
+        args: Dictionary containing:
+            - file_name (str, required): Plain file name for the note (no directories).
+            - content (str, required): The note content.
+        render_context: The current render context.
+
+    Returns:
+        Success message or error description.
+    """
+    from memory_management import MemoryManager
+
+    file_name = args.get("file_name", "")
+    content = args.get("content", "")
+
+    if not file_name:
+        return "Error: file_name is required"
+    if not content:
+        return "Error: content is required"
+
+    if os.path.basename(file_name) != file_name or file_name in (".", ".."):
+        return f"Error: file_name must be a plain file name without directories, got '{file_name}'"
+
+    try:
+        full_path = MemoryManager.write_agent_memory_file(
+            render_context.memory_manager.memory_folder, file_name, content
+        )
+        return f"Memory note saved to '{full_path}'. It will be available to future fixing agents."
+    except Exception as e:
+        return f"Error writing memory note '{file_name}': {e}"
 
 
 def create_submit_fix_for_review(

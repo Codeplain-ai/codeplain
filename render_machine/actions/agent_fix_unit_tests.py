@@ -2,6 +2,7 @@ import tempfile
 from typing import Any
 
 import plain_spec
+from memory_management import MemoryManager
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
@@ -14,7 +15,9 @@ from render_machine.agent.tools import (
     ls_files,
     read_file,
     run_unit_tests,
+    think,
     write_file,
+    write_memory,
 )
 from render_machine.render_context import RenderContext
 
@@ -27,6 +30,8 @@ FIX_UNIT_TESTS_TOOLS = {
     "list_files": list_files,
     "ls_files": ls_files,
     "grep": grep,
+    "think": think,
+    "write_memory": write_memory,
 }
 
 
@@ -47,6 +52,9 @@ class AgentFixUnitTests(BaseAction):
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
         }
+        memory_files_content = MemoryManager.fetch_agent_memory_files(render_context.memory_manager.memory_folder)
+        if memory_files_content:
+            task_params["memory_files_content"] = memory_files_content
 
         tool_executor = ToolExecutor(available_tools=FIX_UNIT_TESTS_TOOLS)
         response = agent_runner.run("fix_unit_tests", task_params, render_context, tool_executor)
