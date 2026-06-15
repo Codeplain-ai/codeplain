@@ -4,8 +4,8 @@ from unittest.mock import Mock, patch
 
 from cli_output.status import (
     _create_progress_bar,
+    _display_bucket_credit_line,
     _display_credit_line,
-    _display_purchased_credit_line,
     _display_status_message,
     print_status,
 )
@@ -132,8 +132,8 @@ class TestDisplayCreditLine:
         mock_console.print.assert_called_once()
 
 
-class TestDisplayPurchasedCreditLine:
-    """Tests for _display_purchased_credit_line function."""
+class TestDisplayBucketCreditLine:
+    """Tests for _display_bucket_credit_line function."""
 
     @patch("cli_output.status.console")
     def test_display_active_purchased_credits(self, mock_console):
@@ -143,10 +143,25 @@ class TestDisplayPurchasedCreditLine:
             "remaining": 20,
             "expiry_date": "2028-12-12T00:00:00+00:00",
         }
-        _display_purchased_credit_line(bucket)
+        _display_bucket_credit_line(bucket, "Purchased")
 
         call_args = mock_console.print.call_args[0][0]
         assert "Purchased" in call_args
+        assert "20 of 100 remaining" in call_args
+        assert "expires Dec 12, 2028" in call_args
+
+    @patch("cli_output.status.console")
+    def test_display_active_promo_credits(self, mock_console):
+        """Test displaying active promo credits."""
+        bucket = {
+            "total": 100,
+            "remaining": 20,
+            "expiry_date": "2028-12-12T00:00:00+00:00",
+        }
+        _display_bucket_credit_line(bucket, "Promo")
+
+        call_args = mock_console.print.call_args[0][0]
+        assert "Promo" in call_args
         assert "20 of 100 remaining" in call_args
         assert "expires Dec 12, 2028" in call_args
 
@@ -158,7 +173,7 @@ class TestDisplayPurchasedCreditLine:
             "remaining": 20,
             "expiry_date": "2024-01-01T00:00:00+00:00",
         }
-        _display_purchased_credit_line(bucket)
+        _display_bucket_credit_line(bucket, "Purchased")
 
         call_args = mock_console.print.call_args[0][0]
         assert "expired Jan 1, 2024" in call_args
@@ -173,7 +188,7 @@ class TestDisplayPurchasedCreditLine:
             "expiry_date": "2026-06-12T00:00:00",  # No timezone
         }
         # Should not raise exception
-        _display_purchased_credit_line(bucket)
+        _display_bucket_credit_line(bucket, "Purchased")
         mock_console.print.assert_called_once()
 
 
@@ -187,7 +202,7 @@ class TestDisplayStatusMessage:
             "remaining": 10,
             "period_end": "2028-12-01T00:00:00+00:00",
         }
-        _display_status_message(plan_credits, [])
+        _display_status_message(plan_credits, [], [])
 
         # Should not print warning message
         mock_console.print.assert_not_called()
@@ -201,7 +216,21 @@ class TestDisplayStatusMessage:
                 "expiry_date": "2030-06-12T00:00:00+00:00",
             }
         ]
-        _display_status_message(None, purchased_credits)
+        _display_status_message(None, purchased_credits, [])
+
+        # Should not print warning message
+        mock_console.print.assert_not_called()
+
+    @patch("cli_output.status.console")
+    def test_has_active_promo_credits(self, mock_console):
+        """Test when user only has active promo credits."""
+        promo_credits = [
+            {
+                "remaining": 20,
+                "expiry_date": "2030-06-12T00:00:00+00:00",
+            }
+        ]
+        _display_status_message(None, [], promo_credits)
 
         # Should not print warning message
         mock_console.print.assert_not_called()
@@ -213,7 +242,7 @@ class TestDisplayStatusMessage:
             "remaining": 0,
             "period_end": "2028-12-01T00:00:00+00:00",
         }
-        _display_status_message(plan_credits, [])
+        _display_status_message(plan_credits, [], [])
 
         mock_console.print.assert_called_once()
         call_args = mock_console.print.call_args[0][0]
@@ -226,7 +255,7 @@ class TestDisplayStatusMessage:
             "remaining": 10,
             "period_end": "2024-01-01T00:00:00+00:00",
         }
-        _display_status_message(plan_credits, [])
+        _display_status_message(plan_credits, [], [])
 
         mock_console.print.assert_called_once()
         call_args = mock_console.print.call_args[0][0]
@@ -234,8 +263,8 @@ class TestDisplayStatusMessage:
 
     @patch("cli_output.status.console")
     def test_null_plan_credits_and_empty_purchased(self, mock_console):
-        """Test when plan_credits is None and purchased_credits is empty."""
-        _display_status_message(None, [])
+        """Test when plan_credits is None and purchased/promo credits are empty."""
+        _display_status_message(None, [], [])
 
         mock_console.print.assert_called_once()
         call_args = mock_console.print.call_args[0][0]
@@ -383,6 +412,83 @@ class TestPrintStatus:
         calls = [str(call) for call in mock_console.print.call_args_list]
         purchased_calls = [c for c in calls if "Purchased" in c]
         assert len(purchased_calls) == 2
+
+    @patch("cli_output.status.codeplain_api.CodeplainAPI")
+    @patch("cli_output.status.console")
+    def test_promo_credit_buckets(self, mock_console, mock_api_class):
+        """Test status display includes promo credit buckets."""
+        mock_api = Mock()
+        mock_api_class.return_value = mock_api
+        mock_api.connection_check.return_value = {
+            "client_version_valid": True,
+            "min_client_version": "0.3.0",
+        }
+        mock_api.status.return_value = {
+            "user": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "john@example.com",
+            },
+            "api_key_label": "test-key",
+            "organization_owner_email": "owner@example.com",
+            "plan_credits": None,
+            "purchased_credits": [
+                {
+                    "total": 100,
+                    "remaining": 50,
+                    "expiry_date": "2030-06-12T00:00:00+00:00",
+                },
+            ],
+            "promo_credits": [
+                {
+                    "total": 30,
+                    "remaining": 15,
+                    "expiry_date": "2030-12-31T00:00:00+00:00",
+                },
+            ],
+        }
+
+        print_status("fake-key", "http://localhost:5000", "0.3.0")
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        promo_calls = [c for c in calls if "Promo" in c]
+        assert len(promo_calls) == 1
+        # Active credits remain, so no "no credits remaining" warning
+        assert not any("No rendering credits remaining" in c for c in calls)
+
+    @patch("cli_output.status.codeplain_api.CodeplainAPI")
+    @patch("cli_output.status.console")
+    def test_missing_promo_credits_key_is_backward_compatible(self, mock_console, mock_api_class):
+        """Test status display when API response omits promo_credits (older API)."""
+        mock_api = Mock()
+        mock_api_class.return_value = mock_api
+        mock_api.connection_check.return_value = {
+            "client_version_valid": True,
+            "min_client_version": "0.3.0",
+        }
+        mock_api.status.return_value = {
+            "user": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "john@example.com",
+            },
+            "api_key_label": "test-key",
+            "organization_owner_email": "owner@example.com",
+            "plan_credits": {
+                "type": "free",
+                "total": 50,
+                "remaining": 10,
+                "period_end": "2030-12-01T00:00:00+00:00",
+            },
+            "purchased_credits": [],
+            # promo_credits intentionally omitted
+        }
+
+        # Should not raise
+        print_status("fake-key", "http://localhost:5000", "0.3.0")
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert not any("Promo" in c for c in calls)
 
 
 class TestVersionFlag:
