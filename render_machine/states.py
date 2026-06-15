@@ -41,8 +41,10 @@ class States(Enum):
     CONFORMANCE_TEST_GENERATED = "conformanceTestGenerated"
     CONFORMANCE_TEST_ENV_PREPARED = "conformanceTestEnvironmentPrepared"
     CONFORMANCE_TEST_FAILED = "conformanceTestFailed"
+    # The fix agent has applied a fix; the environment is (re)prepared and tests
+    # re-run from here. Review happens only afterwards, and only if tests pass.
+    CONFORMANCE_FIX_APPLIED = "conformanceFixApplied"
     CONFORMANCE_FIX_READY_FOR_REVIEW = "conformanceFixReadyForReview"
-    CONFORMANCE_FIX_APPROVED = "conformanceFixApproved"
 
     # Postprocessing conformance tests states
     POSTPROCESSING_CONFORMANCE_TESTS = "postprocessingConformanceTests"

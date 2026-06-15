@@ -6,6 +6,18 @@ from typing import Any, Optional
 import plain_spec
 
 
+@dataclass
+class FixHistoryEntry:
+    attempt_number: int
+    agent_summary: str
+    outcome: str  # "tests_failed", "reviewer_rejected", "session_expired"
+    reviewer_feedback: str = ""
+    files_modified: list[str] = field(default_factory=list)
+    # The actual diff that was attempted (captured at review time). Lets a fresh
+    # fixing agent see what was concretely changed, not just a one-line summary.
+    diff: str = ""
+
+
 class TestExecutionPhase(Enum):
     """Explicit phases of conformance test execution."""
 
@@ -100,8 +112,27 @@ class ConformanceTestsRunningContext:
         self.previous_conformance_tests_issue_frid: Optional[str] = None
         self.previous_conformance_tests_issue_module: Optional[str] = None
         self.code_diff_files: Optional[dict[str, str]] = None
-        #self.test_output_file_path: Optional[str] = None
         self.fix_agent_session_id: Optional[str] = None  # Persistent session for fix agent
+        # The tool-call id of the most recent submit_fix call that has not yet been
+        # answered. The review/test feedback is delivered back as this call's tool
+        # result (rather than a new user message) so the agent's tool loop — and thus
+        # Gemini's prompt cache — is preserved across fix attempts.
+        self.fix_agent_pending_tool_call_id: Optional[str] = None
+        self.fix_history: list[FixHistoryEntry] = []
+        self.last_fix_summary: Optional[dict] = None  # Structured output from last submit_fix call
+        # True once a fix has been applied and is awaiting integrity review. The
+        # review only runs after the applied fix makes the conformance tests pass,
+        # so this gates the "tests passed -> review" transition.
+        self.pending_fix_review: bool = False
+        # Inputs the reviewer needs (specifications, acceptance tests, conformance
+        # test folder), stashed by the fix agent. The reviewer no longer runs
+        # directly after the fix agent (tests run in between), so it cannot rely on
+        # the previous action's payload and reads these from the context instead.
+        self.fix_review_context: Optional[dict] = None
+        # Diff of the last fix attempt, captured by the reviewer before the file
+        # change tracker is reset/reverted. Consumed when the attempt is recorded
+        # into fix_history on the next fix cycle.
+        self.last_fix_diff: str = ""
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]

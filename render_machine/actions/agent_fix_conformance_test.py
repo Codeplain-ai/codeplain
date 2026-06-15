@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import plain_spec
+from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -13,25 +14,60 @@ from render_machine.agent.tools import (
     list_files,
     ls_files,
     read_file,
+    think,
     write_file,
+    write_memory,
 )
+from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
+from render_machine.render_types import FixHistoryEntry
+
+# Cap on the size of the diff embedded in fix_history. The history is replayed into
+# a fresh fixing agent on session rotation, so it must stay bounded to avoid blowing
+# up the prompt. When the diff exceeds the cap, the head and tail are kept.
+# (Test output is deliberately NOT embedded — it can be huge and the agent can read
+# the current test output from its file path on demand instead.)
+MAX_HISTORY_DIFF_CHARS = 6000
 
 
 class AgentFixConformanceTest(BaseAction):
-    FIX_READY_FOR_REVIEW = "fix_ready_for_review"
+    FIX_APPLIED = "fix_applied"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
-        # Gather all feedback from previous iterations
-        previous_agent_summary = (
-            previous_action_payload.get("previous_agent_summary", "") if previous_action_payload else ""
-        )
+        ctx = render_context.conformance_tests_running_context
+
+        # Gather feedback from previous iterations
         review_rejection_feedback = (
             previous_action_payload.get("review_rejection_feedback", "") if previous_action_payload else ""
         )
-        prepare_environment_failure = (
-            previous_action_payload.get("prepare_environment_failure", "") if previous_action_payload else ""
-        )
+        # Detect whether we re-entered fixing because the environment preparation
+        # (build/compile) step failed after the previous fix. PrepareTestingEnvironment
+        # returns an ENVIRONMENT_ERROR payload, and the state machine routes that back
+        # here (CONFORMANCE_FIX_APPLIED --HANDLE_ERROR--> CONFORMANCE_TEST_FAILED) without
+        # running the conformance tests. When that happens the latest conformance test
+        # output is stale (the tests never ran), so the agent must be pointed at the
+        # environment preparation output instead.
+        error = previous_action_payload.get("error") if previous_action_payload else None
+        prepare_environment_failed = bool(error and error.get("type") == "ENVIRONMENT_ERROR")
+
+        # Record the previous attempt in fix history using the stored fix_summary
+        if ctx.last_fix_summary:
+            outcome = "reviewer_rejected" if review_rejection_feedback else "tests_failed"
+            ctx.fix_history.append(
+                FixHistoryEntry(
+                    attempt_number=ctx.fix_attempts,
+                    agent_summary=(
+                        f"{ctx.last_fix_summary.get('root_cause', '')}"
+                        f" → {ctx.last_fix_summary.get('changes_made', '')}"
+                    ),
+                    outcome=outcome,
+                    reviewer_feedback=review_rejection_feedback,
+                    files_modified=ctx.last_fix_summary.get("files_modified", []),
+                    diff=self._truncate_middle(ctx.last_fix_diff or "", MAX_HISTORY_DIFF_CHARS),
+                )
+            )
+            ctx.last_fix_summary = None
+            ctx.last_fix_diff = ""
 
         console.info(
             f"Agent fixing conformance test for functionality "
@@ -48,6 +84,15 @@ class AgentFixConformanceTest(BaseAction):
         specifications = self._build_specifications_text(render_context)
         acceptance_tests = self._build_acceptance_tests_text(render_context)
 
+        # Diffs of what this render step just produced. The conformance tests were
+        # passing before this functionality was implemented, so these diffs point the
+        # agent at the most likely source of the failure:
+        #  - the implementation code added for the current functionality, and
+        #  - the conformance tests just rendered for it,
+        # each diffed against the previous functionality's commit.
+        frid_implementation_diff = self._build_implementation_diff_text(render_context)
+        frid_conformance_tests_diff = self._build_conformance_tests_diff_text(render_context)
+
         # Only provide code editing tools (no test/review tools)
         tools = {
             "edit_file": edit_file,
@@ -57,12 +102,25 @@ class AgentFixConformanceTest(BaseAction):
             "list_files": list_files,
             "ls_files": ls_files,
             "grep": grep,
+            "think": think,
+            "write_memory": write_memory,
         }
 
-        # Get test output file path from context (set by RunConformanceTests)
+        # Pick the output the agent should read based on which step failed:
+        #  - environment preparation failed  -> the tests never ran, so the conformance
+        #    test output is stale; show only the environment preparation output.
+        #  - environment preparation succeeded -> the conformance tests just ran and
+        #    failed; show only the (fresh) conformance test output.
         test_output_file = render_context.script_execution_history.latest_conformance_test_output_path or ""
-        prepare_environment_output_file = render_context.script_execution_history.latest_testing_environment_output_path or ""
+        prepare_environment_output_file = (
+            render_context.script_execution_history.latest_testing_environment_output_path or ""
+        )
+        if prepare_environment_failed:
+            test_output_file = ""
+        else:
+            prepare_environment_output_file = ""
         linked_resource_paths = self._get_linked_resource_paths(render_context)
+        memory_files_content = MemoryManager.fetch_agent_memory_files(render_context.memory_manager.memory_folder)
 
         tool_executor = ToolExecutor(available_tools=tools)
 
@@ -70,7 +128,7 @@ class AgentFixConformanceTest(BaseAction):
         session_id = render_context.conformance_tests_running_context.fix_agent_session_id
 
         if session_id is None:
-            # First attempt - start new agent session
+            # First attempt (or first attempt after session rotation) - start new agent session
             task_params = {
                 "specifications": specifications,
                 "test_output_file": test_output_file,
@@ -84,6 +142,13 @@ class AgentFixConformanceTest(BaseAction):
                 "module_name": render_context.module_name,
                 "keep_session_alive": True,  # Mark this as a persistent session
             }
+            self._add_optional_task_params(
+                task_params,
+                frid_implementation_diff=frid_implementation_diff,
+                frid_conformance_tests_diff=frid_conformance_tests_diff,
+                memory_files_content=memory_files_content,
+                fix_history=ctx.fix_history,
+            )
             response = agent_runner.run(
                 "fix_conformance_tests",
                 task_params,
@@ -100,7 +165,8 @@ class AgentFixConformanceTest(BaseAction):
             additional_context = self._build_continuation_message(
                 test_output_file=test_output_file,
                 review_rejection_feedback=review_rejection_feedback,
-                prepare_environment_failure=prepare_environment_failure,
+                prepare_environment_failed=prepare_environment_failed,
+                prepare_environment_output_file=prepare_environment_output_file,
             )
 
             try:
@@ -109,6 +175,7 @@ class AgentFixConformanceTest(BaseAction):
                     additional_context=additional_context,
                     render_context=render_context,
                     tool_executor=tool_executor,
+                    pending_tool_call_id=ctx.fix_agent_pending_tool_call_id,
                 )
             except Exception as e:
                 # If session not found (404) or expired, start a fresh session
@@ -119,10 +186,11 @@ class AgentFixConformanceTest(BaseAction):
                     )
                     render_context.conformance_tests_running_context.fix_agent_session_id = None
 
-                    # Start new session with full context (includes previous failure info)
+                    # Start new session with full context (includes fix history)
                     task_params = {
                         "specifications": specifications,
                         "test_output_file": test_output_file,
+                        "prepare_environment_output_file": prepare_environment_output_file,
                         "linked_resource_paths": linked_resource_paths,
                         "acceptance_tests": acceptance_tests,
                         "build_folder": render_context.build_folder,
@@ -131,13 +199,14 @@ class AgentFixConformanceTest(BaseAction):
                         "prepare_environment_script_path": render_context.prepare_environment_script or "",
                         "module_name": render_context.module_name,
                         "keep_session_alive": True,
-                        # Include context from previous attempts (if available)
-                        "previous_agent_summary": previous_agent_summary if previous_agent_summary else None,
-                        "review_rejection_feedback": review_rejection_feedback if review_rejection_feedback else None,
-                        "prepare_environment_failure": (
-                            prepare_environment_failure if prepare_environment_failure else None
-                        ),
                     }
+                    self._add_optional_task_params(
+                        task_params,
+                        frid_implementation_diff=frid_implementation_diff,
+                        frid_conformance_tests_diff=frid_conformance_tests_diff,
+                        memory_files_content=memory_files_content,
+                        fix_history=ctx.fix_history,
+                    )
                     response = agent_runner.run(
                         "fix_conformance_tests",
                         task_params,
@@ -153,11 +222,41 @@ class AgentFixConformanceTest(BaseAction):
                     # Re-raise other errors
                     raise
 
-        # Extract agent's summary message
-        agent_summary = response.get("result", "") if response.get("status") == "completed" else ""
+        # Extract structured fix summary from submit_fix tool, or fall back to free-text result
+        if response.get("terminal_tool_args"):
+            fix_summary = response["terminal_tool_args"]
+        else:
+            fix_summary = {
+                "root_cause": response.get("result", ""),
+                "changes_made": "",
+                "files_modified": [],
+                "confidence": "unknown",
+            }
 
-        return self.FIX_READY_FOR_REVIEW, {
-            "agent_summary": agent_summary,
+        # Store on context so it's available regardless of which path re-enters this action
+        ctx.last_fix_summary = fix_summary
+
+        # Remember the (still unanswered) submit_fix tool call so the next attempt can
+        # deliver its feedback as that call's tool result, preserving the tool loop and
+        # Gemini's prompt cache instead of resetting it with a new user message.
+        ctx.fix_agent_pending_tool_call_id = response.get("terminal_tool_call_id")
+
+        # Mark that a fix is awaiting integrity review. The review is deferred until
+        # the re-run of the conformance tests passes (see RunConformanceTests and the
+        # "tests passed -> review" transition); a fix that does not even pass the
+        # tests goes straight back to fixing without spending a review.
+        ctx.pending_fix_review = True
+        # Stash the reviewer's inputs on the context: the reviewer runs after the
+        # tests (not directly after this action), so it cannot read them from the
+        # action payload.
+        ctx.fix_review_context = {
+            "specifications": specifications,
+            "acceptance_tests": acceptance_tests,
+            "conformance_test_folder": conformance_test_folder,
+        }
+
+        return self.FIX_APPLIED, {
+            "fix_summary": fix_summary,
             "specifications": specifications,
             "acceptance_tests": acceptance_tests,
             "conformance_test_folder": conformance_test_folder,
@@ -239,6 +338,74 @@ class AgentFixConformanceTest(BaseAction):
 
         return "\n\n".join(sections)
 
+    def _add_optional_task_params(
+        self,
+        task_params: dict,
+        *,
+        frid_implementation_diff: str,
+        frid_conformance_tests_diff: str,
+        memory_files_content,
+        fix_history: list,
+    ) -> None:
+        """Add the optional task params (only when present) shared by both start paths."""
+        if frid_implementation_diff:
+            task_params["frid_implementation_diff"] = frid_implementation_diff
+        if frid_conformance_tests_diff:
+            task_params["frid_conformance_tests_diff"] = frid_conformance_tests_diff
+        if memory_files_content:
+            task_params["memory_files_content"] = memory_files_content
+        if fix_history:
+            task_params["fix_history"] = self._serialize_fix_history(fix_history)
+
+    def _build_implementation_diff_text(self, render_context: RenderContext) -> str:
+        """Format the diff of the implementation code added for the current functionality.
+
+        This is the code change that implemented the current functionality (working
+        tree vs the previous functionality's commit) — the prime suspect for a newly
+        failing conformance test.
+        """
+        try:
+            diff_by_file = ImplementationCodeHelpers.get_code_diff(
+                render_context.build_folder,
+                render_context.plain_source_tree,
+                render_context.frid_context.frid,
+            )
+        except Exception as e:
+            console.warning(f"Could not compute implementation code diff for fixing context: {e}")
+            return ""
+        return self._format_diff(diff_by_file)
+
+    def _build_conformance_tests_diff_text(self, render_context: RenderContext) -> str:
+        """Format the diff of the conformance tests just rendered for the current functionality.
+
+        The conformance tests folder is committed per functionality, so diffing
+        against the previous functionality's commit surfaces the tests just rendered
+        for the current functionality.
+        """
+        try:
+            conformance_tests_folder = render_context.conformance_tests.get_module_conformance_tests_folder(
+                render_context.module_name
+            )
+            diff_by_file = ImplementationCodeHelpers.get_conformance_tests_diff(
+                conformance_tests_folder,
+                render_context.plain_source_tree,
+                render_context.frid_context.frid,
+            )
+        except Exception as e:
+            console.warning(f"Could not compute conformance tests diff for fixing context: {e}")
+            return ""
+        return self._format_diff(diff_by_file)
+
+    @staticmethod
+    def _format_diff(diff_by_file: dict) -> str:
+        """Render a {file_name: unified_diff} mapping into a readable markdown block."""
+        if not diff_by_file:
+            return ""
+        parts = []
+        for file_name, file_diff in diff_by_file.items():
+            parts.append(f"### {file_name}\n```diff\n{file_diff}\n```")
+        return "\n\n".join(parts)
+
     def _build_acceptance_tests_text(self, render_context: RenderContext) -> str:
         acceptance_tests = render_context.conformance_tests_running_context.get_current_acceptance_tests()
         if not acceptance_tests:
@@ -259,43 +426,85 @@ class AgentFixConformanceTest(BaseAction):
             return []
         return list(linked_resources.keys())
 
+    def _serialize_fix_history(self, fix_history: list[FixHistoryEntry]) -> list[dict]:
+        """Serialize fix history entries for passing to the server."""
+        return [
+            {
+                "attempt_number": entry.attempt_number,
+                "agent_summary": entry.agent_summary,
+                "outcome": entry.outcome,
+                "reviewer_feedback": entry.reviewer_feedback,
+                "files_modified": entry.files_modified,
+                "diff": entry.diff,
+            }
+            for entry in fix_history
+        ]
+
+    @staticmethod
+    def _truncate_middle(text: str, max_chars: int) -> str:
+        """Keep the head and tail of text when it exceeds max_chars."""
+        if len(text) <= max_chars:
+            return text
+        half = max_chars // 2
+        omitted = len(text) - 2 * half
+        return f"{text[:half]}\n... [truncated {omitted} characters] ...\n{text[-half:]}"
+
     def _build_continuation_message(
-        self, test_output_file: str, review_rejection_feedback: str, prepare_environment_failure: str
+        self,
+        test_output_file: str,
+        review_rejection_feedback: str,
+        prepare_environment_failed: bool,
+        prepare_environment_output_file: str,
     ) -> str:
         """Build a message to continue the agent session with new test results and feedback."""
         parts = []
 
         # Review feedback
         if review_rejection_feedback:
-            parts.append("The reviewer examined your fix and evaluated it according to the engineering integrity guidelines. The reviewer rejected your fix with this reviewer feedback:\n\n{review_rejection_feedback}\n")
+            parts.append(
+                f"The reviewer examined your fix and evaluated it according to the engineering integrity guidelines. The reviewer rejected your fix with this reviewer feedback:\n\n{review_rejection_feedback}\n"
+            )
             parts.append("Please address the reviewer's concerns and try again.\n")
 
-        # Environment preparation result
-        if prepare_environment_failure:
-            parts.append(f"The environment preparation (build/compile) failed:\n\n{prepare_environment_failure}\n")
-            parts.append(
-                "Please fix the build/compilation issues before the tests can run. "
-                "The test output file below may be outdated.\n"
-            )
-
-        # Test result
-        if test_output_file:
-            parts.append(
-                f"Your fix was evaluated by running the conformance tests using the conformance tests script, but the tests still failed. "
-                f"The test script output was saved to a file which is available at: {test_output_file}\n\n"
-            )
+        if prepare_environment_failed:
+            # The build/compile step failed after the fix, so the conformance tests never
+            # ran. Only the environment preparation output is relevant here; the previous
+            # conformance test output is stale and is deliberately not referenced.
+            if prepare_environment_output_file:
+                parts.append(
+                    "After your fix, the environment preparation (build/compile) step failed, so the "
+                    "conformance tests could NOT be run. The environment preparation output was saved to a "
+                    f"file which is available at: {prepare_environment_output_file}\n"
+                )
+            else:
+                parts.append(
+                    "After your fix, the environment preparation (build/compile) step failed, so the "
+                    "conformance tests could NOT be run, and no environment preparation output file is available.\n"
+                )
+            parts.append("Please fix the build/compilation issues so the environment can be prepared and the tests can run.\n")
         else:
-            parts.append("Your fix was evaluating by running the conformance tests using the conformance tests script, but the tests still failed, and no test output file is available.\n")
+            # The environment preparation succeeded and the conformance tests just ran and failed.
+            if test_output_file:
+                parts.append(
+                    f"Your fix was evaluated by running the conformance tests using the conformance tests script, but the tests still failed. "
+                    f"The test script output was saved to a file which is available at: {test_output_file}\n\n"
+                )
+            else:
+                parts.append(
+                    "Your fix was evaluated by running the conformance tests using the conformance tests script, but the tests still failed, and no test output file is available.\n"
+                )
 
-        parts.append("\nFix the failing tests:\n")
+        parts.append("\nNext steps:\n")
         parts.append("1. Thoroughly read the:\n")
-        if test_output_file:
+        if prepare_environment_failed and prepare_environment_output_file:
+            parts.append(f"  - The environment preparation output file at: {prepare_environment_output_file}\n")
+        if not prepare_environment_failed and test_output_file:
             parts.append(f"  - The test output file at: {test_output_file}\n")
-        if prepare_environment_failure:
-            parts.append(f"  - The environment preparation failure\n")
         if review_rejection_feedback:
-            parts.append(f"  - The reviewer feedback\n")
-        parts.append("2. Locate and read the failing test code and the implementation code that is being tested. Make sure you understand the root cause of the failing tests.\n")
+            parts.append("  - The reviewer feedback\n")
+        parts.append(
+            "2. Locate and read the relevant test code and the implementation code that is being tested. Make sure you understand the root cause of the failure.\n"
+        )
         parts.append("3. Implement a fix that addresses the root cause.\n")
         parts.append("4. Verify the fix by reading the edited files to ensure the fix is correct.\n")
         parts.append("5. Provide a summary of what you changed and why.\n")

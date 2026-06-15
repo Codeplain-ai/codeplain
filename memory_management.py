@@ -9,6 +9,7 @@ from render_machine.render_context import RenderContext
 
 CONFORMANCE_TESTS_SUCCESS_EXIT_CODE = 0
 CONFORMANCE_TEST_MEMORY_SUBFOLDER = "conformance_test_memory"
+AGENT_MEMORY_SUBFOLDER = "agent_memory"
 
 
 class MemoryManager:
@@ -23,6 +24,31 @@ class MemoryManager:
         memory_files_content = file_utils.get_existing_files_content(memory_path, memory_files)
         console.debug(f"Loaded {len(memory_files_content)} memory files.")
         return memory_files, memory_files_content
+
+    @staticmethod
+    def fetch_agent_memory_files(memory_folder: str) -> dict[str, str]:
+        """Fetch agent memory notes from memory_folder/agent_memory.
+
+        These are free-form notes written by fixing agents via the write_memory tool.
+        Unlike conformance test memories, they persist across functionalities and renders.
+        """
+        memory_path = os.path.join(memory_folder, AGENT_MEMORY_SUBFOLDER)
+        if not os.path.exists(memory_path):
+            return {}
+        memory_files = file_utils.list_all_text_files(memory_path)
+        memory_files_content = file_utils.get_existing_files_content(memory_path, memory_files)
+        console.debug(f"Loaded {len(memory_files_content)} agent memory files.")
+        return memory_files_content
+
+    @staticmethod
+    def write_agent_memory_file(memory_folder: str, file_name: str, content: str) -> str:
+        """Write an agent memory note to memory_folder/agent_memory and return its full path."""
+        memory_path = os.path.join(memory_folder, AGENT_MEMORY_SUBFOLDER)
+        os.makedirs(memory_path, exist_ok=True)
+        full_path = os.path.join(memory_path, file_name)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return full_path
 
     def __init__(self, codeplain_api, module_name: str, conformance_tests_folder: str):
         self.codeplain_api = codeplain_api
