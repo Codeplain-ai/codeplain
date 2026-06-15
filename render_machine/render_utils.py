@@ -81,10 +81,10 @@ def _sanitize_script_output(script_output: str) -> str:
     clear_console_escape_codes_pattern = r"(?:\033\[[^a-zA-Z]*[a-zA-Z])*\033\[2J(?:\033\[[^a-zA-Z]*[a-zA-Z])*"
 
     pattern = re.compile(clear_console_escape_codes_pattern)
-    parts = pattern.split(script_output)
 
-    # take only the part after the last clear console escape code
-    return parts[-1] if len(parts) > 1 else script_output
+    # strip the clear-console escape codes but keep all output — discarding everything
+    # before the last clear code can silently drop the actual test failure details
+    return pattern.sub("\n", script_output)
 
 
 def execute_script(  # noqa: C901

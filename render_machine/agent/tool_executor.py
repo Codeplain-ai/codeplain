@@ -19,6 +19,8 @@ DEFAULT_TOOLS: dict[str, ToolFunction] = {
     "list_files": tools.list_files,
     "ls_files": tools.ls_files,
     "grep": tools.grep,
+    "think": tools.think,
+    "write_memory": tools.write_memory,
 }
 
 
