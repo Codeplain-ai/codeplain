@@ -50,8 +50,8 @@ def _display_credit_line(plan_credits: dict) -> None:
         console.print(f"    {plan_label:10} {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
 
 
-def _display_purchased_credit_line(bucket: dict) -> None:
-    """Display a purchased credit line with progress bar."""
+def _display_bucket_credit_line(bucket: dict, label: str) -> None:
+    """Display a credit bucket line (purchased or promo) with progress bar."""
     remaining = bucket["remaining"]
     total = bucket["total"]
     expiry_date = bucket["expiry_date"]
@@ -71,12 +71,12 @@ def _display_purchased_credit_line(bucket: dict) -> None:
     bar = _create_progress_bar(remaining, total, width=30)
 
     if is_expired:
-        console.print(f"    Purchased  {bar}   expired {formatted_date}")
+        console.print(f"    {label:10} {bar}   expired {formatted_date}")
     else:
-        console.print(f"    Purchased  {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
+        console.print(f"    {label:10} {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
 
 
-def _display_status_message(plan_credits: Optional[dict], purchased_credits: list) -> None:
+def _display_status_message(plan_credits: Optional[dict], purchased_credits: list, promo_credits: list) -> None:
     """Display appropriate status message based on credit state."""
     has_remaining = False
 
@@ -93,8 +93,8 @@ def _display_status_message(plan_credits: Optional[dict], purchased_credits: lis
         if remaining > 0 and period_end > now:
             has_remaining = True
 
-    # Check if any purchased credits have remaining balance and not expired
-    for bucket in purchased_credits:
+    # Check if any purchased or promo credits have remaining balance and not expired
+    for bucket in [*purchased_credits, *promo_credits]:
         dt_str = bucket["expiry_date"].replace("Z", "+00:00")
         expiry_date = datetime.fromisoformat(dt_str)
         # If naive datetime, assume UTC
@@ -127,6 +127,7 @@ def print_status(api_key: str, api_url: str, client_version: str) -> None:
     org_owner = response.get("organization_owner_email")
     plan_credits = response.get("plan_credits")
     purchased_credits = response.get("purchased_credits", [])
+    promo_credits = response.get("promo_credits", [])
 
     # Display header information
     if client_version_valid:
@@ -153,8 +154,12 @@ def print_status(api_key: str, api_url: str, client_version: str) -> None:
 
     # Display purchased credits
     for bucket in purchased_credits:
-        _display_purchased_credit_line(bucket)
+        _display_bucket_credit_line(bucket, "Purchased")
+
+    # Display promo credits
+    for bucket in promo_credits:
+        _display_bucket_credit_line(bucket, "Promo")
 
     # Display status messages and management link
-    _display_status_message(plan_credits, purchased_credits)
+    _display_status_message(plan_credits, purchased_credits, promo_credits)
     console.print("\nTo manage your plan navigate to https://platform.codeplain.ai/plans")
