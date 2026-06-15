@@ -29,6 +29,11 @@ class PlainSyntaxError(Exception):
     pass
 
 
+class UnsupportedBase64Content(Exception):
+
+    pass
+
+
 class InternalClientError(Exception):
     pass
 

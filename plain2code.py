@@ -37,6 +37,7 @@ from plain2code_exceptions import (
     PlainSyntaxError,
     RenderCancelledError,
     RenderingCreditBalanceTooLow,
+    UnsupportedBase64Content,
     UnsupportedResourceType,
 )
 from plain2code_logger import (
@@ -74,6 +75,7 @@ EXPECTED_EXCEPTIONS = (
     NetworkConnectionError,
     ModuleDoesNotExistError,
     UnsupportedResourceType,
+    UnsupportedBase64Content,
     GitNotInstalledError,
     SystemExit,
 )

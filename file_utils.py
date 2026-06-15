@@ -8,8 +8,9 @@ from liquid2.exceptions import UndefinedError
 
 import plain_spec
 from plain2code_console import console
-from plain2code_exceptions import UnsupportedResourceType
+from plain2code_exceptions import UnsupportedBase64Content, UnsupportedResourceType
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
+from plain2code_utils import find_large_base64_blob
 from plain_modules import CODEPLAIN_MEMORY_SUBFOLDER, CODEPLAIN_METADATA_FOLDER
 
 BINARY_FILE_EXTENSIONS = [".pyc"]
@@ -196,7 +197,8 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
             )
 
         if content is None:
-            raise FileNotFoundError(f"""
+            raise FileNotFoundError(
+                f"""
                 Resource file {file_name} not found. Resource files are searched in the following order (highest to lowest precedence):
 
                 1. The directory containing your .plain file
@@ -204,7 +206,17 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
                 3. The built-in 'standard_template_library' directory
 
                 Please ensure that the resource exists in one of these locations, or specify the correct --template-dir if using custom templates.
-                """)
+                """
+            )
+
+        blob = find_large_base64_blob(content)
+        if blob is not None:
+            raise UnsupportedBase64Content(
+                f"Referenced resource '{file_name}' in module '{module_name}' contains a large "
+                f"base64-encoded blob ({len(blob)} characters), such as an embedded image. Inline "
+                "base64 data is not supported. Remove the base64 data "
+                "from the resource. If necessary, provide the binary file path in the specification."
+            )
 
         linked_resources[file_name] = content
 
