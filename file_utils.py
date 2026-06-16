@@ -212,8 +212,9 @@ def load_linked_resources(template_dirs: list[str], resources_list, module_name:
             raise UnsupportedBase64Content(
                 f"Referenced resource '{file_name}' in module '{module_name}' contains a large "
                 f"base64-encoded blob ({len(blob)} characters), such as an embedded image. Inline "
-                "base64 data is not supported. Remove the base64 data "
-                "from the resource. If necessary, provide the binary file path in the specification."
+                "base64 data is not supported. Remove the data from the resource. "
+                "If the data should be used by the end software, "
+                "save the data to a separate file and include the file path in the specification without it being a reference file."
             )
 
         linked_resources[file_name] = content
