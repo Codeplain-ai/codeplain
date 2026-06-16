@@ -13,6 +13,7 @@ from render_machine.actions.analyze_specification_ambiguity import AnalyzeSpecif
 from render_machine.actions.commit_conformance_tests_changes import CommitConformanceTestsChanges
 from render_machine.actions.commit_implementation_code_changes import CommitImplementationCodeChanges
 from render_machine.actions.create_dist import CreateDist
+from render_machine.actions.evaluate_implementation import EvaluateImplementation
 from render_machine.actions.exit_with_error import ExitWithError
 from render_machine.actions.finish_functional_requirement import FinishFunctionalRequirement
 from render_machine.actions.fix_conformance_test import FixConformanceTest
@@ -52,6 +53,7 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}": RunConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}": FixConformanceTest(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.EVALUATING_IMPLEMENTATION.value}": EvaluateImplementation(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitConformanceTestsChanges(
                 git_utils.CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
@@ -90,6 +92,9 @@ class StateMachineConfig:
             RunConformanceTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
             FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED: triggers.MARK_CONFORMANCE_TESTS_READY,
             FixConformanceTest.IMPLEMENTATION_CODE_UPDATED: triggers.MARK_UNIT_TESTS_READY,
+            EvaluateImplementation.REIMPLEMENT_IMPLEMENTATION_CODE: triggers.RESTART_FRID_PROCESSING,
+            EvaluateImplementation.REGENERATE_CONFORMANCE_TESTS: triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
+            EvaluateImplementation.CONTINUE_FIXING: triggers.CONTINUE_FIXING_CONFORMANCE_TESTS,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED: triggers.PROCEED_FRID_PROCESSING,
             SummarizeConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
@@ -145,6 +150,7 @@ class StateMachineConfig:
                     "on_enter": render_context.start_fixing_conformance_tests,
                     "on_exit": render_context.finish_fixing_conformance_tests,
                 },
+                States.EVALUATING_IMPLEMENTATION.value,
                 self.get_processing_unit_tests_states(
                     render_context, render_context._on_unit_test_limit_exceeded_in_conformance_tests
                 ),
@@ -361,6 +367,26 @@ class StateMachineConfig:
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
                 "trigger": triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
+                "trigger": triggers.EVALUATE_IMPLEMENTATION,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.EVALUATING_IMPLEMENTATION.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.EVALUATING_IMPLEMENTATION.value}",
+                "trigger": triggers.RESTART_FRID_PROCESSING,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.EVALUATING_IMPLEMENTATION.value}",
+                "trigger": triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.EVALUATING_IMPLEMENTATION.value}",
+                "trigger": triggers.CONTINUE_FIXING_CONFORMANCE_TESTS,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",

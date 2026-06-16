@@ -28,6 +28,12 @@ MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
 MAX_REFACTORING_ITERATIONS = 5
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS = 2
+# After this many failed conformance-test fix attempts, step back and evaluate whether the initial
+# implementation code and/or the rendered conformance tests were lacking, instead of attempting yet another fix.
+CONFORMANCE_TEST_EVALUATION_ATTEMPT = 5
+# Maximum number of implementation evaluations per functionality (bounds re-implementation/regeneration loops
+# across FRID restarts, since the running context is rebuilt on every restart).
+MAX_CONFORMANCE_EVALUATION_ATTEMPTS = 2
 
 
 class RenderContext:
@@ -93,6 +99,10 @@ class RenderContext:
         self.conformance_tests_running_context: Optional[ConformanceTestsRunningContext] = None
         # Constants that should remain for a single frid, but possible over multiple rerenderings of the same frid
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
+        # Number of times the implementation has been evaluated for the current frid (survives FRID restarts).
+        self.conformance_evaluation_attempts = 0
+        # Feedback produced by the implementation evaluation, threaded into the next render call as guidance.
+        self.evaluation_feedback: Optional[str] = None
         # Initialize conformance tests utilities
         self.conformance_tests = ConformanceTests(
             conformance_tests_folder=self.conformance_tests_folder,
@@ -188,6 +198,8 @@ class RenderContext:
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
+        self.conformance_evaluation_attempts = 0
+        self.evaluation_feedback = None
         self.run_state.increment_rendered_functionalities()
 
     def should_run_unit_tests(self) -> bool:
@@ -591,6 +603,16 @@ class RenderContext:
 
     def start_fixing_conformance_tests(self):
         self.conformance_tests_running_context.fix_attempts += 1
+
+        # After a number of failed fix attempts, step back and evaluate whether the initial implementation code
+        # and/or the rendered conformance tests were lacking, rather than attempting yet another fix. This is
+        # gated by a per-frid budget so re-implementation/regeneration cannot loop indefinitely.
+        if (
+            self.conformance_tests_running_context.fix_attempts == CONFORMANCE_TEST_EVALUATION_ATTEMPT
+            and self.conformance_evaluation_attempts < MAX_CONFORMANCE_EVALUATION_ATTEMPTS
+        ):
+            self.machine.dispatch(triggers.EVALUATE_IMPLEMENTATION)
+            return
 
         if self.conformance_tests_running_context.fix_attempts >= MAX_CONFORMANCE_TEST_FIX_ATTEMPTS:
             if (

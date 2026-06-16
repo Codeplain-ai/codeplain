@@ -126,6 +126,7 @@ class RenderConformanceTests(BaseAction):
             ),
             all_acceptance_tests,
             run_state=render_context.run_state,
+            evaluation_feedback=render_context.evaluation_feedback,
         )
 
         render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (

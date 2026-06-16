@@ -180,6 +180,7 @@ class CodeplainAPI:
         required_modules: dict,
         include_unittests: bool,
         run_state: RunState,
+        evaluation_feedback: Optional[str] = None,
     ) -> dict[str, str]:
         """
         Renders the content of a functionality based on the provided ID,
@@ -220,6 +221,9 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "include_unittests": include_unittests,
         }
+
+        if evaluation_feedback is not None:
+            payload["evaluation_feedback"] = evaluation_feedback
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
@@ -317,6 +321,7 @@ class CodeplainAPI:
         conformance_tests_json,
         all_acceptance_tests,
         run_state: RunState,
+        evaluation_feedback: Optional[str] = None,
     ):
         endpoint_url = f"{self.api_url}/render_conformance_tests"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -334,6 +339,9 @@ class CodeplainAPI:
             "conformance_tests_json": conformance_tests_json,
             "all_acceptance_tests": all_acceptance_tests,
         }
+
+        if evaluation_feedback is not None:
+            payload["evaluation_feedback"] = evaluation_feedback
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
         return response["patched_response_files"], response["conformance_tests_plan_summary_string"]
@@ -484,6 +492,40 @@ class CodeplainAPI:
             "implementation_code_diff": implementation_code_diff,
             "fixed_implementation_code_diff": fixed_implementation_code_diff,
         }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def evaluate_conformance_implementation(
+        self,
+        frid,
+        plain_source_tree,
+        linked_resources,
+        existing_files_content,
+        memory_files_content,
+        module_name: str,
+        required_modules,
+        code_diff,
+        conformance_tests_files,
+        acceptance_tests,
+        run_state: RunState,
+    ):
+        endpoint_url = f"{self.api_url}/evaluate_conformance_implementation"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": frid,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+            "code_diff": code_diff,
+            "conformance_tests_files": conformance_tests_files,
+        }
+
+        if acceptance_tests is not None:
+            payload["acceptance_tests"] = acceptance_tests
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
