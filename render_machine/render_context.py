@@ -30,10 +30,10 @@ MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS = 2
 # After this many failed conformance-test fix attempts, step back and evaluate whether the initial
 # implementation code and/or the rendered conformance tests were lacking, instead of attempting yet another fix.
-CONFORMANCE_TEST_EVALUATION_ATTEMPT = 4
+CONFORMANCE_TEST_EVALUATION_ATTEMPT = 5
 # Maximum number of implementation evaluations per functionality (bounds re-implementation/regeneration loops
 # across FRID restarts, since the running context is rebuilt on every restart).
-MAX_CONFORMANCE_EVALUATION_ATTEMPTS = 2
+MAX_CONFORMANCE_EVALUATION_ATTEMPTS = 1
 
 
 class RenderContext:
