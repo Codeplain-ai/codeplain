@@ -7,7 +7,6 @@ from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import delete_file, edit_file, grep, list_files, ls_files, read_file, write_file
-from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
 
@@ -27,9 +26,21 @@ class AgentRenderConformanceTests(BaseAction):
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if self._should_render_conformance_tests(render_context):
-            return self._render_conformance_tests(render_context)
+            result = self._render_conformance_tests(render_context)
         else:
-            return self._render_acceptance_test(render_context)
+            result = self._render_acceptance_test(render_context)
+
+        # Rendering conformance tests / acceptance tests writes test files through the
+        # agent's edit/write/delete tools, which record those writes in the file change
+        # tracker. Reset the tracker now that the tests are implemented: the fix loop
+        # starts here, so the reviewer's diff should track changes from this baseline
+        # (the rendered tests) up to the review — not the test-rendering writes
+        # themselves. The tracker is then cleared again by ReviewConformanceFixAction
+        # (on approval) or reverted (on rejection). Without this reset, the diff would
+        # wrongly include the rendered tests, and a rejection's revert would delete the
+        # freshly rendered test files (they were tracked as not-previously-existing).
+        render_context.conformance_tests_running_context.reset_file_change_tracker()
+        return result
 
     def _should_render_conformance_tests(self, render_context: RenderContext) -> bool:
         ctx = render_context.conformance_tests_running_context
