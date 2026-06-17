@@ -84,6 +84,11 @@ class EvaluateImplementation(BaseAction):
                 f"Re-implementing functionality {render_context.frid_context.frid} from scratch based on the "
                 f"evaluation feedback."
             )
+            # The re-implementation is a fresh attempt informed by the evaluation feedback, so give it a clean
+            # code-generation retry budget. Otherwise the restart is counted against MAX_CODE_GENERATION_RETRIES
+            # (which bounds unit-test-fix restarts) and the functionality fails prematurely. Eval-driven restarts
+            # are independently bounded by MAX_CONFORMANCE_EVALUATION_ATTEMPTS.
+            render_context.frid_context.functional_requirement_render_attempts = 0
             return self.REIMPLEMENT_IMPLEMENTATION_CODE, None
 
         if verdict == self.VERDICT_CONFORMANCE_TESTS_INCORRECT:
