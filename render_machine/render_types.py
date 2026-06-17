@@ -6,18 +6,6 @@ from typing import Any, Optional
 import plain_spec
 
 
-@dataclass
-class FixHistoryEntry:
-    attempt_number: int
-    agent_summary: str
-    outcome: str  # "tests_failed", "reviewer_rejected", "session_expired"
-    reviewer_feedback: str = ""
-    files_modified: list[str] = field(default_factory=list)
-    # The actual diff that was attempted (captured at review time). Lets a fresh
-    # fixing agent see what was concretely changed, not just a one-line summary.
-    diff: str = ""
-
-
 class TestExecutionPhase(Enum):
     """Explicit phases of conformance test execution."""
 
@@ -102,9 +90,11 @@ class ConformanceTestsRunningContext:
 
         self.regenerating_conformance_tests: bool = False
 
-        # Tracks original file contents before fix agent modifies them.
+        # Tracks original file contents before the fix agent first modifies them,
+        # accumulated across all fix attempts since the last review.
         # Key: absolute file path, Value: original content (or None if file didn't exist).
-        # Used to revert changes when the reviewer rejects a fix.
+        # Used by ReviewConformanceFixAction to compute the cumulative fix diff and to
+        # revert changes when the reviewer rejects a fix. Cleared only by the reviewer.
         self.file_change_tracker: dict[str, Optional[str]] = {}
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
@@ -118,7 +108,12 @@ class ConformanceTestsRunningContext:
         # result (rather than a new user message) so the agent's tool loop — and thus
         # Gemini's prompt cache — is preserved across fix attempts.
         self.fix_agent_pending_tool_call_id: Optional[str] = None
-        self.fix_history: list[FixHistoryEntry] = []
+        # Handoff notes authored by fix agents that ran out of turns without resolving
+        # the failure. Each entry is a fresh agent's self-written summary for its
+        # successor (what was tried, why, why it failed, current code state, next
+        # steps). Carried into the next fresh session so a post-rotation agent does not
+        # start blind. Replaces the previous per-attempt fix_history log.
+        self.fix_handoffs: list[str] = []
         self.last_fix_summary: Optional[dict] = None  # Structured output from last submit_fix call
         # True once a fix has been applied and is awaiting integrity review. The
         # review only runs after the applied fix makes the conformance tests pass,
@@ -129,10 +124,6 @@ class ConformanceTestsRunningContext:
         # directly after the fix agent (tests run in between), so it cannot rely on
         # the previous action's payload and reads these from the context instead.
         self.fix_review_context: Optional[dict] = None
-        # Diff of the last fix attempt, captured by the reviewer before the file
-        # change tracker is reset/reverted. Consumed when the attempt is recorded
-        # into fix_history on the next fix cycle.
-        self.last_fix_diff: str = ""
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]
@@ -179,7 +170,20 @@ class ConformanceTestsRunningContext:
         ] = summary
 
     def reset_file_change_tracker(self):
-        """Clear the file change tracker (call at the start of each fix attempt and after approval)."""
+        """Clear the file change tracker.
+
+        Reset at exactly two points, which together bracket a fix loop:
+          - AgentRenderConformanceTests, after the tests are rendered. This sets the
+            baseline so the reviewer's diff captures only the fix loop's changes, not
+            the test-rendering writes.
+          - ReviewConformanceFixAction, when a reviewed fix cycle ends (on approval;
+            rejection clears it via revert_tracked_changes instead).
+
+        It is NOT reset per fix attempt, so within one fix loop the tracker accumulates
+        the original-file snapshots across all attempts since the baseline — giving the
+        reviewer the cumulative diff against the rendered-tests baseline rather than
+        only the last attempt's changes.
+        """
         self.file_change_tracker = {}
 
     def track_file_before_modification(self, absolute_path: str):

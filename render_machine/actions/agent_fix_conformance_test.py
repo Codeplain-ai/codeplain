@@ -20,14 +20,11 @@ from render_machine.agent.tools import (
 )
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
-from render_machine.render_types import FixHistoryEntry
 
-# Cap on the size of the diff embedded in fix_history. The history is replayed into
-# a fresh fixing agent on session rotation, so it must stay bounded to avoid blowing
-# up the prompt. When the diff exceeds the cap, the head and tail are kept.
-# (Test output is deliberately NOT embedded — it can be huge and the agent can read
-# the current test output from its file path on demand instead.)
-MAX_HISTORY_DIFF_CHARS = 6000
+# Most recent handoff notes injected into a fresh fix session. Each handoff is meant
+# to be self-contained (a fresh agent summarizing everything tried so far, including
+# what it inherited), so only the latest few are carried to keep the prompt bounded.
+MAX_HANDOFFS_INJECTED = 3
 
 
 class AgentFixConformanceTest(BaseAction):
@@ -50,34 +47,20 @@ class AgentFixConformanceTest(BaseAction):
         error = previous_action_payload.get("error") if previous_action_payload else None
         prepare_environment_failed = bool(error and error.get("type") == "ENVIRONMENT_ERROR")
 
-        # Record the previous attempt in fix history using the stored fix_summary
-        if ctx.last_fix_summary:
-            outcome = "reviewer_rejected" if review_rejection_feedback else "tests_failed"
-            ctx.fix_history.append(
-                FixHistoryEntry(
-                    attempt_number=ctx.fix_attempts,
-                    agent_summary=(
-                        f"{ctx.last_fix_summary.get('root_cause', '')}"
-                        f" → {ctx.last_fix_summary.get('changes_made', '')}"
-                    ),
-                    outcome=outcome,
-                    reviewer_feedback=review_rejection_feedback,
-                    files_modified=ctx.last_fix_summary.get("files_modified", []),
-                    diff=self._truncate_middle(ctx.last_fix_diff or "", MAX_HISTORY_DIFF_CHARS),
-                )
-            )
-            ctx.last_fix_summary = None
-            ctx.last_fix_diff = ""
-
         console.info(
             f"Agent fixing conformance test for functionality "
             f"{render_context.conformance_tests_running_context.current_testing_frid} "
             f"in module {render_context.conformance_tests_running_context.current_testing_module_name}."
         )
 
-        # Reset tracker so this fix attempt starts with a clean slate
-        render_context.conformance_tests_running_context.reset_file_change_tracker()
-
+        # The file change tracker is owned exclusively by ReviewConformanceFixAction:
+        # it is cleared there once a fix cycle is reviewed (approved or reverted on
+        # rejection). The tracker must NOT be reset here, because a fix can loop back
+        # into fixing several times (e.g. when its changes still fail the tests) before
+        # the tests pass and a review actually runs. Resetting here would drop the
+        # original-file snapshots captured by earlier attempts, leaving the reviewer
+        # with only the last attempt's diff instead of the cumulative diff since the
+        # pre-fix baseline.
         conformance_test_folder = self._get_conformance_test_folder(render_context)
 
         # Build context
@@ -129,25 +112,21 @@ class AgentFixConformanceTest(BaseAction):
 
         if session_id is None:
             # First attempt (or first attempt after session rotation) - start new agent session
-            task_params = {
-                "specifications": specifications,
-                "test_output_file": test_output_file,
-                "prepare_environment_output_file": prepare_environment_output_file,
-                "linked_resource_paths": linked_resource_paths,
-                "acceptance_tests": acceptance_tests,
-                "build_folder": render_context.build_folder,
-                "conformance_tests_folder": conformance_test_folder,
-                "conformance_tests_script_path": render_context.conformance_tests_script or "",
-                "prepare_environment_script_path": render_context.prepare_environment_script or "",
-                "module_name": render_context.module_name,
-                "keep_session_alive": True,  # Mark this as a persistent session
-            }
+            task_params = self._build_start_task_params(
+                render_context,
+                specifications=specifications,
+                test_output_file=test_output_file,
+                prepare_environment_output_file=prepare_environment_output_file,
+                linked_resource_paths=linked_resource_paths,
+                acceptance_tests=acceptance_tests,
+                conformance_test_folder=conformance_test_folder,
+            )
             self._add_optional_task_params(
                 task_params,
                 frid_implementation_diff=frid_implementation_diff,
                 frid_conformance_tests_diff=frid_conformance_tests_diff,
                 memory_files_content=memory_files_content,
-                fix_history=ctx.fix_history,
+                fix_handoffs=ctx.fix_handoffs,
             )
             response = agent_runner.run(
                 "fix_conformance_tests",
@@ -182,30 +161,26 @@ class AgentFixConformanceTest(BaseAction):
                 # This happens when the agent hits max turns or session expires
                 if "404" in str(e) or "not found" in str(e).lower():
                     console.warning(
-                        f"Previous fix session expired or hit max turns. Starting fresh session with accumulated context."
+                        "Previous fix session expired or hit max turns. Starting fresh session with accumulated context."
                     )
                     render_context.conformance_tests_running_context.fix_agent_session_id = None
 
-                    # Start new session with full context (includes fix history)
-                    task_params = {
-                        "specifications": specifications,
-                        "test_output_file": test_output_file,
-                        "prepare_environment_output_file": prepare_environment_output_file,
-                        "linked_resource_paths": linked_resource_paths,
-                        "acceptance_tests": acceptance_tests,
-                        "build_folder": render_context.build_folder,
-                        "conformance_tests_folder": conformance_test_folder,
-                        "conformance_tests_script_path": render_context.conformance_tests_script or "",
-                        "prepare_environment_script_path": render_context.prepare_environment_script or "",
-                        "module_name": render_context.module_name,
-                        "keep_session_alive": True,
-                    }
+                    # Start new session with full context (includes prior handoffs)
+                    task_params = self._build_start_task_params(
+                        render_context,
+                        specifications=specifications,
+                        test_output_file=test_output_file,
+                        prepare_environment_output_file=prepare_environment_output_file,
+                        linked_resource_paths=linked_resource_paths,
+                        acceptance_tests=acceptance_tests,
+                        conformance_test_folder=conformance_test_folder,
+                    )
                     self._add_optional_task_params(
                         task_params,
                         frid_implementation_diff=frid_implementation_diff,
                         frid_conformance_tests_diff=frid_conformance_tests_diff,
                         memory_files_content=memory_files_content,
-                        fix_history=ctx.fix_history,
+                        fix_handoffs=ctx.fix_handoffs,
                     )
                     response = agent_runner.run(
                         "fix_conformance_tests",
@@ -221,6 +196,14 @@ class AgentFixConformanceTest(BaseAction):
                 else:
                     # Re-raise other errors
                     raise
+
+        # If the agent ran out of turns without submitting a fix, the server force-
+        # concludes the session and returns its final free-text response (no terminal
+        # submit_fix tool call). Treat that response as an agent-authored handoff for
+        # the next session, and end the exhausted session so the next fix cycle starts
+        # a fresh agent that receives the handoff.
+        if self._session_exhausted(response):
+            self._capture_session_handoff(render_context, response)
 
         # Extract structured fix summary from submit_fix tool, or fall back to free-text result
         if response.get("terminal_tool_args"):
@@ -338,6 +321,36 @@ class AgentFixConformanceTest(BaseAction):
 
         return "\n\n".join(sections)
 
+    def _build_start_task_params(
+        self,
+        render_context: RenderContext,
+        *,
+        specifications: str,
+        test_output_file: str,
+        prepare_environment_output_file: str,
+        linked_resource_paths: list[str],
+        acceptance_tests: str,
+        conformance_test_folder: str,
+    ) -> dict:
+        """Build the task params used to start a fresh fix-agent session.
+
+        Shared by the first-attempt path and the session-rotation path so the two
+        stay in sync.
+        """
+        return {
+            "specifications": specifications,
+            "test_output_file": test_output_file,
+            "prepare_environment_output_file": prepare_environment_output_file,
+            "linked_resource_paths": linked_resource_paths,
+            "acceptance_tests": acceptance_tests,
+            "build_folder": render_context.build_folder,
+            "conformance_tests_folder": conformance_test_folder,
+            "conformance_tests_script_path": render_context.conformance_tests_script or "",
+            "prepare_environment_script_path": render_context.prepare_environment_script or "",
+            "module_name": render_context.module_name,
+            "keep_session_alive": True,  # Mark this as a persistent session
+        }
+
     def _add_optional_task_params(
         self,
         task_params: dict,
@@ -345,7 +358,7 @@ class AgentFixConformanceTest(BaseAction):
         frid_implementation_diff: str,
         frid_conformance_tests_diff: str,
         memory_files_content,
-        fix_history: list,
+        fix_handoffs: list,
     ) -> None:
         """Add the optional task params (only when present) shared by both start paths."""
         if frid_implementation_diff:
@@ -354,8 +367,40 @@ class AgentFixConformanceTest(BaseAction):
             task_params["frid_conformance_tests_diff"] = frid_conformance_tests_diff
         if memory_files_content:
             task_params["memory_files_content"] = memory_files_content
-        if fix_history:
-            task_params["fix_history"] = self._serialize_fix_history(fix_history)
+        if fix_handoffs:
+            task_params["fix_handoffs"] = fix_handoffs[-MAX_HANDOFFS_INJECTED:]
+
+    @staticmethod
+    def _session_exhausted(response: dict) -> bool:
+        """True when the fix agent ran out of turns without submitting a fix.
+
+        A normal attempt ends by calling submit_fix, which the client surfaces as
+        ``terminal_tool_args``. When a session exhausts its turn budget the server
+        force-concludes it and returns a plain ``completed`` response carrying only
+        the agent's final free-text message (no terminal tool call).
+        """
+        return response.get("status") == "completed" and not response.get("terminal_tool_args")
+
+    def _capture_session_handoff(self, render_context: RenderContext, response: dict) -> None:
+        """Capture a turn-exhausted agent's final message as a handoff and end its session.
+
+        The next fix cycle starts a fresh agent (session id cleared here) that receives
+        the accumulated handoffs, so it continues from where its predecessor left off
+        instead of starting blind.
+        """
+        ctx = render_context.conformance_tests_running_context
+        handoff = (response.get("result") or "").strip()
+        if handoff:
+            ctx.fix_handoffs.append(handoff)
+            console.warning(
+                "Fix agent ran out of turns without resolving the failure. "
+                "Captured a handoff for the next session and starting fresh."
+            )
+        # End the exhausted session so the next cycle does not try to continue a
+        # turn-exhausted session (which would just be force-concluded again).
+        render_context._cleanup_fix_agent_session()
+        ctx.fix_agent_session_id = None
+        ctx.fix_agent_pending_tool_call_id = None
 
     def _build_implementation_diff_text(self, render_context: RenderContext) -> str:
         """Format the diff of the implementation code added for the current functionality.
@@ -425,29 +470,6 @@ class AgentFixConformanceTest(BaseAction):
         if not linked_resources:
             return []
         return list(linked_resources.keys())
-
-    def _serialize_fix_history(self, fix_history: list[FixHistoryEntry]) -> list[dict]:
-        """Serialize fix history entries for passing to the server."""
-        return [
-            {
-                "attempt_number": entry.attempt_number,
-                "agent_summary": entry.agent_summary,
-                "outcome": entry.outcome,
-                "reviewer_feedback": entry.reviewer_feedback,
-                "files_modified": entry.files_modified,
-                "diff": entry.diff,
-            }
-            for entry in fix_history
-        ]
-
-    @staticmethod
-    def _truncate_middle(text: str, max_chars: int) -> str:
-        """Keep the head and tail of text when it exceeds max_chars."""
-        if len(text) <= max_chars:
-            return text
-        half = max_chars // 2
-        omitted = len(text) - 2 * half
-        return f"{text[:half]}\n... [truncated {omitted} characters] ...\n{text[-half:]}"
 
     def _build_continuation_message(
         self,
