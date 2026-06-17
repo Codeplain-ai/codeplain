@@ -38,7 +38,6 @@ class ReviewConformanceFixAction(BaseAction):
         if not ctx or not ctx.file_change_tracker:
             console.warning("No changes detected in fix. Approving by default.")
             if ctx:
-                ctx.last_fix_diff = ""
                 render_context.finalize_accepted_conformance_fix()
             return self.APPROVED, {"review_rejection_feedback": ""}
 
@@ -57,18 +56,13 @@ class ReviewConformanceFixAction(BaseAction):
         diff_text = diff_utils.get_code_diff(current_files, original_files)
         if not diff_text:
             console.warning("No changes detected in fix. Approving by default.")
-            ctx.last_fix_diff = ""
+            ctx.reset_file_change_tracker()
             render_context.finalize_accepted_conformance_fix()
             return self.APPROVED, {"review_rejection_feedback": ""}
 
         diff_str = ""
         for file_path, file_diff in diff_text.items():
             diff_str += f"--- {file_path}\n{file_diff}\n\n"
-
-        # Stash the diff so the next fix cycle can record it into fix_history.
-        # The file change tracker is reset (on approval) or reverted (on rejection)
-        # right after this, so this is the last point the diff is available.
-        ctx.last_fix_diff = diff_str
 
         # Get test output file path from context (set by RunConformanceTests)
         test_output_file = render_context.script_execution_history.latest_conformance_test_output_path or ""
