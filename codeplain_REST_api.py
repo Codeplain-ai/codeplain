@@ -533,7 +533,9 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def agent_start(self, task_type: str, task_params: dict, run_state: RunState, module_name: str = "", frid: str = ""):
+    def agent_start(
+        self, task_type: str, task_params: dict, run_state: RunState, module_name: str = "", frid: str = ""
+    ):
         endpoint_url = f"{self.api_url}/agent/start"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
         payload = {
@@ -544,7 +546,9 @@ class CodeplainAPI:
         }
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def agent_continue(self, session_id: str, tool_results: list[dict], run_state: RunState, keep_session_alive: bool = False):
+    def agent_continue(
+        self, session_id: str, tool_results: list[dict], run_state: RunState, keep_session_alive: bool = False
+    ):
         endpoint_url = f"{self.api_url}/agent/continue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
         payload = {
@@ -574,4 +578,3 @@ class CodeplainAPI:
             "session_id": session_id,
         }
         return self.post_request(endpoint_url, headers, payload, run_state)
-
