@@ -503,7 +503,9 @@ class AgentFixConformanceTest(BaseAction):
                     "After your fix, the environment preparation (build/compile) step failed, so the "
                     "conformance tests could NOT be run, and no environment preparation output file is available.\n"
                 )
-            parts.append("Please fix the build/compilation issues so the environment can be prepared and the tests can run.\n")
+            parts.append(
+                "Please fix the build/compilation issues so the environment can be prepared and the tests can run.\n"
+            )
         else:
             # The environment preparation succeeded and the conformance tests just ran and failed.
             if test_output_file:

@@ -143,6 +143,22 @@ def _get_allowed_read_folders(render_context: RenderContext) -> list[str]:
     return _get_allowed_write_folders(render_context)
 
 
+def _get_allowed_read_files(render_context: RenderContext) -> list[str]:
+    """Return normalized absolute paths of individual files the agent may read.
+
+    The test pipeline scripts (conformance tests, environment preparation, unit
+    tests) live outside the build and conformance test folders, but the agent is
+    instructed to read them to understand the test runners and build/compile steps.
+    Allowlist them explicitly so read_file can access them.
+    """
+    scripts = [
+        render_context.conformance_tests_script,
+        render_context.prepare_environment_script,
+        render_context.unittests_script,
+    ]
+    return [_resolve_file_path(s) for s in scripts if s]
+
+
 def _get_project_root() -> str:
     """Return the project root directory (the process CWD)."""
     return os.getcwd()
@@ -428,22 +444,28 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     full_path = _resolve_file_path(file_path)
     allowed_folders = _get_allowed_read_folders(render_context)
     linked_resource_paths = _get_linked_resource_paths(render_context)
+    allowed_files = _get_allowed_read_files(render_context)
 
-    # Check if file is within allowed folders or is a linked resource or a temp file
+    # Check if file is within allowed folders, an allowlisted file (test scripts),
+    # a linked resource, or a temp file
     is_in_allowed_folder = _is_within_any(full_path, allowed_folders)
+    is_allowed_file = full_path in allowed_files
     is_linked_resource = full_path in linked_resource_paths
     is_temp_file = full_path.startswith(os.path.normpath("/tmp") + os.sep) or full_path.startswith(
         os.path.normpath("/var/folders") + os.sep
     )
 
-    if not is_in_allowed_folder and not is_linked_resource and not is_temp_file:
+    if not is_in_allowed_folder and not is_allowed_file and not is_linked_resource and not is_temp_file:
         folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
         resource_list = ""
         if linked_resource_paths:
             resource_list = "\nLinked resource files:\n" + "\n".join(f"  - {p}" for p in linked_resource_paths)
+        script_list = ""
+        if allowed_files:
+            script_list = "\nTest pipeline scripts:\n" + "\n".join(f"  - {p}" for p in allowed_files)
         return (
             f"Error: Read access denied for '{file_path}' (resolved to '{full_path}').\n"
-            f"You can read files within these folders:\n{folder_list}{resource_list}\n"
+            f"You can read files within these folders:\n{folder_list}{script_list}{resource_list}\n"
             f"You can also read temporary files (in /tmp/).\n"
             f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
         )
@@ -488,7 +510,9 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     if end < total_lines or start > 0:
         shown_start = start + 1
         shown_end = min(end, total_lines)
-        header = f"[The file is too large to display all lines. Showing lines {shown_start}-{shown_end} of {total_lines} total. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n"
+        header = f"[Showing lines {shown_start}-{shown_end} of {total_lines} total. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n"
+        if shown_end - shown_start > max_lines:
+            header = "[The file is too large to display all lines!] " + header
         return header + "\n\n '```\n" + content + "\n```\n"
     elif total_lines > max_lines:
         header = f"[The file is too large to display all lines. Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n "
