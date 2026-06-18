@@ -100,6 +100,14 @@ def check_section_for_linked_resources(section):
         if len(link.node.children) != 1:
             raise PlainSyntaxError(f"Plain syntax error: Link must have text specified (link: {link.node.target}).")
 
+        linked_resource_file_extension = os.path.splitext(os.path.basename(link.node.target))[1]
+        if linked_resource_file_extension == ".plain":
+            raise PlainSyntaxError(
+                f"Referenced resource '{link.node.target}' is a .plain file. "
+                f"Referencing .plain files through Linked Resources is not supported. "
+                "Please use the import section to include definitions or implementation/test requirements from another module."
+            )
+
         linked_resources.append({"text": link.node.children[0].content, "target": link.node.target})
 
     if linked_resources:
