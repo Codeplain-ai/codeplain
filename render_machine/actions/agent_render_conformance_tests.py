@@ -187,9 +187,7 @@ class AgentRenderConformanceTests(BaseAction):
         sections = ["## Functional Requirements\n"]
 
         for module_name, func_list in required_modules_functionalities.items():
-            sections.append(
-                f"### Module: {module_name} (Already Implemented, for context):\n{chr(10).join(func_list)}"
-            )
+            sections.append(f"### Module: {module_name} (Already Implemented, for context):\n{chr(10).join(func_list)}")
 
         if current_module_func_reqs:
             if len(current_module_func_reqs) > 1:

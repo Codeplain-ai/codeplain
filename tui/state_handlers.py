@@ -273,18 +273,14 @@ class ScriptOutputsHandler(StateHandler):
             current_path = snapshot.script_execution_history.latest_unit_test_output_path
             if current_path != self.last_unit_test_path:
                 self.last_unit_test_path = current_path
-                container.update_unit_test(
-                    f"{ScriptOutputType.UNIT_TEST_OUTPUT_TEXT.value}{current_path}"
-                )
+                container.update_unit_test(f"{ScriptOutputType.UNIT_TEST_OUTPUT_TEXT.value}{current_path}")
 
         # Update testing environment output if changed
         if snapshot.script_execution_history.latest_testing_environment_output_path:
             current_path = snapshot.script_execution_history.latest_testing_environment_output_path
             if current_path != self.last_testing_env_path:
                 self.last_testing_env_path = current_path
-                container.update_testing_env(
-                    f"{ScriptOutputType.TESTING_ENVIRONMENT_OUTPUT_TEXT.value}{current_path}"
-                )
+                container.update_testing_env(f"{ScriptOutputType.TESTING_ENVIRONMENT_OUTPUT_TEXT.value}{current_path}")
 
         # Update conformance test output if changed
         if snapshot.script_execution_history.latest_conformance_test_output_path:
