@@ -25,6 +25,13 @@ MODULE_FUNCTIONALITIES = "functionalities"
 REQUIRED_MODULES_FUNCTIONALITIES = "required_modules_functionalities"
 
 
+def _strip_functional_requirements(plain_source_tree: dict) -> dict:
+    stripped = {k: v for k, v in plain_source_tree.items() if k != plain_spec.FUNCTIONAL_REQUIREMENTS}
+    if "sections" in stripped:
+        stripped["sections"] = [_strip_functional_requirements(section) for section in stripped["sections"]]
+    return stripped
+
+
 class PlainModule:
     def __init__(self, filename: str, build_folder: str, conformance_tests_folder: str, template_dirs: list[str]):
         self.filename = filename
@@ -108,8 +115,32 @@ class PlainModule:
         with open(metadata_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
+    def update_frid_in_module_metadata(self, frid: str) -> None:
+        # Store the raw FR markdown (with any {{ code_variable }} placeholders intact), exactly
+        # as save_module_metadata and the change-detection diff read it. Storing the rendered
+        # text (code variables already substituted) would make the diff report a spurious edit
+        # for every code-variable FR after a partial/interrupted render.
+        metadata = self.load_module_metadata() or {}
+        functionalities = metadata.get(MODULE_FUNCTIONALITIES, [])
+        frid_index = int(frid) - 1
+        frid_text = self._get_module_functional_requirements()[frid_index]
+        if frid_index < len(functionalities):
+            functionalities[frid_index] = frid_text
+        else:
+            functionalities.append(frid_text)
+        metadata[MODULE_FUNCTIONALITIES] = functionalities
+
+        codeplain_folder = self.get_codeplain_folder()
+        os.makedirs(codeplain_folder, exist_ok=True)
+        with open(self.module_metadata_path(), "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=4)
+
     def get_module_source_hash(self) -> str:
         return plain_spec.get_hash_value([self.plain_source] + self.resources_list)
+
+    def get_module_non_functional_source_hash(self) -> str:
+        stripped = _strip_functional_requirements(self.plain_source)
+        return plain_spec.get_hash_value([stripped] + self.resources_list)
 
     def get_module_code_hash(self) -> str:
         return ImplementationCodeHelpers.calculate_build_folder_hash(self.module_build_folder)
@@ -162,7 +193,10 @@ class PlainModule:
         return os.path.join(self.get_codeplain_folder(), MODULE_METADATA_FILENAME)
 
     def get_hashes(self) -> dict[str, str]:
-        hashes = {"source_hash": self.get_module_source_hash()}
+        hashes = {
+            "source_hash": self.get_module_source_hash(),
+            "non_functional_source_hash": self.get_module_non_functional_source_hash(),
+        }
         if len(self.required_modules) > 0:
             hashes["required_modules_code_hash"] = self.required_modules[-1].get_module_code_hash()
         return hashes
@@ -324,7 +358,7 @@ class PlainModule:
 
         return False
 
-    def is_initial_module(self) -> bool:
+    def has_no_rendered_functionality(self) -> bool:
         last_rendered_module_name, last_rendered_frid = git_utils.get_last_rendered_functionality(
             self.module_build_folder
         )

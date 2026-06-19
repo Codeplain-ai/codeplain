@@ -47,12 +47,25 @@ class PlainModuleRenderChoiceTUI(App):
                     return f"Start rendering the current module ([#5593FF]{render_choice.module.module_name}[/])"
             else:
                 return f"Start from module [#5593FF]{render_choice.module.module_name}[/]"
+        elif render_choice.choice_type == "render_from_change":
+            assert render_choice.module is not None
+            assert render_choice.render_range is not None
+            start_frid = render_choice.render_range[0]
+            quote = self._short_functionality_quote(render_choice.module, start_frid)
+            return (
+                f"Render from changed functionality [#5593FF]{start_frid}[/]"
+                f" in module [#5593FF]{render_choice.module.module_name}[/]"
+                f": [#888]{quote}[/]"
+            )
         elif render_choice.choice_type == "rerender_affected" and self.plain_module_render_state.change is not None:
             all_affected_modules = get_all_affected_modules_from_change(
                 self.plain_module, self.plain_module_render_state
             )
 
-            return f"Re-render all affected modules ([#5593FF]{', '.join([m.module_name for m in all_affected_modules])}[/])"
+            module_names = ", ".join([m.module_name for m in all_affected_modules])
+            if len(all_affected_modules) == 1:
+                return f"Re-render module [#5593FF]{module_names}[/] from scratch"
+            return f"Re-render affected modules ([#5593FF]{module_names}[/]) from scratch"
 
         elif render_choice.choice_type == "rerender_from_first":
             return f"Re-render from first module ([#5593FF]{render_choice.module.module_name}[/])"
@@ -142,7 +155,7 @@ class PlainModuleRenderChoiceTUI(App):
 
             change_box.mount(Label(msg, classes="rendering-info-row"))
 
-            if pr.last_render_module.is_initial_module():
+            if pr.last_render_module.has_no_rendered_functionality():
                 change_box.mount(
                     Label(
                         "Resume from interrupted functionality.",
@@ -157,12 +170,28 @@ class PlainModuleRenderChoiceTUI(App):
                     )
                 )
 
-        # Populate the ListView
+        # Populate the ListView. The first choice is always the fastest option (least work to
+        # render), so it is highlighted as the default — the user can just press Enter.
         lv = self.query_one("#choice-list", ListView)
         self.mount(Label("How would you like to proceed?", classes="partial-render-question"), before=lv)
+        default_key = next(iter(self.render_choices), None)
         for key, choice in self.render_choices.items():
-            lv.append(ListItem(Label(f"[bold]{key}.[/bold] {self.get_msg_from_choice(choice)}"), id=f"choice-{key}"))
+            label_text = f"[bold]{key}.[/bold] {self.get_msg_from_choice(choice)}"
+            if key == default_key:
+                label_text += " [#888](default · press Enter)[/]"
+            lv.append(ListItem(Label(label_text), id=f"choice-{key}"))
+        lv.index = 0
         lv.focus()
+
+    def _short_functionality_quote(self, module: PlainModule, frid: str, max_length: int = 60) -> str:
+        specifications, _ = plain_spec.get_specifications_for_frid(module.plain_source, frid)
+        functionality = specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]
+        first_line = functionality.splitlines()[0].strip()
+        if first_line.startswith("- "):
+            first_line = first_line[2:]
+        if len(first_line) > max_length:
+            first_line = first_line[: max_length - 1].rstrip() + "…"
+        return first_line
 
     def _register_expandable(self, label: Label, prefix: str, full_text: str) -> None:
         first_lines = "\n".join(full_text.splitlines()[:3])
