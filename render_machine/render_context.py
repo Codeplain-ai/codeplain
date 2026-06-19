@@ -23,7 +23,6 @@ from render_machine.render_types import (
 )
 
 MAX_UNITTEST_FIX_ATTEMPTS = 20
-MAX_CODE_GENERATION_RETRIES = 2
 MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
 MAX_REFACTORING_ITERATIONS = 5
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
@@ -53,6 +52,7 @@ class RenderContext:
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
         enter_pause_event: Optional[threading.Event] = None,
+        is_rerender: bool = False,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -77,6 +77,8 @@ class RenderContext:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
+        self.is_rerender = is_rerender
+        self.old_frid_spec: str | None = None
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
@@ -164,20 +166,6 @@ class RenderContext:
         )
         self.run_state.current_frid = frid
         return
-
-    def check_frid_iteration_limit(self):
-        if self.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functionality {self.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
-            self.dispatch_error(error_msg)
-
-        self.frid_context.functional_requirement_render_attempts += 1
-
-        if self.frid_context.functional_requirement_render_attempts > 1:
-            # this if is intended just for logging
-            console.info(
-                f"Unittests could not be fixed after rendering the functionality. "
-                f"Restarting rendering the functionality {self.frid_context.frid} from scratch."
-            )
 
     def has_next_frid(self) -> bool:
         next_frid = plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid)
@@ -323,13 +311,6 @@ class RenderContext:
             )
             self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
 
-    def start_testing_environment_preparation(self):
-        if (
-            self.prepare_environment_script is None
-            or not self.conformance_tests_running_context.should_prepare_testing_environment
-        ):
-            self.machine.dispatch(triggers.MARK_TESTING_ENVIRONMENT_PREPARED)
-
     def start_conformance_tests_processing(self):
         console.info("Implementing conformance tests...")
         current_frid_specifications, _ = plain_spec.get_specifications_for_frid(
@@ -395,11 +376,16 @@ class RenderContext:
     def _has_reached_implementation_frid(self) -> bool:
         """Check if regression has reached the FRID being implemented."""
         ctx = self.conformance_tests_running_context
-        return (
+        if not (
             ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
             and ctx.current_testing_module_name == self.module_name
-            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
+        ):
+            return False
+
+        terminal_frid = (
+            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_rerender else ctx.frid_being_implemented
         )
+        return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
@@ -519,6 +505,14 @@ class RenderContext:
         self._setup_test_specifications()
 
         if ctx.current_conformance_tests_exist():
+            if self.is_rerender and ctx.current_testing_frid == ctx.frid_being_implemented:
+                # already tested in the initial phase — skip and advance to next
+                self.conformance_tests_running_context = self._get_next_test_to_run()
+                ctx = self.conformance_tests_running_context
+                self._setup_test_specifications()
+                if not ctx.current_conformance_tests_exist():
+                    return
+
             # Check if this is the implementation FRID (last test to run)
             if self._has_reached_implementation_frid():
                 # Reached implementation FRID - only re-run it if code changed during regression

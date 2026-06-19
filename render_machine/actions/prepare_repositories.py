@@ -13,6 +13,9 @@ class PrepareRepositories(BaseAction):
     SUCCESSFUL_OUTCOME = "repositories_prepared"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if render_context.is_rerender:
+            return self._prepare_rerender(render_context)
+
         if render_context.render_range is not None and render_context.render_range[0] != plain_spec.get_first_frid(
             render_context.plain_source_tree
         ):
@@ -76,6 +79,49 @@ class PrepareRepositories(BaseAction):
                     render_context.module_name,
                     render_context.run_state.render_id,
                     initial_files,
+                )
+
+        return self.SUCCESSFUL_OUTCOME, None
+
+    def _prepare_rerender(self, render_context: RenderContext):
+        frid = render_context.render_range[0]
+
+        if "." in frid:
+            render_context.dispatch_error(
+                f"--rerender only supports top-level integer FRIDs (e.g. `1`, `2`). "
+                f"Nested FRID `{frid}` is not supported."
+            )
+            return "error", None
+
+        if not git_utils.has_commit_for_frid(render_context.build_folder, frid, render_context.module_name):
+            render_context.dispatch_error(
+                f"Cannot re-render functionality {frid} because it has not been fully rendered yet. "
+                f"Please render all functionalities first by running: "
+                f"codeplain {render_context.module_name}.plain"
+            )
+            return "error", None
+
+        render_context.starting_frid = frid
+
+        module_metadata = render_context.plain_module.load_module_metadata()
+        if not module_metadata or "functionalities" not in module_metadata:
+            render_context.dispatch_error(
+                "module_metadata.json is missing or incomplete. " "Please re-render the module from the beginning."
+            )
+            return "error", None
+
+        render_context.old_frid_spec = module_metadata["functionalities"][int(frid) - 1]
+
+        if render_context.render_conformance_tests:
+            conformance_tests_json = render_context.conformance_tests.get_conformance_tests_json(
+                render_context.module_name
+            )
+            if frid in conformance_tests_json:
+                old_folder = conformance_tests_json[frid]["folder_name"]
+                file_utils.delete_folder(old_folder)
+                del conformance_tests_json[frid]
+                render_context.conformance_tests.dump_conformance_tests_json(
+                    render_context.module_name, conformance_tests_json
                 )
 
         return self.SUCCESSFUL_OUTCOME, None

@@ -55,12 +55,9 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitConformanceTestsChanges(
                 git_utils.CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
-                git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
             ),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value}": AnalyzeSpecificationAmbiguity(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}": FinishFunctionalRequirement(
-                git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
-            ),
+            f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}": FinishFunctionalRequirement(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
             States.RENDER_COMPLETED.value: CreateDist(),
@@ -73,6 +70,7 @@ class StateMachineConfig:
             PrepareRepositories.SUCCESSFUL_OUTCOME: triggers.START_RENDER,
             RenderFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.RENDER_FUNCTIONAL_REQUIREMENT,
             RenderFunctionalRequirement.FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME: triggers.HANDLE_ERROR,
+            RenderFunctionalRequirement.ITERATION_LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
             RunUnitTests.SUCCESSFUL_OUTCOME: triggers.MARK_UNIT_TESTS_PASSED,
             RunUnitTests.FAILED_OUTCOME: triggers.MARK_UNIT_TESTS_FAILED,
             RunUnitTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
@@ -135,10 +133,7 @@ class StateMachineConfig:
                     "name": States.CONFORMANCE_TESTING_INITIALISED.value,
                     "on_enter": render_context.start_conformance_tests_for_frid,
                 },
-                {
-                    "name": States.CONFORMANCE_TEST_GENERATED.value,
-                    "on_enter": render_context.start_testing_environment_preparation,
-                },
+                States.CONFORMANCE_TEST_GENERATED.value,
                 States.CONFORMANCE_TEST_ENV_PREPARED.value,
                 {
                     "name": States.CONFORMANCE_TEST_FAILED.value,
@@ -183,10 +178,7 @@ class StateMachineConfig:
                 "on_exit": render_context.finish_implementing_frid,
                 "children": [
                     {"name": States.STEP_COMPLETED.value},
-                    {
-                        "name": States.READY_FOR_FRID_IMPLEMENTATION.value,
-                        "on_enter": render_context.check_frid_iteration_limit,
-                    },
+                    States.READY_FOR_FRID_IMPLEMENTATION.value,
                     self.get_processing_unit_tests_states(
                         render_context, render_context._on_unit_test_limit_exceeded_in_implementation
                     ),

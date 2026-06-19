@@ -161,12 +161,17 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
 def render(args, run_state: RunState, event_bus: EventBus, default_log_level: str = "INFO"):  # noqa: C901
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
-    # Compute render range from either --render-range or --render-from
+    # Compute render range from either --render-range, --render-from, or --rerender
     render_range = None
-    if args.render_range or args.render_from:
+    is_rerender = False
+    if args.render_range or args.render_from or args.rerender:
         # Parse the plain file to get the plain_source for FRID extraction
         _, plain_source, _ = plain_file.plain_file_parser(args.filename, template_dirs)
-        render_range = plain_spec.compute_render_range(args, plain_source)
+        if args.rerender:
+            render_range = plain_spec.get_render_range(args.rerender + "," + args.rerender, plain_source)
+            is_rerender = True
+        else:
+            render_range = plain_spec.compute_render_range(args, plain_source)
 
     codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
     assert args.api is not None and args.api != "", "API URL is required"
@@ -186,7 +191,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
     )
 
     render_choice = None
-    if render_range is None:
+    if render_range is None and not is_rerender:
         plain_module_render_state = get_plain_module_render_state(plain_module)
         if plain_module_render_state is not None:
             render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
@@ -234,6 +239,7 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
         event_bus,
         stop_event=stop_event,
         enter_pause_event=enter_pause_event,
+        is_rerender=is_rerender,
     )
 
     render_error: list[Exception] = []
