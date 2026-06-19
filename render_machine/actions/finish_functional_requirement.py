@@ -8,6 +8,8 @@ class FinishFunctionalRequirement(CommitImplementationCodeChanges):
     SUCCESSFUL_OUTCOME = "functional_requirement_finished"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
+        render_context.plain_module.update_frid_in_module_metadata(render_context.frid_context.frid)
+
         super().execute(render_context, previous_action_payload)
 
         render_context.codeplain_api.finish_functional_requirement(

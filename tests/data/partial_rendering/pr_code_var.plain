@@ -1,0 +1,9 @@
+***implementation reqs***
+
+- Code-variable implementation requirement.
+
+***functional specs***
+
+- Plain functionality one.
+
+- Implement {% include "pr_implement.plain", variable_name: "configurable-value" %}

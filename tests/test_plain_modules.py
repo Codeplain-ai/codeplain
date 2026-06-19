@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from change_detection import determine_partial_render_start
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from plain2code_exceptions import ModuleDoesNotExistError
 from plain_modules import CODEPLAIN_METADATA_FOLDER, MODULE_METADATA_FILENAME, PlainModule
@@ -44,6 +45,15 @@ def root_module(fixtures_dir, tmp_build_folders):
     """Builds pr_root -> pr_middle -> pr_leaf, each with 2 FRIDs."""
     build, conformance = tmp_build_folders
     return PlainModule("pr_root.plain", build, conformance, [fixtures_dir])
+
+
+@pytest.fixture
+def code_var_module(fixtures_dir, tmp_build_folders):
+    """A solo module whose FRID 2 pulls in a template with a code variable, so its
+    raw markdown keeps a ``{{ variable_name }}`` placeholder that differs from the
+    rendered (variable-substituted) text."""
+    build, conformance = tmp_build_folders
+    return PlainModule("pr_code_var.plain", build, conformance, [fixtures_dir])
 
 
 def _write_metadata(module: PlainModule, metadata: dict) -> None:
@@ -292,3 +302,42 @@ def test_is_module_fully_rendered_true_when_last_frid_rendered(solo_module):
     # solo module has FRIDs ["1", "2", "3"]; "3" is the last.
     _init_build_repo_with_finished_frid(solo_module, "3")
     assert solo_module.is_module_fully_rendered() is True
+
+
+# --------------------------------------------------------------------------
+# update_frid_in_module_metadata — code-variable baseline consistency
+# --------------------------------------------------------------------------
+
+
+def test_update_frid_stores_raw_markdown_not_rendered_text(code_var_module):
+    """The per-FRID metadata write must store the raw FR markdown (placeholder
+    intact), identical to what the change-detection diff reads. Storing the
+    rendered text (code variable substituted) would make every later diff report
+    a spurious edit for that FRID."""
+    raw = code_var_module._get_module_functional_requirements()
+    # Sanity: FRID 2 really does carry an unsubstituted placeholder.
+    assert "{{ variable_name }}" in raw[1]
+
+    code_var_module.update_frid_in_module_metadata("1")
+    code_var_module.update_frid_in_module_metadata("2")
+
+    metadata = code_var_module.load_module_metadata()
+    assert metadata["functionalities"] == raw
+    # The substituted value must NOT leak into the stored baseline.
+    assert "configurable-value" not in metadata["functionalities"][1]
+
+
+def test_code_variable_frid_not_flagged_as_change(code_var_module):
+    """After a (possibly interrupted) render persisted the per-FRID baseline,
+    re-running with an unchanged spec must detect no change — even though the
+    FR uses a code variable whose rendered text differs from its markdown."""
+    # Seed the matching non-functional hash, as prepare_repositories does at the
+    # start of a real render; update_frid then layers the functionalities on top.
+    _write_metadata(
+        code_var_module,
+        {"non_functional_source_hash": code_var_module.get_module_non_functional_source_hash()},
+    )
+    code_var_module.update_frid_in_module_metadata("1")
+    code_var_module.update_frid_in_module_metadata("2")
+
+    assert determine_partial_render_start(code_var_module) is None
