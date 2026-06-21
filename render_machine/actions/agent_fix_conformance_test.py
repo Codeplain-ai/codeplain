@@ -529,8 +529,9 @@ class AgentFixConformanceTest(BaseAction):
         parts.append(
             "2. Locate and read the relevant test code and the implementation code that is being tested. Make sure you understand the root cause of the failure.\n"
         )
-        parts.append("3. Implement a fix that addresses the root cause.\n")
-        parts.append("4. Verify the fix by reading the edited files to ensure the fix is correct.\n")
-        parts.append("5. Provide a summary of what you changed and why.\n")
+        parts.append("3a. If you understand exactly what the issue is: Implement a fix that addresses the root cause.\n")
+        parts.append("3b. If you do not exactly understand what the issue is: Make adjustments to the code that help you diagnose the issue (like additional logs for example).\n")
+        parts.append("4. Verify the fix or adjustments by reading the edited files to ensure the fix is correct.\n")
+        parts.append("5. When you are finished with implementing the fix or diagnostic adjustments run the tests again by using the submit_fix tool.\n")
 
         return "\n".join(parts)
