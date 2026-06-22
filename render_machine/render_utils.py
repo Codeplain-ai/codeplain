@@ -18,6 +18,7 @@ from plain2code_console import console
 from plain2code_exceptions import RenderCancelledError
 
 SCRIPT_EXECUTION_TIMEOUT = 120
+COMMAND_EXECUTION_TIMEOUT = 60  # Default for ad-hoc agent diagnostic commands (run_command).
 TIMEOUT_ERROR_EXIT_CODE = 124
 POLL_INTERVAL_SECONDS = 0.2
 SIGTERM_GRACE_PERIOD_SECONDS = 0.2
@@ -85,6 +86,104 @@ def _sanitize_script_output(script_output: str) -> str:
     # strip the clear-console escape codes but keep all output — discarding everything
     # before the last clear code can silently drop the actual test failure details
     return pattern.sub("\n", script_output)
+
+
+def execute_command(  # noqa: C901
+    command: str,
+    cwd: str,
+    timeout: Optional[int] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> tuple[int, str, Optional[str]]:
+    """Run an arbitrary shell command for agent diagnostics.
+
+    Unlike execute_script (which runs a configured script file), this runs a free-form
+    shell command string supplied by a fixing agent so it can reproduce a failure,
+    inspect runtime state, or probe a service. Combined stdout+stderr is captured, the
+    whole process group is killed on timeout, and the full output is spilled to a temp
+    file. Returns (exit_code, sanitized_output, temp_file_path).
+    """
+    cmd_timeout = timeout if timeout is not None else COMMAND_EXECUTION_TIMEOUT
+    start_time = time.time()
+
+    if sys.platform == "win32":
+        proc = subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+        )
+    else:
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            start_new_session=True,
+        )
+
+    if sys.platform == "linux":
+        fcntl.fcntl(proc.stdout.fileno(), F_SETPIPE_SIZE, PIPE_SIZE_KB * 1024)
+
+    output_chunks: list[str] = []
+
+    def _drain_stdout() -> None:
+        try:
+            for chunk in iter(lambda: proc.stdout.read(8192), ""):
+                output_chunks.append(chunk)
+        except (OSError, ValueError):
+            pass
+
+    reader = threading.Thread(target=_drain_stdout, daemon=True)
+    reader.start()
+
+    while proc.poll() is None:
+        if time.time() - start_time >= cmd_timeout:
+            _kill_process(proc)
+            reader.join(timeout=2)
+            partial = _sanitize_script_output("".join(output_chunks))
+            temp_path = _write_command_output_file(partial, exit_code=TIMEOUT_ERROR_EXIT_CODE, timed_out=True)
+            return (
+                TIMEOUT_ERROR_EXIT_CODE,
+                f"Command timed out after {cmd_timeout} seconds.\n{partial}",
+                temp_path,
+            )
+        if stop_event is not None:
+            stop_event.wait(timeout=POLL_INTERVAL_SECONDS)
+            if stop_event.is_set():
+                _kill_process(proc)
+                raise RenderCancelledError()
+        else:
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+    reader.join(timeout=STDOUT_READ_TIMEOUT_SECONDS)
+    if reader.is_alive():
+        proc.stdout.close()
+        reader.join(timeout=1)
+
+    output = _sanitize_script_output("".join(output_chunks))
+    temp_path = _write_command_output_file(output, exit_code=proc.returncode, timed_out=False)
+    return proc.returncode, output, temp_path
+
+
+def _write_command_output_file(output: str, exit_code: int, timed_out: bool) -> Optional[str]:
+    """Persist a command's full output to a temp file so the agent can read_file it."""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8", delete=False, suffix=".command_output") as f:
+            if timed_out:
+                f.write(f"Command timed out (exit code {exit_code}). Partial output:\n")
+            else:
+                f.write(f"Command exited with code {exit_code}. Output:\n")
+            f.write(output or "(no output)")
+            return f.name
+    except OSError:
+        return None
 
 
 def execute_script(  # noqa: C901
