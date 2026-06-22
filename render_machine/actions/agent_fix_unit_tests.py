@@ -7,13 +7,13 @@ from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
-    MAX_INLINE_OUTPUT_LINES,
     delete_file,
     edit_file,
     grep,
     list_files,
     ls_files,
     read_file,
+    run_command,
     run_unit_tests,
     think,
     write_file,
@@ -23,6 +23,7 @@ from render_machine.render_context import RenderContext
 
 FIX_UNIT_TESTS_TOOLS = {
     "run_unit_tests": run_unit_tests,
+    "run_command": run_command,
     "edit_file": edit_file,
     "write_file": write_file,
     "delete_file": delete_file,

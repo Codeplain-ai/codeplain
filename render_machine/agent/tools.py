@@ -11,6 +11,23 @@ from render_machine.render_context import RenderContext
 MAX_INLINE_OUTPUT_LINES = 200
 DEFAULT_READ_LIMIT = 200
 MAX_LINE_LENGTH = 10000  # Max characters per line to prevent context explosion
+MAX_COMMAND_TIMEOUT = 300  # Hard cap (seconds) for an agent run_command call
+
+# Catastrophic command patterns refused by run_command as defense-in-depth. Commands
+# run on the user's own machine against their own project, but a fixing agent should
+# never need these, and refusing them guards against an accidental destructive call.
+_DESTRUCTIVE_COMMAND_PATTERNS = (
+    "rm -rf /",
+    "rm -rf /*",
+    "rm -rf ~",
+    "mkfs",
+    "shutdown",
+    "reboot",
+    "dd if=",
+    ":(){",
+    "> /dev/sd",
+    "of=/dev/sd",
+)
 
 
 def run_unit_tests(args: dict, render_context: RenderContext) -> str:
@@ -431,6 +448,156 @@ def _get_linked_resource_paths(render_context: RenderContext) -> list[str]:
         full = os.path.normpath(os.path.join(_get_project_root(), resource_path))
         paths.append(full)
     return paths
+
+
+def _rejects_full_conformance_suite(command: str, render_context: RenderContext) -> str | None:
+    """Refuse commands that invoke the full conformance test suite.
+
+    The full suite is expensive and is run automatically when the agent submits its
+    fix, so the agent never needs to run it itself. Steer it toward targeted
+    diagnostics instead. (The unit test script is cheaper and not guarded.)
+    """
+    script = render_context.conformance_tests_script
+    if not script:
+        return None
+    candidates = {script, os.path.normpath(script), os.path.basename(script)}
+    if any(c and c in command for c in candidates):
+        return (
+            "Error: Running the full conformance test suite via run_command is not allowed — it is "
+            "expensive and runs automatically when you submit your fix. Use run_command for targeted "
+            "diagnostics instead: reproduce the failing case directly (run a single function or a small "
+            "snippet), inspect intermediate values, or probe a specific endpoint."
+        )
+    return None
+
+
+def _rejects_destructive_command(command: str) -> str | None:
+    """Refuse obviously catastrophic commands (defense-in-depth)."""
+    lowered = command.lower()
+    for pattern in _DESTRUCTIVE_COMMAND_PATTERNS:
+        if pattern in lowered:
+            return f"Error: command refused as potentially destructive (matched '{pattern}')."
+    return None
+
+
+def _snapshot_folder_files(folders: list[str]) -> set[str]:
+    """Capture the set of file paths currently under the given folders."""
+    snapshot: set[str] = set()
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        for root, _dirs, names in os.walk(folder):
+            for name in names:
+                snapshot.add(os.path.join(root, name))
+    return snapshot
+
+
+def _remove_files_created_since(folders: list[str], before: set[str]) -> int:
+    """Delete files under the given folders that were not present in the before-snapshot.
+
+    Used to undo the file side effects of run_command (e.g. compiled .class files and
+    other build artifacts produced by `mvn test` and the like) so they never leak into
+    git diffs, per-FRID commits, or the existing-files content passed to agents. Only
+    newly-created files are removed; pre-existing files — including the agent's own
+    in-progress edits — are left untouched.
+    """
+    removed = 0
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        for root, _dirs, names in os.walk(folder):
+            for name in names:
+                path = os.path.join(root, name)
+                if path not in before:
+                    try:
+                        os.remove(path)
+                        removed += 1
+                    except OSError:
+                        pass
+    return removed
+
+
+def run_command(args: dict, render_context: RenderContext) -> str:
+    """Run an arbitrary shell command for diagnostics and return its combined output.
+
+    The command runs from the project root. To run from elsewhere, prefix it with a cd
+    (e.g. ``cd build && ...``). There is no working-directory restriction — a shell
+    command can reach anywhere on the machine regardless, so a cwd guard would be
+    meaningless; the only real guards are the suite/destructive refusals below.
+
+    Any files the command creates under the build or conformance test folders are
+    removed afterwards, so build artifacts (e.g. compiled .class files from `mvn test`)
+    don't pollute diffs, commits, or the files passed to agents. Write scratch files to
+    /tmp if you need them to persist.
+
+    Args:
+        args: Dictionary containing:
+            - command (str, required): The shell command to run.
+            - timeout (int, optional): Seconds before the command is killed. Defaults to
+              the standard command timeout, capped at MAX_COMMAND_TIMEOUT.
+        render_context: The current render context.
+
+    Returns:
+        The exit code plus combined stdout/stderr (truncated, with the full output
+        spilled to a temp file when large), or an error description.
+    """
+    command = args.get("command", "")
+    if not command or not command.strip():
+        return "Error: command is required"
+
+    suite_rejection = _rejects_full_conformance_suite(command, render_context)
+    if suite_rejection:
+        return suite_rejection
+
+    destructive_rejection = _rejects_destructive_command(command)
+    if destructive_rejection:
+        return destructive_rejection
+
+    cwd = _get_project_root()
+
+    # Resolve the timeout (capped).
+    timeout = args.get("timeout")
+    if timeout is not None:
+        try:
+            timeout = min(int(timeout), MAX_COMMAND_TIMEOUT)
+        except (ValueError, TypeError):
+            timeout = render_utils.COMMAND_EXECUTION_TIMEOUT
+    else:
+        timeout = render_utils.COMMAND_EXECUTION_TIMEOUT
+
+    # Snapshot the tracked folders so any files the command creates (build artifacts
+    # like compiled .class files) can be removed afterwards. These would otherwise be
+    # picked up by git diffs / commits and leak into the context passed to agents.
+    artifact_folders = _get_allowed_write_folders(render_context)
+    files_before = _snapshot_folder_files(artifact_folders)
+    try:
+        exit_code, output, temp_file_path = render_utils.execute_command(
+            command,
+            cwd=cwd,
+            timeout=timeout,
+            stop_event=render_context.stop_event,
+        )
+    except Exception as e:
+        return f"Error running command: {type(e).__name__}: {e}"
+    finally:
+        _remove_files_created_since(artifact_folders, files_before)
+
+    header = f"Command exited with code {exit_code} (cwd: {cwd})."
+    if not output:
+        return f"{header}\n(no output)"
+
+    lines = output.split("\n")
+    if len(lines) <= MAX_INLINE_OUTPUT_LINES:
+        return f"{header}\n{output}"
+
+    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
+    if temp_file_path:
+        return (
+            f"{header} Output truncated ({len(lines)} total lines). "
+            f"Full output available at: {temp_file_path}\n"
+            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
+        )
+    return f"{header} Output truncated ({len(lines)} total lines).\n{truncated}"
 
 
 def read_file(args: dict, render_context: RenderContext) -> str:
