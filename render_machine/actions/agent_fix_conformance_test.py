@@ -14,6 +14,7 @@ from render_machine.agent.tools import (
     list_files,
     ls_files,
     read_file,
+    run_command,
     think,
     write_file,
     write_memory,
@@ -76,7 +77,7 @@ class AgentFixConformanceTest(BaseAction):
         frid_implementation_diff = self._build_implementation_diff_text(render_context)
         frid_conformance_tests_diff = self._build_conformance_tests_diff_text(render_context)
 
-        # Only provide code editing tools (no test/review tools)
+        # Code editing tools plus run_command for diagnostics (no full test/review tools).
         tools = {
             "edit_file": edit_file,
             "write_file": write_file,
@@ -85,6 +86,7 @@ class AgentFixConformanceTest(BaseAction):
             "list_files": list_files,
             "ls_files": ls_files,
             "grep": grep,
+            "run_command": run_command,
             "think": think,
             "write_memory": write_memory,
         }
