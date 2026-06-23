@@ -6,7 +6,7 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
-from render_machine.agent.tools import grep, list_files, ls_files, read_file, think
+from render_machine.agent.tools import grep, ls_files, read_file, think
 from render_machine.render_context import RenderContext
 
 
@@ -96,7 +96,6 @@ class ReviewConformanceFixAction(BaseAction):
         reviewer_tools = {
             "think": think,
             "read_file": read_file,
-            "list_files": list_files,
             "ls_files": ls_files,
             "grep": grep,
         }
