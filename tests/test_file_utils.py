@@ -3,7 +3,7 @@ import tempfile
 
 import pytest
 
-from file_utils import load_linked_resources
+from file_utils import load_linked_resources, store_response_files
 from plain2code_exceptions import UnsupportedResourceType
 
 
@@ -39,3 +39,14 @@ def test_load_linked_resources_binary_file_raises_unsupported_resource_type(temp
 def test_load_linked_resources_missing_file_raises_file_not_found(template_dir):
     with pytest.raises(FileNotFoundError):
         load_linked_resources([template_dir], [{"text": "Missing", "target": "missing.md"}], "my_thing")
+
+
+def test_store_response_files_writes_unicode_as_utf8(template_dir):
+    # Content with a non-cp1252 character (📍 U+1F4CD) must be written as UTF-8
+    # regardless of the platform's default text encoding (e.g. cp1252 on Windows).
+    content = "Location 📍 marker"
+    store_response_files(template_dir, {"notes.md": content}, [])
+
+    file_path = os.path.join(template_dir, "notes.md")
+    with open(file_path, "rb") as f:
+        assert f.read().decode("utf-8") == content

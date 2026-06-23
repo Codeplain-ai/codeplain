@@ -157,7 +157,7 @@ def store_response_files(target_folder, response_files, existing_files):
 
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
-        with open(full_file_name, "w") as f:
+        with open(full_file_name, "w", encoding="utf-8") as f:
             f.write(response_files[file_name])
 
         if file_name not in existing_files:
