@@ -409,6 +409,64 @@ def test_acceptance_tests_top_level_after_other_headings_rejected():
         plain_file.parse_plain_source(plain_source, {}, [], [], [])
 
 
+def test_acceptance_tests_nested_under_definitions_rejected():
+    plain_source = """***definitions***
+
+- :concept: is a concept.
+
+    ***acceptance tests***
+
+    - Test the :concept:.
+
+***functional specs***
+
+- Display "hello, world"
+"""
+    with pytest.raises(
+        PlainSyntaxError,
+        match=re.escape(
+            "Syntax error at line 5: acceptance tests heading should be nested under specific functional spec."
+        ),
+    ):
+        plain_file.parse_plain_source(plain_source, {}, [], [], [])
+
+
+def test_acceptance_tests_nested_under_implementation_reqs_rejected():
+    plain_source = """***implementation reqs***
+
+- First implementation requirement.
+
+    ***acceptance tests***
+
+    - Test something.
+"""
+    with pytest.raises(
+        PlainSyntaxError,
+        match=re.escape(
+            "Syntax error at line 5: acceptance tests heading should be nested under specific functional spec."
+        ),
+    ):
+        plain_file.parse_plain_source(plain_source, {}, [], [], [])
+
+
+def test_acceptance_tests_nested_under_test_reqs_rejected():
+    plain_source = """***test reqs***
+
+- First test requirement.
+
+    ***acceptance tests***
+
+    - Test something.
+"""
+    with pytest.raises(
+        PlainSyntaxError,
+        match=re.escape(
+            "Syntax error at line 5: acceptance tests heading should be nested under specific functional spec."
+        ),
+    ):
+        plain_file.parse_plain_source(plain_source, {}, [], [], [])
+
+
 def test_acceptance_tests_nested_under_functional_spec_allowed():
     plain_source = """***definitions***
 
