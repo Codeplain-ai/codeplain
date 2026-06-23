@@ -48,7 +48,7 @@ class RenderFunctionalRequirement(BaseAction):
                 render_context.run_state,
             )
         except FunctionalRequirementTooComplex as e:
-            error_message = f"The functionality:\n{render_context.frid_context.functional_requirement_text}\n is too complex to be implemented. Please break down the functionality into smaller parts ({str(e)})."
+            error_message = f"The functionality:\n{render_context.frid_context.functional_requirement_text}\n is too complex to be implemented. Please break down the functionality into smaller parts."
             if e.proposed_breakdown:
                 error_message += "\nProposed breakdown:"
                 for _, part in e.proposed_breakdown["functional_requirements"].items():
