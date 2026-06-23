@@ -7,16 +7,7 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
-from render_machine.agent.tools import (
-    delete_file,
-    edit_file,
-    grep,
-    list_files,
-    ls_files,
-    read_file,
-    run_command,
-    write_file,
-)
+from render_machine.agent.tools import delete_file, edit_file, grep, ls_files, read_file, run_command, think, write_file
 from render_machine.render_context import RenderContext
 
 RENDER_FUNCTIONAL_REQUIREMENT_TOOLS = {
@@ -24,10 +15,10 @@ RENDER_FUNCTIONAL_REQUIREMENT_TOOLS = {
     "write_file": write_file,
     "delete_file": delete_file,
     "read_file": read_file,
-    "list_files": list_files,
     "ls_files": ls_files,
     "grep": grep,
     "run_command": run_command,
+    "think": think,
 }
 
 

@@ -1,10 +1,7 @@
 import difflib
 import os
 import subprocess
-from typing import Callable
 
-import diff_utils
-import file_utils
 import render_machine.render_utils as render_utils
 from render_machine.render_context import RenderContext
 
@@ -12,6 +9,10 @@ MAX_INLINE_OUTPUT_LINES = 200
 DEFAULT_READ_LIMIT = 200
 MAX_LINE_LENGTH = 10000  # Max characters per line to prevent context explosion
 MAX_COMMAND_TIMEOUT = 300  # Hard cap (seconds) for an agent run_command call
+# When run_command output exceeds MAX_INLINE_OUTPUT_LINES, keep this many lines from the
+# head and tail (the middle is replaced with a TRUNCATED notice). Head+tail == the cap.
+COMMAND_OUTPUT_HEAD_LINES = 100
+COMMAND_OUTPUT_TAIL_LINES = 100
 
 # Catastrophic command patterns refused by run_command as defense-in-depth. Commands
 # run on the user's own machine against their own project, but a fixing agent should
@@ -30,7 +31,7 @@ _DESTRUCTIVE_COMMAND_PATTERNS = (
 )
 
 
-def run_unit_tests(args: dict, render_context: RenderContext) -> str:
+def run_unit_tests(args: dict, render_context: RenderContext) -> str:  # noqa: U100
     unittests_script = os.path.normpath(render_context.unittests_script)
     exit_code, output, temp_file_path = render_utils.execute_script(
         unittests_script,
@@ -53,84 +54,6 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:
         return f"Tests failed (exit code {exit_code}). " f"Full output of the tests is available at: {temp_file_path}\n"
     else:
         return f"Tests failed (exit code {exit_code}):\n{truncated}"
-
-
-def run_conformance_tests(args: dict, render_context: RenderContext) -> str:
-    conformance_tests_script = os.path.normpath(render_context.conformance_tests_script)
-
-    # Determine the conformance tests folder from render context
-    ctx = render_context.conformance_tests_running_context
-    if ctx and render_context.module_name == ctx.current_testing_module_name:
-        conformance_tests_folder = ctx.get_current_conformance_test_folder_name()
-    elif ctx:
-        conformance_tests_folder, _ = render_context.conformance_tests.get_source_conformance_test_folder_name(
-            render_context.module_name,
-            render_context.required_modules,
-            ctx.current_testing_module_name,
-            ctx.get_current_conformance_test_folder_name(),
-        )
-    else:
-        conformance_tests_folder = render_context.conformance_tests_folder
-
-    script_args = [render_context.build_folder, conformance_tests_folder]
-
-    exit_code, output, temp_file_path = render_utils.execute_script(
-        conformance_tests_script,
-        script_args,
-        "Conformance Tests",
-        timeout=render_context.test_script_timeout,
-        stop_event=render_context.stop_event,
-    )
-    if exit_code == 0:
-        return "All conformance tests passed successfully."
-
-    lines = output.split("\n") if output else []
-    total_lines = len(lines)
-
-    if total_lines <= MAX_INLINE_OUTPUT_LINES:
-        return f"Tests failed (exit code {exit_code}):\n{output}"
-
-    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
-    if temp_file_path:
-        return (
-            f"Tests failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
-            f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
-        )
-    else:
-        return f"Tests failed (exit code {exit_code}):\n{truncated}"
-
-
-def prepare_environment(args: dict, render_context: RenderContext) -> str:
-    if not render_context.prepare_environment_script:
-        return "No environment preparation script configured."
-
-    script = os.path.normpath(render_context.prepare_environment_script)
-    exit_code, output, temp_file_path = render_utils.execute_script(
-        script,
-        [render_context.build_folder],
-        "Testing Environment Preparation",
-        timeout=render_context.test_script_timeout,
-        stop_event=render_context.stop_event,
-    )
-    if exit_code == 0:
-        return "Environment prepared successfully (compilation/build completed)."
-
-    lines = output.split("\n") if output else []
-    total_lines = len(lines)
-
-    if total_lines <= MAX_INLINE_OUTPUT_LINES:
-        return f"Environment preparation failed (exit code {exit_code}):\n{output}"
-
-    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
-    if temp_file_path:
-        return (
-            f"Environment preparation failed (exit code {exit_code}). Output truncated ({total_lines} total lines). "
-            f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
-        )
-    else:
-        return f"Environment preparation failed (exit code {exit_code}):\n{truncated}"
 
 
 def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
@@ -176,6 +99,55 @@ def _get_allowed_read_files(render_context: RenderContext) -> list[str]:
     return [_resolve_file_path(s) for s in scripts if s]
 
 
+def _get_modules_root(render_context: RenderContext) -> str:
+    """Return the directory that holds all per-module build folders.
+
+    Build folders are constructed as ``<modules_root>/<module_name>`` (e.g.
+    ``plain_modules/module_2``), so the modules root is the build folder's parent. Its
+    other children are sibling module folders, which contain confusing near-duplicates
+    of the current build folder's code.
+    """
+    return os.path.dirname(os.path.normpath(os.path.abspath(render_context.build_folder)))
+
+
+def _check_read_access(full_path: str, render_context: RenderContext) -> str | None:
+    """Decide whether the agent may read ``full_path``. Returns None if allowed, else an error.
+
+    Policy:
+      - Always allow the explicitly-useful project paths: the build folder, the
+        conformance tests folder, linked resources, the test pipeline scripts, and
+        temp files.
+      - Deny sibling module folders (anything under the modules root that is not the
+        current build folder). Their code is a confusing near-duplicate of the current
+        build folder, which already contains the merged code of the modules it builds on.
+      - Allow everything else — notably libraries/dependencies (e.g. site-packages),
+        so the agent can inspect third-party code when debugging.
+    """
+    if _is_within_any(full_path, _get_allowed_read_folders(render_context)):
+        return None
+    if full_path in _get_allowed_read_files(render_context):
+        return None
+    if full_path in _get_linked_resource_paths(render_context):
+        return None
+    if full_path.startswith(os.path.normpath("/tmp") + os.sep) or full_path.startswith(
+        os.path.normpath("/var/folders") + os.sep
+    ):
+        return None
+
+    modules_root = _get_modules_root(render_context)
+    if _is_within_any(full_path, [modules_root]):
+        build_folder = os.path.normpath(os.path.abspath(render_context.build_folder))
+        return (
+            f"Error: Read access denied for '{full_path}'. This path is inside another module's "
+            f"folder under the modules root ('{modules_root}'). The current module's build folder "
+            f"('{build_folder}') already contains the merged code of the modules it builds on — read "
+            f"that copy instead of another module's folder."
+        )
+
+    # Outside the modules root: libraries, dependencies, system files, etc. — allowed.
+    return None
+
+
 def _get_project_root() -> str:
     """Return the project root directory (the process CWD)."""
     return os.getcwd()
@@ -205,6 +177,90 @@ def _track_file_change(full_path: str, render_context: RenderContext):
     ctx = render_context.conformance_tests_running_context
     if ctx:
         ctx.track_file_before_modification(full_path)
+
+
+def _do_exact_match(
+    full_path: str, original_content: str, search_text: str, replace_text: str, render_context: RenderContext
+) -> str:
+    count = original_content.count(search_text)
+    if count > 1:
+        return (
+            f"Error: Search text found {count} times in '{full_path}'. "
+            f"Please provide a more specific search string that uniquely identifies the text to replace."
+        )
+
+    new_content = original_content.replace(search_text, replace_text, 1)
+    _track_file_change(full_path, render_context)
+
+    try:
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        return f"Successfully edited '{full_path}' (exact match)"
+    except PermissionError as e:
+        return f"Error: Permission denied writing to '{full_path}': {e}"
+    except Exception as e:
+        return f"Error: failed to write to '{full_path}': {e}"
+
+
+def _do_fuzzy_match(
+    full_path: str, original_content: str, search_text: str, replace_text: str, render_context: RenderContext
+) -> str:
+    search_lines = search_text.splitlines()
+    content_lines = original_content.splitlines()
+
+    if not search_lines:
+        return "Error: Search text is empty or contains only whitespace"
+
+    best_ratio = 0.0
+    best_match_start = -1
+    best_match_end = -1
+
+    for i in range(len(content_lines) - len(search_lines) + 1):
+        window = content_lines[i : i + len(search_lines)]
+        ratio = difflib.SequenceMatcher(None, search_lines, window).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match_start = i
+            best_match_end = i + len(search_lines)
+
+    if best_ratio > 0.9:
+        matched_text = "\n".join(content_lines[best_match_start:best_match_end])
+        before = "\n".join(content_lines[:best_match_start])
+        after = "\n".join(content_lines[best_match_end:])
+
+        parts = []
+        if before:
+            parts.append(before)
+        if replace_text:
+            parts.append(replace_text)
+        if after:
+            parts.append(after)
+
+        new_content = "\n".join(parts)
+
+        if original_content.endswith("\n") and not new_content.endswith("\n"):
+            new_content += "\n"
+
+        _track_file_change(full_path, render_context)
+
+        try:
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            return (
+                f"Successfully edited '{full_path}' (fuzzy match with {best_ratio:.1%} similarity).\n"
+                f"Matched text:\n{matched_text[:200]}{'...' if len(matched_text) > 200 else ''}"
+            )
+        except PermissionError as e:
+            return f"Error: Permission denied writing to '{full_path}': {e}"
+        except Exception as e:
+            return f"Error: failed to write to '{full_path}': {e}"
+
+    return (
+        f"Error: Search text not found in '{full_path}'. "
+        f"Best match was {best_ratio:.1%} similar (threshold is 90%).\n"
+        f"Please verify the search text matches the actual file content. "
+        f"Use read_file to view the current content."
+    )
 
 
 def edit_file(args: dict, render_context: RenderContext) -> str:
@@ -261,101 +317,15 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
     except PermissionError as e:
         return f"Error: Permission denied reading '{full_path}': {e}"
     except Exception as e:
-        return f"Error reading '{full_path}': {e}"
+        return f"Error: failed to read '{full_path}': {e}"
 
     # Try exact match first
     if search_text in original_content:
-        # Count occurrences
-        count = original_content.count(search_text)
-        if count > 1:
-            return (
-                f"Error: Search text found {count} times in '{full_path}'. "
-                f"Please provide a more specific search string that uniquely identifies the text to replace."
-            )
-
-        # Perform replacement
-        new_content = original_content.replace(search_text, replace_text, 1)
-
-        # Track original before writing
-        _track_file_change(full_path, render_context)
-
-        # Write the updated content
-        try:
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
-            return f"Successfully edited '{full_path}' (exact match)"
-        except PermissionError as e:
-            return f"Error: Permission denied writing to '{full_path}': {e}"
-        except Exception as e:
-            return f"Error writing to '{full_path}': {e}"
+        return _do_exact_match(full_path, original_content, search_text, replace_text, render_context)
 
     # Exact match failed - try fuzzy matching with whitespace normalization
     # This handles minor whitespace differences
-    search_lines = search_text.splitlines()
-    content_lines = original_content.splitlines()
-
-    if not search_lines:
-        return "Error: Search text is empty or contains only whitespace"
-
-    best_ratio = 0.0
-    best_match_start = -1
-    best_match_end = -1
-
-    # Sliding window to find best match
-    for i in range(len(content_lines) - len(search_lines) + 1):
-        window = content_lines[i : i + len(search_lines)]
-        ratio = difflib.SequenceMatcher(None, search_lines, window).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_match_start = i
-            best_match_end = i + len(search_lines)
-
-    # If we found a good fuzzy match (>90% similarity)
-    if best_ratio > 0.9:
-        matched_text = "\n".join(content_lines[best_match_start:best_match_end])
-
-        # Perform replacement
-        before = "\n".join(content_lines[:best_match_start])
-        after = "\n".join(content_lines[best_match_end:])
-
-        # Reconstruct content
-        parts = []
-        if before:
-            parts.append(before)
-        if replace_text:
-            parts.append(replace_text)
-        if after:
-            parts.append(after)
-
-        new_content = "\n".join(parts)
-
-        # Preserve trailing newline if original had one
-        if original_content.endswith("\n") and not new_content.endswith("\n"):
-            new_content += "\n"
-
-        # Track original before writing
-        _track_file_change(full_path, render_context)
-
-        # Write the updated content
-        try:
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
-            return (
-                f"Successfully edited '{full_path}' (fuzzy match with {best_ratio:.1%} similarity).\n"
-                f"Matched text:\n{matched_text[:200]}{'...' if len(matched_text) > 200 else ''}"
-            )
-        except PermissionError as e:
-            return f"Error: Permission denied writing to '{full_path}': {e}"
-        except Exception as e:
-            return f"Error writing to '{full_path}': {e}"
-
-    # No good match found
-    return (
-        f"Error: Search text not found in '{full_path}'. "
-        f"Best match was {best_ratio:.1%} similar (threshold is 90%).\n"
-        f"Please verify the search text matches the actual file content. "
-        f"Use read_file to view the current content."
-    )
+    return _do_fuzzy_match(full_path, original_content, search_text, replace_text, render_context)
 
 
 def write_file(args: dict, render_context: RenderContext) -> str:
@@ -386,7 +356,7 @@ def write_file(args: dict, render_context: RenderContext) -> str:
     except PermissionError as e:
         return f"Error: Permission denied writing to '{full_path}': {e}"
     except Exception as e:
-        return f"Error writing to '{full_path}': {e}"
+        return f"Error: failed to write to '{full_path}': {e}"
 
 
 def delete_file(args: dict, render_context: RenderContext) -> str:
@@ -434,7 +404,7 @@ def delete_file(args: dict, render_context: RenderContext) -> str:
     except PermissionError as e:
         return f"Error: Permission denied deleting '{full_path}': {e}"
     except Exception as e:
-        return f"Error deleting '{full_path}': {e}"
+        return f"Error: failed to delete '{full_path}': {e}"
 
 
 def _get_linked_resource_paths(render_context: RenderContext) -> list[str]:
@@ -578,7 +548,7 @@ def run_command(args: dict, render_context: RenderContext) -> str:
             stop_event=render_context.stop_event,
         )
     except Exception as e:
-        return f"Error running command: {type(e).__name__}: {e}"
+        return f"Error: command failed to run: {type(e).__name__}: {e}"
     finally:
         _remove_files_created_since(artifact_folders, files_before)
 
@@ -587,17 +557,42 @@ def run_command(args: dict, render_context: RenderContext) -> str:
         return f"{header}\n(no output)"
 
     lines = output.split("\n")
-    if len(lines) <= MAX_INLINE_OUTPUT_LINES:
-        return f"{header}\n{output}"
+    total = len(lines)
+    open_divider = "──────────────────────────── command output ────────────────────────────"
+    close_divider = "─────────────────────────── end command output ───────────────────────────"
 
-    truncated = "\n".join(lines[:MAX_INLINE_OUTPUT_LINES])
+    # Short output: show it all, just separated from the status line.
+    if total <= MAX_INLINE_OUTPUT_LINES:
+        return f"{header}\n{open_divider}\n{output}\n{close_divider}"
+
+    # Long output: keep the head and tail (the head shows how the run started, the tail
+    # shows where it ended/failed) and drop the middle with an explicit notice so the
+    # agent knows exactly which lines are missing and where the full output lives.
+    head = "\n".join(lines[:COMMAND_OUTPUT_HEAD_LINES])
+    tail = "\n".join(lines[-COMMAND_OUTPUT_TAIL_LINES:])
+    omitted_start = COMMAND_OUTPUT_HEAD_LINES + 1
+    omitted_end = total - COMMAND_OUTPUT_TAIL_LINES
+    omitted_count = omitted_end - omitted_start + 1
+    middle_notice = (
+        f"══════════ TRUNCATED: lines {omitted_start}–{omitted_end} omitted " f"({omitted_count} lines) ══════════"
+    )
+
+    full_output_note = ""
     if temp_file_path:
-        return (
-            f"{header} Output truncated ({len(lines)} total lines). "
-            f"Full output available at: {temp_file_path}\n"
-            f'Use read_file with file_path="{temp_file_path}" to see the complete output.\n\n{truncated}'
+        full_output_note = (
+            f" The full {total}-line output is saved at: {temp_file_path} — "
+            f'read it with read_file(file_path="{temp_file_path}").'
         )
-    return f"{header} Output truncated ({len(lines)} total lines).\n{truncated}"
+
+    return (
+        f"{header} Output was {total} lines; showing the first {COMMAND_OUTPUT_HEAD_LINES} "
+        f"and last {COMMAND_OUTPUT_TAIL_LINES}.{full_output_note}\n"
+        f"{open_divider}\n"
+        f"{head}\n"
+        f"\n{middle_notice}\n\n"
+        f"{tail}\n"
+        f"{close_divider}"
+    )
 
 
 def read_file(args: dict, render_context: RenderContext) -> str:
@@ -609,33 +604,10 @@ def read_file(args: dict, render_context: RenderContext) -> str:
         return "Error: file_path is required"
 
     full_path = _resolve_file_path(file_path)
-    allowed_folders = _get_allowed_read_folders(render_context)
-    linked_resource_paths = _get_linked_resource_paths(render_context)
-    allowed_files = _get_allowed_read_files(render_context)
 
-    # Check if file is within allowed folders, an allowlisted file (test scripts),
-    # a linked resource, or a temp file
-    is_in_allowed_folder = _is_within_any(full_path, allowed_folders)
-    is_allowed_file = full_path in allowed_files
-    is_linked_resource = full_path in linked_resource_paths
-    is_temp_file = full_path.startswith(os.path.normpath("/tmp") + os.sep) or full_path.startswith(
-        os.path.normpath("/var/folders") + os.sep
-    )
-
-    if not is_in_allowed_folder and not is_allowed_file and not is_linked_resource and not is_temp_file:
-        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
-        resource_list = ""
-        if linked_resource_paths:
-            resource_list = "\nLinked resource files:\n" + "\n".join(f"  - {p}" for p in linked_resource_paths)
-        script_list = ""
-        if allowed_files:
-            script_list = "\nTest pipeline scripts:\n" + "\n".join(f"  - {p}" for p in allowed_files)
-        return (
-            f"Error: Read access denied for '{file_path}' (resolved to '{full_path}').\n"
-            f"You can read files within these folders:\n{folder_list}{script_list}{resource_list}\n"
-            f"You can also read temporary files (in /tmp/).\n"
-            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
-        )
+    denial = _check_read_access(full_path, render_context)
+    if denial:
+        return denial
 
     if not os.path.exists(full_path):
         return f"Error: File not found: '{full_path}'"
@@ -646,7 +618,7 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     except PermissionError as e:
         return f"Error: Permission denied reading '{full_path}': {e}"
     except Exception as e:
-        return f"Error reading '{full_path}': {e}"
+        return f"Error: failed to read '{full_path}': {e}"
 
     total_lines = len(all_lines)
 
@@ -664,7 +636,7 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     # Truncate extremely long lines to prevent context explosion
     # (e.g., minified JS, base64, single-line JSON)
     truncated_lines = []
-    for i, line in enumerate(selected_lines):
+    for line in selected_lines:
         if len(line) > MAX_LINE_LENGTH:
             truncated = line[:MAX_LINE_LENGTH] + f"... [line truncated, {len(line)} total chars]\n"
             truncated_lines.append(truncated)
@@ -686,42 +658,6 @@ def read_file(args: dict, render_context: RenderContext) -> str:
         return header + "\n\n '```\n" + "".join(all_lines[:max_lines]) + "\n```\n"
 
     return content
-
-
-def list_files(args: dict, render_context: RenderContext) -> str:
-    directory_path = args.get("directory_path", "")
-
-    if not directory_path:
-        full_path = os.path.normpath(render_context.build_folder)
-    else:
-        full_path = _resolve_file_path(directory_path)
-
-    allowed_folders = _get_allowed_read_folders(render_context)
-
-    if not _is_within_any(full_path, allowed_folders):
-        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
-        return (
-            f"Error: Access denied for '{directory_path}' (resolved to '{full_path}').\n"
-            f"You can list files within these folders:\n{folder_list}\n"
-            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
-        )
-
-    if not os.path.exists(full_path):
-        return f"Error: Directory not found: '{full_path}'"
-
-    if not os.path.isdir(full_path):
-        return f"Error: Not a directory: '{full_path}'"
-
-    try:
-        files = file_utils.list_all_text_files(full_path)
-    except PermissionError as e:
-        return f"Error: Permission denied listing files in '{full_path}': {e}"
-    except Exception as e:
-        return f"Error listing files in '{full_path}': {e}"
-
-    if not files:
-        return "No files found in directory."
-    return "\n".join(files)
 
 
 def grep(args: dict, render_context: RenderContext) -> str:
@@ -751,23 +687,11 @@ def grep(args: dict, render_context: RenderContext) -> str:
     else:
         search_path = _resolve_file_path(file_path)
 
-    allowed_folders = _get_allowed_read_folders(render_context)
     resolved_search = os.path.normpath(os.path.abspath(search_path))
 
-    # Check if path is within allowed folders or is a temp file
-    is_in_allowed_folder = _is_within_any(resolved_search, allowed_folders)
-    is_temp_file = resolved_search.startswith(os.path.normpath("/tmp") + os.sep) or resolved_search.startswith(
-        os.path.normpath("/var/folders") + os.sep
-    )
-
-    if not is_in_allowed_folder and not is_temp_file:
-        folder_list = "\n".join(f"  - {f}" for f in allowed_folders)
-        return (
-            f"Error: Access denied for '{file_path or 'build folder'}' (resolved to '{resolved_search}').\n"
-            f"You can search within these folders:\n{folder_list}\n"
-            f"You can also search temporary files (in /tmp/ or /var/folders/).\n"
-            f"Use a relative path (resolved from '{_get_project_root()}') or an absolute path."
-        )
+    denial = _check_read_access(resolved_search, render_context)
+    if denial:
+        return denial
 
     if not os.path.exists(resolved_search):
         return f"Error: Path not found: '{resolved_search}'"
@@ -810,7 +734,7 @@ def grep(args: dict, render_context: RenderContext) -> str:
 
         # Other non-zero exit codes are actual errors
         if result.returncode not in (0, 1):
-            return f"grep command failed (exit code {result.returncode}):\n{output}"
+            return f"Error: grep command failed (exit code {result.returncode}):\n{output}"
 
         if not output.strip():
             return f"No matches found for '{pattern}' in '{search_path}'"
@@ -827,7 +751,7 @@ def grep(args: dict, render_context: RenderContext) -> str:
     except FileNotFoundError:
         return "Error: grep command not found (are you on Windows? Use WSL or Git Bash)"
     except Exception as e:
-        return f"Error running grep: {e}"
+        return f"Error: grep failed to run: {e}"
 
 
 def ls_files(args: dict, render_context: RenderContext) -> str:
@@ -852,6 +776,14 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
     """
     pattern = args.get("pattern", "")
     options = args.get("options", "")
+
+    # Enforce the same read-access policy as read_file/grep: resolve the target the
+    # listing points at and deny sibling-module folders. (An empty pattern lists the
+    # project root, which is allowed.)
+    if pattern:
+        denial = _check_read_access(_resolve_file_path(pattern), render_context)
+        if denial:
+            return denial
 
     # Build ls command
     cmd = ["ls"]
@@ -880,16 +812,13 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
             output += f"\n[stderr]: {result.stderr}"
 
         if result.returncode != 0:
-            return f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n ls command failed (exit code {result.returncode}):\n{output}"
+            return f"Error: Ran ls command: {shell_cmd}\n ls command failed (exit code {result.returncode}):\n{output}.\n Current directory: {current_dir}\n"
 
         if not output.strip():
-            return (
-                f"Current directory: {current_dir}\nRan ls command: {shell_cmd}\n Directory is empty (no files found)"
-            )
+            return f"Error: Ran ls command: {shell_cmd}\n Directory is empty (no files found).\n Current directory: {current_dir}\n"
 
         # Prepend current working directory to help agent understand context
-        header = f"Current directory: {current_dir}\n"
-        header += "Running ls command: " + shell_cmd + "\n"
+        header = "Ran ls command: " + shell_cmd + "\n"
 
         # Truncate if output is too long
         lines = output.strip().split("\n")
@@ -903,10 +832,10 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
     except FileNotFoundError:
         return "Error: ls command not found (are you on Windows? Use WSL or Git Bash)"
     except Exception as e:
-        return f"Error running ls: {e}"
+        return f"Error: ls failed to run: {e}"
 
 
-def think(args: dict, render_context: RenderContext) -> str:
+def think(args: dict, render_context: RenderContext) -> str:  # noqa: U100
     """Log the agent's reasoning or progress note to the user.
 
     Use this to narrate what you are doing, what you found, or what you are about to do next.
@@ -963,93 +892,4 @@ def write_memory(args: dict, render_context: RenderContext) -> str:
         )
         return f"Memory note saved to '{full_path}'. It will be available to future fixing agents."
     except Exception as e:
-        return f"Error writing memory note '{file_name}': {e}"
-
-
-def create_submit_fix_for_review(
-    file_snapshot: dict[str, str],
-    specifications: str,
-    acceptance_tests: str,
-    test_failure: str,
-    conformance_test_folder: str = "",
-    conformance_tests_script: str = "",
-) -> Callable[[dict, RenderContext], str]:
-    """Factory that creates a submit_fix_for_review tool with captured context.
-
-    The tool spins up a separate reviewer agent that can explore the code to verify
-    the fix maintains engineering integrity.
-
-    Args:
-        file_snapshot: Dict of file_path → content at the time the fix started.
-            Conformance test files are prefixed with "conformance_tests/".
-        specifications: The spec text for the current frid.
-        acceptance_tests: The acceptance test text.
-        test_failure: The conformance test failure output.
-        conformance_test_folder: Absolute path to the conformance tests folder.
-    """
-
-    def submit_fix_for_review(args: dict, render_context: RenderContext) -> str:
-        from render_machine.agent.tool_executor import ToolExecutor
-
-        explanation = args.get("explanation", "")
-
-        # Compute diff between snapshot and current state
-        current_files = {}
-        all_impl_files = file_utils.list_all_text_files(render_context.build_folder)
-        for file_path in all_impl_files:
-            full_path = os.path.join(render_context.build_folder, file_path)
-            with open(full_path, "r", encoding="utf-8") as f:
-                current_files[file_path] = f.read()
-
-        if conformance_test_folder and os.path.exists(conformance_test_folder):
-            ct_files = file_utils.list_all_text_files(conformance_test_folder)
-            for file_path in ct_files:
-                full_path = os.path.join(conformance_test_folder, file_path)
-                with open(full_path, "r", encoding="utf-8") as f:
-                    current_files[f"conformance_tests/{file_path}"] = f.read()
-
-        diff_text = diff_utils.get_code_diff(current_files, file_snapshot)
-        if not diff_text:
-            return "Rejected: No changes detected. Please write your fix before submitting for review."
-
-        diff_str = ""
-        for file_path, file_diff in diff_text.items():
-            diff_str += f"--- {file_path}\n{file_diff}\n\n"
-
-        # Build task params for the reviewer agent
-        review_task_params = {
-            "specifications": specifications,
-            "acceptance_tests": acceptance_tests,
-            "test_output": test_failure,
-            "diff": diff_str,
-            "explanation": explanation,
-            "conformance_tests_script": conformance_tests_script,
-        }
-
-        # Reviewer gets read-only tools
-        reviewer_tools = {
-            "read_file": read_file,
-            "list_files": list_files,
-            "ls_files": ls_files,
-            "grep": grep,
-        }
-        reviewer_executor = ToolExecutor(available_tools=reviewer_tools)
-
-        # Run the reviewer agent to completion
-        from render_machine.agent import agent_runner
-
-        response = agent_runner.run(
-            "review_conformance_fix",
-            review_task_params,
-            render_context,
-            reviewer_executor,
-        )
-
-        # Parse the reviewer's final response for VERDICT
-        result_text = response.get("result", "")
-        if "VERDICT: APPROVED" in result_text.upper():
-            return f"APPROVED. Reviewer feedback: {result_text}"
-        else:
-            return f"REJECTED. Reviewer feedback: {result_text}"
-
-    return submit_fix_for_review
+        return f"Error: failed to write memory note '{file_name}': {e}"
