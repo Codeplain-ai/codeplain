@@ -1,0 +1,16 @@
+---
+requires:
+  - required_with_acceptance_tests
+---
+
+***definitions***
+
+- :MainApp: is a console application.
+
+***implementation reqs***
+
+- The :MainApp: should print hello.
+
+***functional specs***
+
+- Display "hello, world"

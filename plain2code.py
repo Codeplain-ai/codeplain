@@ -158,6 +158,42 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
         )
 
 
+def load_plain_module(args, template_dirs) -> plain_modules.PlainModule:
+    """Parse the plain file (and its required modules) into a PlainModule."""
+    return plain_modules.PlainModule(
+        args.filename,
+        args.build_folder,
+        args.conformance_tests_folder,
+        template_dirs,
+    )
+
+
+def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> None:
+    """Warn when any loaded module (including required modules) defines acceptance tests
+    but no conformance tests script is configured.
+
+    Acceptance tests are treated as conformance tests, so a conformance tests script is required
+    to actually run them. Without it, the acceptance tests cannot be executed.
+    """
+    if args.conformance_tests_script:
+        return
+
+    module_names_with_acceptance_tests = [
+        module.module_name
+        for module in plain_module.all_required_modules + [plain_module]
+        if plain_spec.has_acceptance_tests(module.plain_source)
+    ]
+    if not module_names_with_acceptance_tests:
+        return
+
+    module_names = ", ".join(module_names_with_acceptance_tests)
+    console.warning(
+        f"Acceptance tests were found ({module_names}) but no conformance tests script is configured. "
+        "Acceptance tests are treated as conformance tests and require a conformance tests script "
+        "(--conformance-tests-script or 'conformance_tests_script' in config) to be executed."
+    )
+
+
 def render(args, run_state: RunState, event_bus: EventBus, default_log_level: str = "INFO"):  # noqa: C901
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
@@ -178,12 +214,9 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
     enter_pause_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
-    plain_module = plain_modules.PlainModule(
-        args.filename,
-        args.build_folder,
-        args.conformance_tests_folder,
-        template_dirs,
-    )
+    plain_module = load_plain_module(args, template_dirs)
+
+    warn_if_acceptance_tests_without_conformance_script(plain_module, args)
 
     render_choice = None
     if render_range is None:
@@ -323,9 +356,10 @@ def main():  # noqa: C901
 
             if args.dry_run:
                 console.info("Printing dry run output...\n")
-                _, plain_source_tree, _ = plain_file.plain_file_parser(args.filename, template_dirs)
-                render_range = plain_spec.compute_render_range(args, plain_source_tree)
-                print_dry_run_output(plain_source_tree, render_range)
+                plain_module = load_plain_module(args, template_dirs)
+                render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
+                print_dry_run_output(plain_module.plain_source, render_range)
+                warn_if_acceptance_tests_without_conformance_script(plain_module, args)
                 return
         except Exception as e:
             console.error(f"Error: {str(e)}")
