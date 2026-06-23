@@ -204,6 +204,26 @@ def _is_acceptance_test_heading(token) -> tuple[bool, str | None]:
     return False, None
 
 
+def _find_acceptance_test_heading(token):
+    """
+    Recursively search a token tree for an `acceptance tests` heading.
+
+    Returns the heading token if one is found anywhere in the subtree, otherwise None.
+    Used to detect acceptance tests nested under sections other than functional specs.
+    """
+    is_acceptance_test_heading, _ = _is_acceptance_test_heading(token)
+    if is_acceptance_test_heading:
+        return token
+
+    if getattr(token, "children", None):
+        for child in token.children:
+            found = _find_acceptance_test_heading(child)
+            if found is not None:
+                return found
+
+    return None
+
+
 def _process_single_acceptance_test_requirement(functional_requirement: mistletoe.block_token.ListItem):
     """
     Process a single functionality to extract acceptance tests.
@@ -515,6 +535,22 @@ def parse_plain_source(  # noqa: C901
         else:
             raise PlainSyntaxError(
                 f"Plain syntax error: Syntax error at line {token.line_number}: Invalid source structure  (`{token_text}`)"
+            )
+
+    # Acceptance tests are only allowed nested under functional specs. Reject them when
+    # they are nested under any other section (e.g. definitions, implementation reqs, test reqs).
+    for non_functional_heading in (
+        plain_spec.DEFINITIONS,
+        plain_spec.NON_FUNCTIONAL_REQUIREMENTS,
+        plain_spec.TEST_REQUIREMENTS,
+    ):
+        section = plain_source.get(non_functional_heading)
+        if section is None:
+            continue
+        nested_acceptance_test_heading = _find_acceptance_test_heading(section)
+        if nested_acceptance_test_heading is not None:
+            raise PlainSyntaxError(
+                f"Plain syntax error: Syntax error at line {nested_acceptance_test_heading.line_number}: {plain_spec.ACCEPTANCE_TEST_HEADING} heading should be nested under specific functional spec."
             )
 
     if plain_source[plain_spec.DEFINITIONS] is not None:
