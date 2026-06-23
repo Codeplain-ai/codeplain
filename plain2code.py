@@ -160,16 +160,6 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
         )
 
 
-def load_plain_module(args, template_dirs) -> plain_modules.PlainModule:
-    """Parse the plain file (and its required modules) into a PlainModule."""
-    return plain_modules.PlainModule(
-        args.filename,
-        args.build_folder,
-        args.conformance_tests_folder,
-        template_dirs,
-    )
-
-
 def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> None:
     """Warn when any loaded module (including required modules) defines acceptance tests
     but no conformance tests script is configured.
@@ -196,15 +186,17 @@ def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> N
     )
 
 
-def render(args, run_state: RunState, event_bus: EventBus, default_log_level: str = "INFO"):  # noqa: C901
-    template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
-
+def render(  # noqa: C901
+    plain_module: plain_modules.PlainModule,
+    args,
+    run_state: RunState,
+    event_bus: EventBus,
+    default_log_level: str = "INFO",
+):
     # Compute render range from either --render-range or --render-from
     render_range = None
     if args.render_range or args.render_from:
-        # Parse the plain file to get the plain_source for FRID extraction
-        _, plain_source, _ = plain_file.plain_file_parser(args.filename, template_dirs)
-        render_range = plain_spec.compute_render_range(args, plain_source)
+        render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
 
     codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
     assert args.api is not None and args.api != "", "API URL is required"
@@ -215,8 +207,6 @@ def render(args, run_state: RunState, event_bus: EventBus, default_log_level: st
     stop_event = threading.Event()
     enter_pause_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
-
-    plain_module = load_plain_module(args, template_dirs)
 
     warn_if_acceptance_tests_without_conformance_script(plain_module, args)
 
@@ -343,29 +333,38 @@ def main():  # noqa: C901
             console.error(f"Error fetching status: {str(e)}")
         return
 
-    # Handle early-exit flags before heavy initialization
-    if args.dry_run or args.full_plain:
-        template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
+    template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
 
+    # Handle full plain early-exit (raw text dump; does not require a parsed module).
+    if args.full_plain:
         try:
-            if args.full_plain:
-                module_name = Path(args.filename).stem
-                plain_source = plain_file.read_module_plain_source(module_name, template_dirs)
-                [full_plain_source, _] = file_utils.get_loaded_templates(template_dirs, plain_source)
-                console.info("Full plain text:\n")
-                console.info(full_plain_source)
-                return
-
-            if args.dry_run:
-                console.info("Printing dry run output...\n")
-                plain_module = load_plain_module(args, template_dirs)
-                render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
-                print_dry_run_output(plain_module.plain_source, render_range)
-                warn_if_acceptance_tests_without_conformance_script(plain_module, args)
-                return
+            module_name = Path(args.filename).stem
+            plain_source = plain_file.read_module_plain_source(module_name, template_dirs)
+            [full_plain_source, _] = file_utils.get_loaded_templates(template_dirs, plain_source)
+            console.info("Full plain text:\n")
+            console.info(full_plain_source)
         except Exception as e:
             console.error(f"Error: {str(e)}")
-            return
+        return
+
+    # Parse the plain file (and its required modules) once; reused by dry-run and rendering.
+    try:
+        plain_module = plain_modules.PlainModule(
+            args.filename,
+            args.build_folder,
+            args.conformance_tests_folder,
+            template_dirs,
+        )
+    except Exception as e:
+        console.error(f"Error: {str(e)}")
+        return
+
+    if args.dry_run:
+        console.info("Printing dry run output...\n")
+        render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
+        print_dry_run_output(plain_module.plain_source, render_range)
+        warn_if_acceptance_tests_without_conformance_script(plain_module, args)
+        return
 
     event_bus = EventBus()
 
@@ -393,7 +392,7 @@ def main():  # noqa: C901
             raise MissingAPIKey(
                 "Your API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
             )
-        render(args, run_state, event_bus, default_log_level)
+        render(plain_module, args, run_state, event_bus, default_log_level)
     except BaseException as e:
         if isinstance(e, KeyboardInterrupt):
             error_message = "Keyboard interrupt"
