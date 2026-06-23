@@ -9,6 +9,42 @@ def test_get_linked_resources_invalid_input():
         plain_spec.collect_linked_resources([], [], None, True)
 
 
+def test_has_acceptance_tests_true():
+    plain_source = {
+        plain_spec.FUNCTIONAL_REQUIREMENTS: [
+            {"markdown": "- First functionality."},
+            {
+                "markdown": "- Second functionality.",
+                plain_spec.ACCEPTANCE_TESTS: [{"markdown": "- Test the second functionality."}],
+            },
+        ]
+    }
+    assert plain_spec.has_acceptance_tests(plain_source) is True
+
+
+def test_has_acceptance_tests_false_when_no_acceptance_tests():
+    plain_source = {
+        plain_spec.FUNCTIONAL_REQUIREMENTS: [
+            {"markdown": "- First functionality."},
+            {"markdown": "- Second functionality."},
+        ]
+    }
+    assert plain_spec.has_acceptance_tests(plain_source) is False
+
+
+def test_has_acceptance_tests_false_when_empty_acceptance_tests():
+    plain_source = {
+        plain_spec.FUNCTIONAL_REQUIREMENTS: [
+            {"markdown": "- First functionality.", plain_spec.ACCEPTANCE_TESTS: []},
+        ]
+    }
+    assert plain_spec.has_acceptance_tests(plain_source) is False
+
+
+def test_has_acceptance_tests_false_when_no_functional_requirements():
+    assert plain_spec.has_acceptance_tests({}) is False
+
+
 def test_get_frids_simple(get_test_data_path):
     _, plain_source, _ = plain_file.plain_file_parser("simple.plain", [get_test_data_path("data/")])
 

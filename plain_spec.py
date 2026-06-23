@@ -25,6 +25,15 @@ ALLOWED_SPECIFICATION_HEADINGS = [
 ALLOWED_IMPORT_SPECIFICATION_HEADINGS = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS]
 
 
+def has_acceptance_tests(plain_source_tree) -> bool:
+    """Return True if any functional requirement in the plain source defines acceptance tests."""
+    functional_requirements = plain_source_tree.get(FUNCTIONAL_REQUIREMENTS) or []
+    for functional_requirement in functional_requirements:
+        if functional_requirement.get(ACCEPTANCE_TESTS):
+            return True
+    return False
+
+
 def collect_specification_linked_resources(specification, specification_heading, linked_resources_list):
     linked_resources = []
     if "linked_resources" in specification:
