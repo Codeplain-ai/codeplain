@@ -474,6 +474,11 @@ def parse_plain_source(  # noqa: C901
 
             specification_heading = token.children[0].children[0].children[0].content
 
+            if specification_heading == plain_spec.ACCEPTANCE_TEST_HEADING:
+                raise PlainSyntaxError(
+                    f"Plain syntax error: Syntax error at line {token.line_number}: {plain_spec.ACCEPTANCE_TEST_HEADING} heading should be nested under specific functional spec."
+                )
+
             if specification_heading not in plain_spec.ALLOWED_SPECIFICATION_HEADINGS:
                 raise PlainSyntaxError(
                     f"Plain syntax error: Syntax error at line {token.line_number}: Invalid specification heading (`{specification_heading}`). Allowed headings: {', '.join(plain_spec.ALLOWED_SPECIFICATION_HEADINGS)}"
