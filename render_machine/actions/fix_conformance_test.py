@@ -11,10 +11,15 @@ from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 from render_machine.render_types import TestExecutionPhase
 
+MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
+MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
+
 
 class FixConformanceTest(BaseAction):
     IMPLEMENTATION_CODE_NOT_UPDATED = "implementation_code_not_updated"
     IMPLEMENTATION_CODE_UPDATED = "implementation_code_updated"
+    LIMIT_EXCEEDED_OUTCOME = "conformance_test_fix_limit_exceeded"
+    REGENERATE_CONFORMANCE_TESTS_OUTCOME = "regenerate_conformance_tests"
 
     ISSUE_REASON_CODE_CONFORMANCE_TESTS = 0
     ISSUE_REASON_CODE_IMPLEMENTATION_CODE = 1
@@ -22,6 +27,20 @@ class FixConformanceTest(BaseAction):
     ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS = 3
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
+        ctx = render_context.conformance_tests_running_context
+        ctx.fix_attempts += 1
+
+        if ctx.fix_attempts >= MAX_CONFORMANCE_TEST_FIX_ATTEMPTS:
+            if ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS:
+                error_msg = f"The renderer was unable to produce an implementation that passes conformance tests for functionality '{render_context.frid_context.frid}' after many attempts. Please review and rewrite the specification. (Render ID: {render_context.run_state.render_id})"
+                render_context.last_error_message = error_msg
+                return self.LIMIT_EXCEEDED_OUTCOME, None
+            else:
+                ctx.regenerating_conformance_tests = True
+                return self.REGENERATE_CONFORMANCE_TESTS_OUTCOME, None
+
+        console.info(f"Running conformance tests attempt {ctx.fix_attempts + 1}.")
+
         console.info(
             f"Fixing conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
         )

@@ -23,10 +23,6 @@ from render_machine.render_types import (
 )
 
 MAX_UNITTEST_FIX_ATTEMPTS = 20
-MAX_CODE_GENERATION_RETRIES = 2
-MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
-MAX_REFACTORING_ITERATIONS = 5
-MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS = 2
 
 
@@ -165,20 +161,6 @@ class RenderContext:
         self.run_state.current_frid = frid
         return
 
-    def check_frid_iteration_limit(self):
-        if self.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functionality {self.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
-            self.dispatch_error(error_msg)
-
-        self.frid_context.functional_requirement_render_attempts += 1
-
-        if self.frid_context.functional_requirement_render_attempts > 1:
-            # this if is intended just for logging
-            console.info(
-                f"Unittests could not be fixed after rendering the functionality. "
-                f"Restarting rendering the functionality {self.frid_context.frid} from scratch."
-            )
-
     def has_next_frid(self) -> bool:
         next_frid = plain_spec.get_next_frid(self.plain_source_tree, self.frid_context.frid)
         if self.render_range is None or len(self.render_range) == 0:
@@ -309,26 +291,6 @@ class RenderContext:
     def _on_unit_test_limit_exceeded_in_refactoring(self):
         git_utils.revert_changes(self.build_folder)
         self.machine.dispatch(triggers.START_NEW_REFACTORING_ITERATION)
-
-    def start_refactoring_code(self):
-
-        if self.frid_context.refactoring_iteration == 0:
-            console.info("Refactoring the generated code...")
-
-        self.frid_context.refactoring_iteration += 1
-
-        if self.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
-            console.info(
-                f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {self.frid_context.frid}."
-            )
-            self.machine.dispatch(triggers.PROCEED_FRID_PROCESSING)
-
-    def start_testing_environment_preparation(self):
-        if (
-            self.prepare_environment_script is None
-            or not self.conformance_tests_running_context.should_prepare_testing_environment
-        ):
-            self.machine.dispatch(triggers.MARK_TESTING_ENVIRONMENT_PREPARED)
 
     def start_conformance_tests_processing(self):
         console.info("Implementing conformance tests...")
@@ -588,23 +550,6 @@ class RenderContext:
 
         # Should never reach here
         raise RuntimeError(f"Unexpected execution phase: {ctx.execution_phase}")
-
-    def start_fixing_conformance_tests(self):
-        self.conformance_tests_running_context.fix_attempts += 1
-
-        if self.conformance_tests_running_context.fix_attempts >= MAX_CONFORMANCE_TEST_FIX_ATTEMPTS:
-            if (
-                self.conformance_tests_running_context.conformance_tests_render_attempts
-                >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS
-            ):
-                error_msg = f"The renderer was unable to produce an implementation that passes conformance tests for functionality '{self.frid_context.frid}' after many attempts. Please review and rewrite the specification. (Render ID: {self.run_state.render_id})"
-                self.dispatch_error(error_msg)
-            else:
-                self.conformance_tests_running_context.regenerating_conformance_tests = True
-                self.machine.dispatch(triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS)
-
-    def finish_fixing_conformance_tests(self):
-        console.info(f"Running conformance tests attempt {self.conformance_tests_running_context.fix_attempts + 1}.")
 
     def start_render_completed(self):
         self.run_state.set_render_succeeded(True)
