@@ -17,7 +17,11 @@
 
 - :ConformanceTests: of :App: should be written in TypeScript, using Cypress as the framework for :ConformanceTests:.
 
+- All Cypress test files (*.cy.ts) must be placed in the same directory as cypress.config.ts.
+
+- The cypress.config.ts file's 'specPattern' option must be set to '*.cy.ts'.
+
 - The following configuration should be added:
   - The appropriate include section should be added to tsconfig.json file.
-  - The cypress.config.mjs file should use the 'cypress' package.
+  - The cypress.config.ts file should use the 'cypress' package.
   - The typescript package should be added to the devDependencies in package.json
