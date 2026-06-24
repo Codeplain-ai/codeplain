@@ -1,6 +1,7 @@
 import os
 from typing import Any
 
+import file_utils
 import plain_spec
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
@@ -106,7 +107,11 @@ class AgentRenderConformanceTests(BaseAction):
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_tests_folder_name,
             "conformance_tests_script_path": render_context.conformance_tests_script or "",
+            "conformance_tests_script_content": file_utils.read_script_content(render_context.conformance_tests_script),
             "prepare_environment_script_path": render_context.prepare_environment_script or "",
+            "prepare_environment_script_content": file_utils.read_script_content(
+                render_context.prepare_environment_script
+            ),
             "module_name": render_context.module_name,
         }
 
@@ -144,7 +149,11 @@ class AgentRenderConformanceTests(BaseAction):
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_tests_folder_name,
             "conformance_tests_script_path": render_context.conformance_tests_script or "",
+            "conformance_tests_script_content": file_utils.read_script_content(render_context.conformance_tests_script),
             "prepare_environment_script_path": render_context.prepare_environment_script or "",
+            "prepare_environment_script_content": file_utils.read_script_content(
+                render_context.prepare_environment_script
+            ),
             "module_name": render_context.module_name,
         }
 

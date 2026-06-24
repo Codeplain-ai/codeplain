@@ -1,6 +1,6 @@
-import os
 from typing import Any
 
+import file_utils
 import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import console
@@ -346,7 +346,11 @@ class AgentFixConformanceTest(BaseAction):
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_test_folder,
             "conformance_tests_script_path": render_context.conformance_tests_script or "",
+            "conformance_tests_script_content": file_utils.read_script_content(render_context.conformance_tests_script),
             "prepare_environment_script_path": render_context.prepare_environment_script or "",
+            "prepare_environment_script_content": file_utils.read_script_content(
+                render_context.prepare_environment_script
+            ),
             "module_name": render_context.module_name,
             "keep_session_alive": True,  # Mark this as a persistent session
         }
@@ -456,13 +460,6 @@ class AgentFixConformanceTest(BaseAction):
         if not acceptance_tests:
             return ""
         return "\n".join(acceptance_tests)
-
-    def _read_conformance_tests_script(self, render_context: RenderContext) -> str:
-        script_path = os.path.normpath(render_context.conformance_tests_script)
-        if not os.path.exists(script_path):
-            return ""
-        with open(script_path, "r", encoding="utf-8") as f:
-            return f.read()
 
     def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
         """Get list of linked resource paths (not content) for the agent to read if needed."""
