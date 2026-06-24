@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import diff_utils
+import file_utils
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -86,7 +87,11 @@ class ReviewConformanceFixAction(BaseAction):
             "diff": diff_str,
             "explanation": explanation,
             "conformance_tests_script_path": render_context.conformance_tests_script or "",
+            "conformance_tests_script_content": file_utils.read_script_content(render_context.conformance_tests_script),
             "prepare_environment_script_path": render_context.prepare_environment_script or "",
+            "prepare_environment_script_content": file_utils.read_script_content(
+                render_context.prepare_environment_script
+            ),
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_test_folder,
             "module_name": render_context.module_name,

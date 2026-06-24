@@ -1,6 +1,7 @@
 import tempfile
 from typing import Any
 
+import file_utils
 import plain_spec
 from memory_management import MemoryManager
 from render_machine.actions.base_action import BaseAction
@@ -48,6 +49,7 @@ class AgentFixUnitTests(BaseAction):
             "linked_resource_paths": linked_resource_paths,
             "test_output_file": test_output_file,
             "unit_tests_script_path": render_context.unittests_script or "",
+            "unit_tests_script_content": file_utils.read_script_content(render_context.unittests_script),
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
         }
