@@ -5,7 +5,7 @@ import pytest
 
 from file_utils import load_linked_resources, store_response_files
 from plain2code_exceptions import UnsupportedBase64Content, UnsupportedResourceType
-from plain2code_utils import MIN_BASE64_BLOB_LENGTH
+from plain2code_utils import MAX_BASE64_BLOB_LENGTH
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def test_load_linked_resources_missing_file_raises_file_not_found(template_dir):
 def test_load_linked_resources_base64_blob_raises(template_dir):
     file_path = os.path.join(template_dir, "request.txt")
     with open(file_path, "w") as f:
-        f.write("curl -d 'selfie_image=" + "A" * (MIN_BASE64_BLOB_LENGTH + 100) + "'")
+        f.write("curl -d 'selfie_image=" + "A" * (MAX_BASE64_BLOB_LENGTH + 100) + "'")
 
     with pytest.raises(UnsupportedBase64Content) as exc_info:
         load_linked_resources([template_dir], [{"text": "Request", "target": "request.txt"}], "my_thing")
@@ -57,7 +57,7 @@ def test_load_linked_resources_base64_blob_raises(template_dir):
 def test_load_linked_resources_small_base64_allowed(template_dir):
     file_path = os.path.join(template_dir, "token.txt")
     with open(file_path, "w") as f:
-        f.write("token=" + "A" * (MIN_BASE64_BLOB_LENGTH - 100))
+        f.write("token=" + "A" * (MAX_BASE64_BLOB_LENGTH - 100))
 
     result = load_linked_resources([template_dir], [{"text": "Token", "target": "token.txt"}], "my_thing")
 

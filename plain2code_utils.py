@@ -2,11 +2,11 @@ import re
 from typing import Optional
 
 #
-MIN_BASE64_BLOB_LENGTH = 8192
+MAX_BASE64_BLOB_LENGTH = 8192
 
 # Matches a long contiguous base64 / base64url run, optionally preceded by a data: URI header.
 _BASE64_BLOB_PATTERN = re.compile(
-    r"(?:data:[\w.+-]+/[\w.+-]+;base64,)?[A-Za-z0-9+/_-]{%d,}={0,2}" % MIN_BASE64_BLOB_LENGTH
+    r"(?:data:[\w.+-]+/[\w.+-]+;base64,)?[A-Za-z0-9+/_-]{%d,}={0,2}" % MAX_BASE64_BLOB_LENGTH
 )
 
 
