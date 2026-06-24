@@ -130,7 +130,14 @@ class CodeplainAPI:
 
         for attempt in range(num_retries + 1):
             try:
-                response = requests.post(endpoint_url, headers=headers, json=payload)
+                response = requests.post(endpoint_url, headers=headers, json=payload, allow_redirects=False)
+
+                if 300 <= response.status_code < 400:
+                    # Treat redirects as a retryable error so a transient redirect retries as a real POST.
+                    raise RequestException(
+                        f"Unexpected redirect ({response.status_code}) to "
+                        f"{response.headers.get('Location')} from {endpoint_url}"
+                    )
 
                 try:
                     response_json = response.json()
