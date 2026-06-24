@@ -105,9 +105,15 @@ def execute_command(  # noqa: C901
     cmd_timeout = timeout if timeout is not None else COMMAND_EXECUTION_TIMEOUT
     start_time = time.time()
 
+    # stdin is redirected from /dev/null so an interactive command (e.g. a REPL or a
+    # program that calls input()) gets immediate EOF and exits, instead of blocking
+    # forever on — and fighting the render TUI for — the real terminal. Commands that
+    # need input still get it from an explicit source (a pipe, heredoc, or `< file`),
+    # which overrides this default per-process.
     if sys.platform == "win32":
         proc = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -119,6 +125,7 @@ def execute_command(  # noqa: C901
         proc = subprocess.Popen(
             command,
             shell=True,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -161,6 +168,17 @@ def execute_command(  # noqa: C901
                 raise RenderCancelledError()
         else:
             time.sleep(POLL_INTERVAL_SECONDS)
+
+    # The shell can exit cleanly while leaving backgrounded children alive (e.g. a
+    # command that used `&`). Such orphans keep running, holding the terminal and the
+    # stdout pipe's write end open — which would block the reader below indefinitely
+    # and leak a live process. Kill the whole process group to reap them. proc is the
+    # session leader (start_new_session=True), so its pid is the process-group id.
+    if sys.platform != "win32":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
 
     reader.join(timeout=STDOUT_READ_TIMEOUT_SECONDS)
     if reader.is_alive():

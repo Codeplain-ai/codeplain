@@ -141,6 +141,29 @@ def get_existing_files_content(build_folder, existing_files):
     return existing_files_content
 
 
+def read_script_content(script_path: str) -> str:
+    """Read a test/setup script's full content so it can be embedded in an agent prompt.
+
+    Test scripts (unit tests, conformance tests, prepare-environment) are sent to the
+    fixing/rendering agents by content rather than by path, so the agent has the runner,
+    framework, expected file layout, and output format up front without spending a
+    read_file tool round-trip. Returns "" when the path is empty or the file is missing,
+    so callers can pass the result straight into task params unconditionally.
+    """
+    if not script_path:
+        return ""
+    normalized = os.path.normpath(script_path)
+    if not os.path.isfile(normalized):
+        console.debug(f"WARNING! Test script not found at {normalized}. Sending its path only.")
+        return ""
+    try:
+        with open(normalized, "r", encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        console.debug(f"WARNING! Could not read test script {normalized}: {e}. Sending its path only.")
+        return ""
+
+
 def store_response_files(target_folder, response_files, existing_files):
     for file_name in response_files:
         full_file_name = os.path.join(target_folder, file_name)
