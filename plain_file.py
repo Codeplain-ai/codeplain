@@ -17,8 +17,9 @@ from mistletoe.utils import traverse
 import concept_utils
 import file_utils
 import plain_spec
-from plain2code_exceptions import ModuleDoesNotExistError, PlainSyntaxError
+from plain2code_exceptions import ModuleDoesNotExistError, PlainSyntaxError, UnsupportedBase64Content
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
+from plain2code_utils import find_large_base64_blob
 
 RESOURCE_MARKER = "[resource]"
 
@@ -536,6 +537,16 @@ def read_module_plain_source(module_name: str, template_dirs: list[str]) -> str:
     plain_source_text = file_utils.open_from(template_dirs, module_name + PLAIN_SOURCE_FILE_EXTENSION)
     if plain_source_text is None:
         raise ModuleDoesNotExistError(f"Module does not exist ({module_name}).")
+
+    blob = find_large_base64_blob(plain_source_text)
+    if blob is not None:
+        raise UnsupportedBase64Content(
+            f"Module '{module_name}' contains a base64-encoded blob ({len(blob)} characters) "
+            "inlined in the specification. This is not supported."
+            "Remove the base64 data from the .plain file or if necessary,"
+            "include the binary file path in the specification."
+        )
+
     return plain_source_text
 
 
