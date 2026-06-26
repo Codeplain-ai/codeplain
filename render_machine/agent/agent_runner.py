@@ -1,4 +1,5 @@
 import json
+import os
 
 from plain2code_console import console
 from render_machine.agent.tool_executor import ToolExecutor
@@ -36,6 +37,13 @@ def run(
 
     if max_turns is None:
         max_turns = MAX_AGENT_TURNS
+
+    # The project root is the client process CWD — the directory the agent's file tools
+    # (read_file / write_file / ls_files / grep / run_command) resolve relative paths
+    # against (see tools._get_project_root). Pass it through so the system prompt can tell
+    # the agent exactly where it is working from, which cuts down on wrong relative paths
+    # in those tool calls. setdefault so an explicitly provided value is never clobbered.
+    task_params.setdefault("project_root", os.getcwd())
 
     response = render_context.codeplain_api.agent_start(
         task_type=task_type,

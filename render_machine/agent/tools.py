@@ -497,8 +497,12 @@ def run_command(args: dict, render_context: RenderContext) -> str:
 
     Any files the command creates under the build or conformance test folders are
     removed afterwards, so build artifacts (e.g. compiled .class files from `mvn test`)
-    don't pollute diffs, commits, or the files passed to agents. Write scratch files to
-    /tmp if you need them to persist.
+    don't pollute diffs, commits, or the files passed to agents. Files created ANYWHERE
+    ELSE — notably the project root (e.g. ``cp -R plain_modules/<module>/* .``) — are NOT
+    cleaned up and will dirty the user's working tree, so the tool description steers the
+    agent to keep all scratch work under /tmp (or point PYTHONPATH at the existing folders
+    in place) rather than copying into the project. Write scratch files to /tmp if you need
+    them to persist.
 
     Args:
         args: Dictionary containing:
