@@ -1,0 +1,8 @@
+---
+import:
+  - typescript-react-app-template
+---
+
+***functional specs***
+
+- Implement the entry point for :App:.

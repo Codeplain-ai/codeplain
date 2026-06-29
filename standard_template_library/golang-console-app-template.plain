@@ -1,0 +1,29 @@
+***definitions***
+
+- :App: is a console application.
+
+- :MainExecutableFile: is the main executable code file of :App:.
+
+- :ConformanceTestsExecutableFile: is the main executable code file of :ConformanceTests:.
+
+
+***implementation reqs***
+
+- :Implementation: should be in Go lang.
+
+- :Implementation: should include unit tests using Go's built-in testing package.
+
+
+***test reqs***
+
+- :ConformanceTests: should be implemented in Go lang.
+
+- :ConformanceTestsExecutableFile: should be called "conformance_tests.go".
+
+- :ConformanceTests: will be executed using the command "go run <conformance tests folder>/conformance_tests.go" from a folder that contains :MainExecutableFile:.
+
+- Before :ConformanceTests: are executed, "go get" will be executed in the folder containing :MainExecutableFile:.
+
+- Before :ConformanceTests: are executed, "go get" will be executed in <conformance tests folder>.
+
+- :App: can be executed using the command "go run".
