@@ -3,11 +3,22 @@ from typing import Any
 
 import file_utils
 import plain_spec
+from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
-from render_machine.agent.tools import delete_file, edit_file, grep, ls_files, read_file, run_command, think, write_file
+from render_machine.agent.tools import (
+    delete_file,
+    edit_file,
+    grep,
+    ls_files,
+    read_file,
+    run_command,
+    think,
+    write_file,
+    write_memory,
+)
 from render_machine.render_context import RenderContext
 from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
 
@@ -20,6 +31,7 @@ RENDER_CONFORMANCE_TESTS_TOOLS = {
     "grep": grep,
     "run_command": run_command,
     "think": think,
+    "write_memory": write_memory,
 }
 
 
@@ -113,6 +125,8 @@ class AgentRenderConformanceTests(BaseAction):
                 render_context.prepare_environment_script
             ),
             "module_name": render_context.module_name,
+            "memory_folder": render_context.memory_manager.memory_folder,
+            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
         }
 
         tool_executor = ToolExecutor(available_tools=RENDER_CONFORMANCE_TESTS_TOOLS)
@@ -155,6 +169,8 @@ class AgentRenderConformanceTests(BaseAction):
                 render_context.prepare_environment_script
             ),
             "module_name": render_context.module_name,
+            "memory_folder": render_context.memory_manager.memory_folder,
+            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
         }
 
         tool_executor = ToolExecutor(available_tools=RENDER_CONFORMANCE_TESTS_TOOLS)
