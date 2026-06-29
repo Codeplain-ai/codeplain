@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 
 import file_utils
 from plain2code_console import console
@@ -10,6 +11,10 @@ from render_machine.render_context import RenderContext
 CONFORMANCE_TESTS_SUCCESS_EXIT_CODE = 0
 CONFORMANCE_TEST_MEMORY_SUBFOLDER = "conformance_test_memory"
 AGENT_MEMORY_SUBFOLDER = "agent_memory"
+# Learnings the fixing agent marked as project-wide. Unlike agent_memory (which is local to
+# one module), notes here are copied into every module's memory so all modules' agents see
+# them. Each module keeps its own committed copy, which preserves the per-module git model.
+GLOBAL_MEMORY_SUBFOLDER = "global_memory"
 
 
 class MemoryManager:
@@ -41,18 +46,80 @@ class MemoryManager:
         return memory_files_content
 
     @staticmethod
-    def write_agent_memory_file(memory_folder: str, file_name: str, content: str) -> str:
-        """Write an agent memory note to memory_folder/agent_memory and return its full path."""
-        memory_path = os.path.join(memory_folder, AGENT_MEMORY_SUBFOLDER)
+    def list_memory_files(memory_folder: str) -> list[str]:
+        """List memory note paths (relative to memory_folder) without reading their content.
+
+        Used to make an agent aware of which notes exist so it can read just the relevant
+        ones on demand via its file tools, instead of injecting every note's content into
+        the prompt (which would balloon as notes accumulate). Covers both the
+        conformance_test_memory and agent_memory subfolders.
+        """
+        if not os.path.exists(memory_folder):
+            return []
+        names = []
+        for root, _dirs, files in os.walk(memory_folder):
+            for file_name in files:
+                full_path = os.path.join(root, file_name)
+                names.append(os.path.relpath(full_path, memory_folder))
+        return sorted(names)
+
+    @staticmethod
+    def memory_folder_for(conformance_tests_folder: str, module_name: str) -> str:
+        """Return the .memory folder path for a module (the per-module memory root)."""
+        return os.path.join(conformance_tests_folder, module_name, CODEPLAIN_MEMORY_SUBFOLDER)
+
+    @staticmethod
+    def write_agent_memory_file(
+        memory_folder: str, file_name: str, content: str, subfolder: str = AGENT_MEMORY_SUBFOLDER
+    ) -> str:
+        """Write a memory note under memory_folder/<subfolder> and return its full path.
+
+        Defaults to the agent_memory subfolder (module-local notes); pass
+        GLOBAL_MEMORY_SUBFOLDER to write a project-wide note that sync_global_memories
+        will propagate to every module.
+        """
+        memory_path = os.path.join(memory_folder, subfolder)
         os.makedirs(memory_path, exist_ok=True)
         full_path = os.path.join(memory_path, file_name)
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
         return full_path
 
+    @staticmethod
+    def sync_global_memories(target_memory_folder: str, source_memory_folders: list[str]) -> int:
+        """Copy global memory notes from other modules into this module's global_memory folder.
+
+        Notes are deduplicated by file name (file names are content-hashed at write time), so a
+        note already present is left untouched and re-copying is a no-op. Returns the number of
+        notes newly copied. Run before a module renders so its agents see project-wide learnings,
+        and so each module commits its own copy (keeping the per-module git model intact).
+        """
+        target_global = os.path.join(target_memory_folder, GLOBAL_MEMORY_SUBFOLDER)
+        normalized_target = os.path.normpath(os.path.abspath(target_global))
+        copied = 0
+        for source_memory_folder in source_memory_folders:
+            source_global = os.path.join(source_memory_folder, GLOBAL_MEMORY_SUBFOLDER)
+            if not os.path.isdir(source_global):
+                continue
+            if os.path.normpath(os.path.abspath(source_global)) == normalized_target:
+                continue
+            for file_name in os.listdir(source_global):
+                source_file = os.path.join(source_global, file_name)
+                if not os.path.isfile(source_file):
+                    continue
+                target_file = os.path.join(target_global, file_name)
+                if os.path.exists(target_file):
+                    continue
+                os.makedirs(target_global, exist_ok=True)
+                shutil.copyfile(source_file, target_file)
+                copied += 1
+        if copied:
+            console.debug(f"Synced {copied} global memory note(s) into {target_global}.")
+        return copied
+
     def __init__(self, codeplain_api, module_name: str, conformance_tests_folder: str):
         self.codeplain_api = codeplain_api
-        self.memory_folder = os.path.join(conformance_tests_folder, module_name, CODEPLAIN_MEMORY_SUBFOLDER)
+        self.memory_folder = MemoryManager.memory_folder_for(conformance_tests_folder, module_name)
 
     def create_conformance_tests_memory(
         self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str

@@ -1,8 +1,10 @@
+import hashlib
 import os
 from typing import Any
 
 import diff_utils
 import file_utils
+from memory_management import AGENT_MEMORY_SUBFOLDER, GLOBAL_MEMORY_SUBFOLDER, MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -120,6 +122,11 @@ class ReviewConformanceFixAction(BaseAction):
         if "VERDICT: APPROVED" in result_text.upper():
             console.info("[green]Review APPROVED[/green]")
             ctx.reset_file_change_tracker()
+            # The fix is confirmed (tests pass + review approved), so any durable learning
+            # the fixing agent attached to submit_fix is now trustworthy — persist it to
+            # the module's memory for future agents. Done only here, on the real approval
+            # path, so unconfirmed or stale learnings are never recorded.
+            self._persist_key_learning(render_context, fix_summary)
             # The fix is accepted and the tests already pass: release the fix agent
             # session and clear unresolved memory, the cleanup previously done by
             # RunConformanceTests on a passing run (now deferred until acceptance).
@@ -133,3 +140,47 @@ class ReviewConformanceFixAction(BaseAction):
         return self.REJECTED, {
             "review_rejection_feedback": result_text,
         }
+
+    def _persist_key_learning(self, render_context: RenderContext, fix_summary: dict) -> None:
+        """Save the fixing agent's key_learning (from submit_fix) to the module's memory.
+
+        Called only after a fix is confirmed (tests pass + review approved). The note is a
+        free-form markdown file that future agents discover and read on demand. The file name
+        is keyed by module, FRID, and a short hash of the learning, so re-recording the same
+        learning overwrites rather than duplicates.
+
+        A "module"-scoped learning goes to .memory/agent_memory (local to this module). A
+        "global"-scoped learning goes to .memory/global_memory, from where sync_global_memories
+        propagates a committed copy into every module so all modules' agents receive it.
+        """
+        key_learning = (fix_summary or {}).get("key_learning")
+        key_learning = key_learning.strip() if isinstance(key_learning, str) else ""
+        if not key_learning:
+            return
+
+        is_global = str(fix_summary.get("learning_scope", "module")).strip().lower() == "global"
+        subfolder = GLOBAL_MEMORY_SUBFOLDER if is_global else AGENT_MEMORY_SUBFOLDER
+
+        module = render_context.module_name
+        frid = render_context.frid_context.frid
+        digest = hashlib.sha1(key_learning.encode("utf-8")).hexdigest()[:8]
+        file_name = f"{module}_{frid}_{digest}.md".replace("/", "_").replace(os.sep, "_")
+
+        scope_label = "project-wide" if is_global else f"module {module}"
+        content = (
+            f"# Conformance fix learning\n\n"
+            f"- Scope: {'global' if is_global else 'module'} (applies to {scope_label})\n"
+            f"- Originating module: {module}\n"
+            f"- Functionality (FRID): {frid}\n"
+            f"- Root cause: {fix_summary.get('root_cause', 'N/A')}\n"
+            f"- Fix: {fix_summary.get('changes_made', 'N/A')}\n\n"
+            f"## Key learning\n\n{key_learning}\n"
+        )
+
+        try:
+            path = MemoryManager.write_agent_memory_file(
+                render_context.memory_manager.memory_folder, file_name, content, subfolder=subfolder
+            )
+            console.info(f"Recorded {'global' if is_global else 'module'} conformance fix learning to memory: {path}")
+        except Exception as e:
+            console.warning(f"Failed to record conformance fix learning to memory: {e}")

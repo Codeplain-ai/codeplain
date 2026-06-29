@@ -103,7 +103,6 @@ class AgentFixConformanceTest(BaseAction):
         else:
             prepare_environment_output_file = ""
         linked_resource_paths = self._get_linked_resource_paths(render_context)
-        memory_files_content = MemoryManager.fetch_agent_memory_files(render_context.memory_manager.memory_folder)
 
         tool_executor = ToolExecutor(available_tools=tools)
 
@@ -125,7 +124,6 @@ class AgentFixConformanceTest(BaseAction):
                 task_params,
                 frid_implementation_diff=frid_implementation_diff,
                 frid_conformance_tests_diff=frid_conformance_tests_diff,
-                memory_files_content=memory_files_content,
                 fix_handoffs=ctx.fix_handoffs,
             )
             response = agent_runner.run(
@@ -179,7 +177,6 @@ class AgentFixConformanceTest(BaseAction):
                         task_params,
                         frid_implementation_diff=frid_implementation_diff,
                         frid_conformance_tests_diff=frid_conformance_tests_diff,
-                        memory_files_content=memory_files_content,
                         fix_handoffs=ctx.fix_handoffs,
                     )
                     response = agent_runner.run(
@@ -214,6 +211,8 @@ class AgentFixConformanceTest(BaseAction):
                 "changes_made": "",
                 "files_modified": [],
                 "confidence": "unknown",
+                "key_learning": "",
+                "learning_scope": "module",
             }
 
         # Store on context so it's available regardless of which path re-enters this action
@@ -352,6 +351,8 @@ class AgentFixConformanceTest(BaseAction):
                 render_context.prepare_environment_script
             ),
             "module_name": render_context.module_name,
+            "memory_folder": render_context.memory_manager.memory_folder,
+            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
             "keep_session_alive": True,  # Mark this as a persistent session
         }
 
@@ -361,7 +362,6 @@ class AgentFixConformanceTest(BaseAction):
         *,
         frid_implementation_diff: str,
         frid_conformance_tests_diff: str,
-        memory_files_content,
         fix_handoffs: list,
     ) -> None:
         """Add the optional task params (only when present) shared by both start paths."""
@@ -369,8 +369,6 @@ class AgentFixConformanceTest(BaseAction):
             task_params["frid_implementation_diff"] = frid_implementation_diff
         if frid_conformance_tests_diff:
             task_params["frid_conformance_tests_diff"] = frid_conformance_tests_diff
-        if memory_files_content:
-            task_params["memory_files_content"] = memory_files_content
         if fix_handoffs:
             task_params["fix_handoffs"] = fix_handoffs[-MAX_HANDOFFS_INJECTED:]
 
