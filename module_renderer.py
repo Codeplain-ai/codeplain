@@ -119,6 +119,11 @@ class ModuleRenderer:
             plain_module.module_name,
             self.args.conformance_tests_folder,
         )
+        # Pull project-wide ("global") memory notes written by other modules into this
+        # module's memory before it renders, so its agents see cross-cutting learnings
+        # (environment, build system, shared dependencies). Each module keeps its own
+        # committed copy, preserving the per-module git model.
+        self._sync_global_memories(memory_manager)
         render_context = self._build_render_context_for_module(
             plain_module,
             memory_manager,
@@ -144,6 +149,20 @@ class ModuleRenderer:
         self.loaded_modules.append(plain_module)
 
         return True, False
+
+    def _sync_global_memories(self, memory_manager: MemoryManager) -> None:
+        """Copy global memory notes from every module into the rendering module's memory.
+
+        Global learnings are written per module but apply project-wide, so before a module
+        renders we pull in any global notes other modules have produced. This converges
+        within a full render (modules rendered earlier feed later ones) and across renders.
+        """
+        all_modules = self.plain_module.all_required_modules + [self.plain_module]
+        source_memory_folders = [
+            MemoryManager.memory_folder_for(self.args.conformance_tests_folder, module.module_name)
+            for module in all_modules
+        ]
+        MemoryManager.sync_global_memories(memory_manager.memory_folder, source_memory_folders)
 
     def render_module(self) -> None:
         if self.render_choice is not None and self.render_choice.wipe_later_modules:

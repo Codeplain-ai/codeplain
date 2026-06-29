@@ -79,8 +79,19 @@ def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
 
 
 def _get_allowed_read_folders(render_context: RenderContext) -> list[str]:
-    """Return normalized absolute paths of folders the agent can read from."""
-    return _get_allowed_write_folders(render_context)
+    """Return normalized absolute paths of folders the agent can read from.
+
+    This is the write set plus the module's memory folder. Agents may browse and read
+    persisted memory notes (via read_file/grep/ls_files) on demand, but may only add to
+    them through the dedicated write_memory tool — so the memory folder is intentionally
+    readable here while staying out of the write set.
+    """
+    folders = list(_get_allowed_write_folders(render_context))
+    memory_manager = getattr(render_context, "memory_manager", None)
+    memory_folder = getattr(memory_manager, "memory_folder", None) if memory_manager else None
+    if memory_folder:
+        folders.append(os.path.normpath(os.path.abspath(memory_folder)))
+    return folders
 
 
 def _get_allowed_read_files(render_context: RenderContext) -> list[str]:

@@ -52,10 +52,9 @@ class AgentFixUnitTests(BaseAction):
             "unit_tests_script_content": file_utils.read_script_content(render_context.unittests_script),
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
+            "memory_folder": render_context.memory_manager.memory_folder,
+            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
         }
-        memory_files_content = MemoryManager.fetch_agent_memory_files(render_context.memory_manager.memory_folder)
-        if memory_files_content:
-            task_params["memory_files_content"] = memory_files_content
 
         tool_executor = ToolExecutor(available_tools=FIX_UNIT_TESTS_TOOLS)
         response = agent_runner.run("fix_unit_tests", task_params, render_context, tool_executor)
