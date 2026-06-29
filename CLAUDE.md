@@ -179,7 +179,7 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 - `plain2code_logger.py` - Custom logging with elapsed time timestamps
 - `plain2code_console.py` - Rich console wrapper with custom styles
 - `plain2code_state.py` - Runtime state (render ID, counters, timing)
-- `standard_template_library/` - Built-in code templates
+- `standard_template_library/` - Built-in `.plain` templates (git subtree from `plainlang-examples`)
 - `examples/` - Sample `.plain` projects
 
 ### Testing Architecture
@@ -222,6 +222,26 @@ Two logging modes:
 
 ### Running Plain2Code from Another Directory
 The tool can be run from any directory by providing an absolute or relative path to the `.plain` file. All paths (build folder, log file, templates) are resolved relative to the `.plain` file's directory, not the current working directory, unless explicitly overridden via CLI arguments.
+
+### Standard Template Library
+
+`standard_template_library/` is a git subtree sourced from the `plainlang-examples` repository. It is **not** updated automatically — you must pull changes manually when the templates change upstream:
+
+```bash
+git subtree pull --prefix=standard_template_library git@github.com:Codeplain-ai/plainlang-examples.git subtree/standard-template-library --squash
+```
+
+The subtree does not track a branch pointer. The branch (`main` above) is just an argument passed at pull time — git uses the `git-subtree-split` hash embedded in the commit history to determine what's new since the last sync.
+
+**Important:** You must pull from the `subtree/standard-template-library` branch, not `main`. This is a split branch containing only the `standard_template_library/` subdirectory contents at root level. Pulling from `main` would bring in the entire `plainlang-examples` repo.
+
+If the split branch is outdated, regenerate it first in `plainlang-examples`:
+
+```bash
+# In plainlang-examples/
+git subtree split --prefix=standard_template_library -b subtree/standard-template-library
+git push origin subtree/standard-template-library
+```
 
 ### Windows Support
 Windows users must use WSL (Windows Subsystem for Linux). The codebase has some platform-specific script handling (`.ps1` for Windows, `.sh` for Unix).
