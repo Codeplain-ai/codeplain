@@ -9,7 +9,7 @@ from liquid2 import Environment, RenderContext, TemplateSource
 import file_utils
 import plain_file
 import plain_spec
-from plain2code_exceptions import PlainSyntaxError
+from plain2code_exceptions import MissingFunctionalitiesError, PlainSyntaxError
 
 
 def test_regular_plain_source(get_test_data_path):
@@ -191,6 +191,28 @@ def test_without_non_functional_requirement(get_test_data_path):
     ):
         plain_file.plain_file_parser(
             "without_non_functional_requirement.plain",
+            [get_test_data_path("data/plainfile")],
+        )
+
+
+def test_no_functional_specs_section(get_test_data_path):
+    with pytest.raises(
+        MissingFunctionalitiesError,
+        match="does not have any functionality specified",
+    ):
+        plain_file.plain_file_parser(
+            "no_functional_specs_section.plain",
+            [get_test_data_path("data/plainfile")],
+        )
+
+
+def test_empty_functional_specs_section(get_test_data_path):
+    with pytest.raises(
+        PlainSyntaxError,
+        match=re.escape("has an empty 'functional specs' section"),
+    ):
+        plain_file.plain_file_parser(
+            "empty_functional_specs_section.plain",
             [get_test_data_path("data/plainfile")],
         )
 

@@ -78,6 +78,12 @@ class MissingPreviousFunctionalitiesError(Exception):
     pass
 
 
+class MissingFunctionalitiesError(Exception):
+    """Raised when a module to be rendered has no functionalities specified at all."""
+
+    pass
+
+
 class NetworkConnectionError(Exception):
     """Raised when there is a network connectivity issue with the API server."""
 

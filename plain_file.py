@@ -17,7 +17,12 @@ from mistletoe.utils import traverse
 import concept_utils
 import file_utils
 import plain_spec
-from plain2code_exceptions import ModuleDoesNotExistError, PlainSyntaxError, UnsupportedBase64Content
+from plain2code_exceptions import (
+    MissingFunctionalitiesError,
+    ModuleDoesNotExistError,
+    PlainSyntaxError,
+    UnsupportedBase64Content,
+)
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
 from plain2code_utils import find_large_base64_blob
 
@@ -726,10 +731,24 @@ def plain_file_parser(  # noqa: C901
             f"Plain syntax error: Not all required concepts were defined. {missing_required_concepts_msg}."
         )
 
-    if not check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-        raise PlainSyntaxError(
-            f"Plain syntax error: Module '{module_name}' was required but does not contain functional requirements."
+    fr_section = plain_file_parse_result.plain_source.get(plain_spec.FUNCTIONAL_REQUIREMENTS)
+
+    if fr_section is None:
+        # Case 1: no ***functional specs*** header at all. Not a syntax error.
+        raise MissingFunctionalitiesError(
+            f"Module {module_name} does not have any functionality specified. "
+            f"At least one functionality is required for rendering."
         )
+
+    if len(fr_section.children) == 0:
+        # Case 2: ***functional specs*** header present but empty. Treated as a syntax error.
+        raise PlainSyntaxError(
+            f"Plain syntax error: Module '{module_name}' has an empty "
+            f"'{plain_spec.FUNCTIONAL_REQUIREMENTS}' section. At least one functionality must be specified."
+        )
+
+    # Functionalities exist: keep the existing "functionality with no implementation reqs specified" check.
+    check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, [])
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,
