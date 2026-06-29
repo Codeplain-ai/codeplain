@@ -1,0 +1,22 @@
+***definitions***
+
+- :App: is a console application.
+
+- :MainExecutableFile: is the main executable code file of :App:.
+
+
+***implementation reqs***
+
+- :Implementation: should be in Python.
+
+- :Implementation: should include :UnitTests: using Unittest framework! If :UnitTests: are put in the subfolder, make sure to include __init__.py to make them discoverable.
+
+***test reqs***
+
+- :ConformanceTests: of :App: should be implemented in Python using Unittest framework. :ConformanceTests: will be run using "python -m unittest discover" command. Therefore, if :ConformanceTests: are put in the subfolder, make sure to include __init__.py to make them discoverable. 
+
+- :ConformanceTests: must be implemented and executed - do not use unittest.skip() or “any other test skipping functionality.
+
+- The current working directory contains :MainExecutableFile:.
+
+- :App: can be executed using the command "python :MainExecutableFile:".
