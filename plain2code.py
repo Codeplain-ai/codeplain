@@ -25,6 +25,7 @@ from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
     GitNotInstalledError,
+    ImportedModuleWithFunctionalitiesError,
     InvalidAPIKey,
     InvalidFridArgument,
     MissingAPIKey,
@@ -66,6 +67,7 @@ EXPECTED_EXCEPTIONS = (
     MissingResource,
     TemplateNotFoundError,
     PlainSyntaxError,
+    ImportedModuleWithFunctionalitiesError,
     MissingFunctionalitiesError,
     MissingPreviousFunctionalitiesError,
     MissingAPIKey,
