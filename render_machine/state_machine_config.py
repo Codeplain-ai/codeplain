@@ -73,12 +73,14 @@ class StateMachineConfig:
             PrepareRepositories.SUCCESSFUL_OUTCOME: triggers.START_RENDER,
             RenderFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.RENDER_FUNCTIONAL_REQUIREMENT,
             RenderFunctionalRequirement.FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME: triggers.HANDLE_ERROR,
+            RenderFunctionalRequirement.ITERATION_LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
             RunUnitTests.SUCCESSFUL_OUTCOME: triggers.MARK_UNIT_TESTS_PASSED,
             RunUnitTests.FAILED_OUTCOME: triggers.MARK_UNIT_TESTS_FAILED,
             RunUnitTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
             FixUnitTests.SUCCESSFUL_OUTCOME: triggers.MARK_UNIT_TESTS_READY,
             RefactorCode.SUCCESSFUL_OUTCOME: triggers.REFACTOR_CODE,
             RefactorCode.NO_FILES_REFACTORED_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
+            RefactorCode.ITERATION_LIMIT_EXCEEDED_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CommitImplementationCodeChanges.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             FinishFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CreateDist.SUCCESSFUL_OUTCOME: triggers.FINISH_RENDER,
@@ -90,6 +92,8 @@ class StateMachineConfig:
             RunConformanceTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
             FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED: triggers.MARK_CONFORMANCE_TESTS_READY,
             FixConformanceTest.IMPLEMENTATION_CODE_UPDATED: triggers.MARK_UNIT_TESTS_READY,
+            FixConformanceTest.LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
+            FixConformanceTest.REGENERATE_CONFORMANCE_TESTS_OUTCOME: triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED: triggers.PROCEED_FRID_PROCESSING,
             SummarizeConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
@@ -135,16 +139,9 @@ class StateMachineConfig:
                     "name": States.CONFORMANCE_TESTING_INITIALISED.value,
                     "on_enter": render_context.start_conformance_tests_for_frid,
                 },
-                {
-                    "name": States.CONFORMANCE_TEST_GENERATED.value,
-                    "on_enter": render_context.start_testing_environment_preparation,
-                },
+                States.CONFORMANCE_TEST_GENERATED.value,
                 States.CONFORMANCE_TEST_ENV_PREPARED.value,
-                {
-                    "name": States.CONFORMANCE_TEST_FAILED.value,
-                    "on_enter": render_context.start_fixing_conformance_tests,
-                    "on_exit": render_context.finish_fixing_conformance_tests,
-                },
+                States.CONFORMANCE_TEST_FAILED.value,
                 self.get_processing_unit_tests_states(
                     render_context, render_context._on_unit_test_limit_exceeded_in_conformance_tests
                 ),
@@ -164,7 +161,6 @@ class StateMachineConfig:
         refactoring_code_states = {
             "name": States.REFACTORING_CODE.value,
             "initial": States.READY_FOR_REFACTORING.value,
-            "on_enter": render_context.start_refactoring_code,
             "children": [
                 States.READY_FOR_REFACTORING.value,
                 self.get_processing_unit_tests_states(
@@ -183,10 +179,7 @@ class StateMachineConfig:
                 "on_exit": render_context.finish_implementing_frid,
                 "children": [
                     {"name": States.STEP_COMPLETED.value},
-                    {
-                        "name": States.READY_FOR_FRID_IMPLEMENTATION.value,
-                        "on_enter": render_context.check_frid_iteration_limit,
-                    },
+                    States.READY_FOR_FRID_IMPLEMENTATION.value,
                     self.get_processing_unit_tests_states(
                         render_context, render_context._on_unit_test_limit_exceeded_in_implementation
                     ),

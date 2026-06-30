@@ -12,6 +12,12 @@ class PrepareTestingEnvironment(BaseAction):
     FAILED_OUTCOME = "testing_environment_preparation_failed"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if (
+            render_context.prepare_environment_script is None
+            or not render_context.conformance_tests_running_context.should_prepare_testing_environment
+        ):
+            return self.SUCCESSFUL_OUTCOME, None
+
         console.info(
             f"Running testing environment preparation script {render_context.prepare_environment_script} for build folder {render_context.build_folder}."
         )
