@@ -16,8 +16,22 @@ MAX_CODE_GENERATION_RETRIES = 2
 class RenderFunctionalRequirement(BaseAction):
     SUCCESSFUL_OUTCOME = "code_and_unit_tests_generated"
     FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME = "functional_requirement_too_complex"
+    ITERATION_LIMIT_EXCEEDED_OUTCOME = "frid_iteration_limit_exceeded"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if render_context.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
+            error_msg = f"Unittests could not be fixed after rendering the functionality {render_context.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
+            render_context.last_error_message = error_msg
+            return self.ITERATION_LIMIT_EXCEEDED_OUTCOME, None
+
+        render_context.frid_context.functional_requirement_render_attempts += 1
+
+        if render_context.frid_context.functional_requirement_render_attempts > 1:
+            console.info(
+                f"Unittests could not be fixed after rendering the functionality. "
+                f"Restarting rendering functionality {render_context.frid_context.frid} from scratch."
+            )
+
         render_utils.revert_changes_for_frid(render_context)
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder

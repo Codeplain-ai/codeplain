@@ -5,13 +5,31 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
+from render_machine.render_types import RenderError
+
+MAX_REFACTORING_ITERATIONS = 5
 
 
 class RefactorCode(BaseAction):
     SUCCESSFUL_OUTCOME = "refactoring_successful"
     NO_FILES_REFACTORED_OUTCOME = "no_files_refactored"
+    ITERATION_LIMIT_EXCEEDED_OUTCOME = "refactoring_iteration_limit_exceeded"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if render_context.frid_context.refactoring_iteration == 0:
+            console.info("Refactoring the generated code...")
+
+        render_context.frid_context.refactoring_iteration += 1
+
+        if render_context.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
+            error_message = "Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {render_context.frid_context.frid}."
+            render_context.last_error_message = error_message
+
+            return (
+                self.ITERATION_LIMIT_EXCEEDED_OUTCOME,
+                RenderError.encode(message=error_message).to_payload(),
+            )
+
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )
