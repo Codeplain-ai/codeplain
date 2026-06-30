@@ -27,6 +27,7 @@ class RunState:
         self.current_module: Optional[str] = None
         self.current_frid: Optional[str] = None
         self.current_render_state: Optional[str] = None
+        self.user_email: Optional[str] = None
 
     def increment_call_count(self):
         self.call_count += 1
