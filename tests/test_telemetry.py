@@ -80,12 +80,14 @@ def test_capture_crash_sends_event_with_tags(transport):
     run_state.current_module = "my_module"
     run_state.current_frid = "2.1"
     run_state.current_render_state = "IMPLEMENTING_FRID"
+    run_state.user_email = "user@codeplain.ai"
 
     assert capture_crash(make_exc_info(KeyError("boom")), run_state, make_args(headless=True))
     sentry_sdk.flush(timeout=2)
 
     assert len(transport.events) == 1
-    tags = transport.events[0]["tags"]
+    event = transport.events[0]
+    tags = event["tags"]
     assert tags["render_id"] == run_state.render_id
     assert tags["current_module"] == "my_module"
     assert tags["current_frid"] == "2.1"
@@ -94,6 +96,19 @@ def test_capture_crash_sends_event_with_tags(transport):
     assert tags["unittests_script_provided"] is True
     assert tags["conformance_tests_script_provided"] is False
     assert tags["prepare_environment_script_provided"] is False
+    assert event["user"]["email"] == "user@codeplain.ai"
+
+
+def test_capture_crash_without_user_email(transport):
+    init_with_transport(transport)
+
+    run_state = RunState(spec_filename="test.plain")
+
+    assert capture_crash(make_exc_info(KeyError("boom")), run_state, make_args())
+    sentry_sdk.flush(timeout=2)
+
+    assert len(transport.events) == 1
+    assert "email" not in transport.events[0].get("user", {})
 
 
 def test_capture_crash_without_run_state(transport):

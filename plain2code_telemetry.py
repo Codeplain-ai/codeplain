@@ -98,6 +98,8 @@ def capture_crash(exc_info, run_state: Optional[RunState], args) -> bool:
                 scope.set_tag("render_state", run_state.current_render_state)
                 scope.set_tag("current_module", run_state.current_module)
                 scope.set_tag("current_frid", run_state.current_frid)
+                if run_state.user_email:
+                    scope.set_user({"email": run_state.user_email})
             scope.set_tag("headless", bool(getattr(args, "headless", False)))
             scope.set_tag("unittests_script_provided", bool(getattr(args, "unittests_script", None)))
             scope.set_tag("conformance_tests_script_provided", bool(getattr(args, "conformance_tests_script", None)))

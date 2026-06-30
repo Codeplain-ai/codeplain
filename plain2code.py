@@ -140,8 +140,8 @@ def setup_logging(
     return logging.getLevelName(configured_log_level)
 
 
-def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
-    """Check API connectivity and validate API key and client version."""
+def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI) -> Optional[str]:
+    """Check API connectivity, validate API key and client version, and return the user email."""
     response = codeplainAPI.connection_check(system_config.client_version)
 
     if not response.get("api_key_valid", False):
@@ -157,6 +157,8 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI):
             f"Your client version ({system_config.client_version}) is outdated. Minimum required version is {min_version}. "
             "Please update using: uv tool upgrade codeplain"
         )
+
+    return response.get("user_email")
 
 
 def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> None:
@@ -201,7 +203,7 @@ def render(  # noqa: C901
     assert args.api is not None and args.api != "", "API URL is required"
     codeplainAPI.api_url = args.api
 
-    _check_connection(codeplainAPI)
+    run_state.user_email = _check_connection(codeplainAPI)
 
     stop_event = threading.Event()
     enter_pause_event = threading.Event()
