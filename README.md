@@ -83,7 +83,7 @@ If the plain2code client crashes unexpectedly, it sends an anonymous crash repor
 
 Releases are built and published with [uv](https://docs.astral.sh/uv/). The version is read from `_version.py`.
 
-1. Bump the version in `_version.py` and commit/tag (`git tag v<version>`).
+1. Bump the version in `_version.py`, commit it and create new tag (`git tag v<version>`).
 2. Build the distributions:
    ```bash
    uv build --python 3.11
@@ -102,7 +102,7 @@ Releases are built and published with [uv](https://docs.astral.sh/uv/). The vers
    uv publish dist/codeplain-<version>*
    ```
    Authenticate with `UV_PUBLISH_TOKEN=pypi-...` (recommended), `--token pypi-...`, or `--username __token__ --password pypi-...`.
-6. Push the tag: `git push origin v<version>`.
+6. Push the `main` branch (with version commit) and push the tag: `git push origin v<version>`.
 
 ## Additional Resources
 
