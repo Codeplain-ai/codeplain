@@ -17,7 +17,13 @@ from mistletoe.utils import traverse
 import concept_utils
 import file_utils
 import plain_spec
-from plain2code_exceptions import ModuleDoesNotExistError, PlainSyntaxError, UnsupportedBase64Content
+from plain2code_exceptions import (
+    ImportedModuleWithFunctionalitiesError,
+    MissingFunctionalitiesError,
+    ModuleDoesNotExistError,
+    PlainSyntaxError,
+    UnsupportedBase64Content,
+)
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
 from plain2code_utils import find_large_base64_blob
 
@@ -151,17 +157,27 @@ def process_code_variables(plain_source, code_variables):
                 process_section_code_variables(requirement, code_variables)
 
 
-def check_if_functional_requirements_are_specified(plain_source, non_functional_requirements):
-    if plain_source[plain_spec.NON_FUNCTIONAL_REQUIREMENTS] is not None and hasattr(
-        plain_source[plain_spec.NON_FUNCTIONAL_REQUIREMENTS], "children"
-    ):
-        non_functional_requirements.extend(plain_source[plain_spec.NON_FUNCTIONAL_REQUIREMENTS].children)
+def has_functional_specs_section(plain_source) -> bool:
+    """Whether the module declares a ***functional specs*** section (even if it is empty)."""
+    return plain_spec.FUNCTIONAL_REQUIREMENTS in plain_source
 
-    found_functional_requirements = plain_spec.FUNCTIONAL_REQUIREMENTS in plain_source
-    if found_functional_requirements and len(non_functional_requirements) == 0:
+
+def count_functionalities(plain_source) -> int:
+    """Number of functionalities under the ***functional specs*** section (0 if absent or empty)."""
+    section = plain_source.get(plain_spec.FUNCTIONAL_REQUIREMENTS)
+    return len(section.children) if section is not None else 0
+
+
+def validate_functionalities_have_implementation_reqs(plain_source) -> None:
+    """Raise if the module has functionalities but no implementation reqs are specified."""
+    implementation_reqs = plain_source[plain_spec.NON_FUNCTIONAL_REQUIREMENTS]
+    has_implementation_reqs = (
+        implementation_reqs is not None
+        and hasattr(implementation_reqs, "children")
+        and len(implementation_reqs.children) > 0
+    )
+    if not has_implementation_reqs:
         raise PlainSyntaxError("Plain syntax error: functionality with no implementation reqs specified.")
-
-    return found_functional_requirements
 
 
 def _is_acceptance_test_heading(token) -> tuple[bool, str | None]:
@@ -385,8 +401,11 @@ def process_imports(
             module_name, code_variables, template_dirs, imported_modules, modules_trace
         )
 
-        if check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-            raise PlainSyntaxError("Plain syntax error: Imported module must not contain functionalities.")
+        if has_functional_specs_section(plain_file_parse_result.plain_source):
+            raise ImportedModuleWithFunctionalitiesError(
+                f"Module {module_name} is imported but contains functional specs. "
+                f"Imported modules may only provide definitions, implementation reqs, and test reqs."
+            )
 
         for specification_heading in plain_file_parse_result.plain_source:
             if specification_heading not in plain_spec.ALLOWED_IMPORT_SPECIFICATION_HEADINGS:
@@ -726,10 +745,21 @@ def plain_file_parser(  # noqa: C901
             f"Plain syntax error: Not all required concepts were defined. {missing_required_concepts_msg}."
         )
 
-    if not check_if_functional_requirements_are_specified(plain_file_parse_result.plain_source, []):
-        raise PlainSyntaxError(
-            f"Plain syntax error: Module '{module_name}' was required but does not contain functional requirements."
+    if not has_functional_specs_section(plain_file_parse_result.plain_source):
+        # No ***functional specs*** section at all: valid as an import, but not renderable. Usage error.
+        raise MissingFunctionalitiesError(
+            f"Module {module_name} does not have any functionality specified. "
+            f"At least one functionality is required for rendering."
         )
+
+    if count_functionalities(plain_file_parse_result.plain_source) == 0:
+        # ***functional specs*** section present but empty: invalid in every role. Syntax error.
+        raise PlainSyntaxError(
+            f"Plain syntax error: Module '{module_name}' has an empty "
+            f"'{plain_spec.FUNCTIONAL_REQUIREMENTS}' section. At least one functionality must be specified."
+        )
+
+    validate_functionalities_have_implementation_reqs(plain_file_parse_result.plain_source)
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,

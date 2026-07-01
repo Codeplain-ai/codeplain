@@ -1,6 +1,17 @@
 import pytest
 
 import plain_file
+from plain2code_exceptions import ImportedModuleWithFunctionalitiesError
+
+
+def test_imported_module_with_functionalities(load_test_data, get_test_data_path):
+    plain_source_text = load_test_data("data/imports/imports_module_with_functionalities.plain")
+    template_dirs = [get_test_data_path("data/imports")]
+    with pytest.raises(
+        ImportedModuleWithFunctionalitiesError,
+        match="is imported but contains functional specs",
+    ):
+        plain_file.parse_plain_source(plain_source_text, {}, template_dirs, [], [])
 
 
 def test_non_existent_import(load_test_data, get_test_data_path):
