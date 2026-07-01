@@ -9,6 +9,13 @@ from plain2code_state import RunState
 
 LOGGER_NAME = "codeplain"
 
+# Attach a NullHandler so that log records emitted before setup_logging() configures
+# the real handlers (e.g. during --dry-run, --status, --full-plain, or early parse
+# errors) are not printed to stderr by logging.lastResort. Without this, console.error()
+# / console.warning() — which both log the message and print it via rich — would show the
+# same message twice: once in plain text (from lastResort) and once styled (from rich).
+logging.getLogger(LOGGER_NAME).addHandler(logging.NullHandler())
+
 
 class IndentedFormatter(logging.Formatter):
     def format(self, record):
