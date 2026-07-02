@@ -168,7 +168,7 @@ def count_functionalities(plain_source) -> int:
     return len(section.children) if section is not None else 0
 
 
-def validate_functionalities_have_implementation_reqs(plain_source) -> None:
+def validate_functionalities_have_implementation_reqs(plain_source, module_name) -> None:
     """Raise if the module has functionalities but no implementation reqs are specified."""
     implementation_reqs = plain_source[plain_spec.NON_FUNCTIONAL_REQUIREMENTS]
     has_implementation_reqs = (
@@ -177,7 +177,10 @@ def validate_functionalities_have_implementation_reqs(plain_source) -> None:
         and len(implementation_reqs.children) > 0
     )
     if not has_implementation_reqs:
-        raise PlainSyntaxError("Plain syntax error: functionality with no implementation reqs specified.")
+        raise PlainSyntaxError(
+            f"Plain syntax error: Module '{module_name}' specifies functionalities but no implementation reqs. "
+            f"At least one implementation req is required."
+        )
 
 
 def _is_acceptance_test_heading(token) -> tuple[bool, str | None]:
@@ -760,7 +763,7 @@ def plain_file_parser(  # noqa: C901
             f"'{plain_spec.FUNCTIONAL_REQUIREMENTS}' section. At least one functionality must be specified."
         )
 
-    validate_functionalities_have_implementation_reqs(plain_file_parse_result.plain_source)
+    validate_functionalities_have_implementation_reqs(plain_file_parse_result.plain_source, module_name)
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,
