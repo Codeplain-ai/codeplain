@@ -176,7 +176,7 @@ def test_duplicate_specification_heading(get_test_data_path):
 def test_missing_non_functional_requirements(get_test_data_path):
     with pytest.raises(
         Exception,
-        match="specifies functionalities but no implementation reqs",
+        match="defines functionalities but specifies no implementation reqs",
     ):
         plain_file.plain_file_parser(
             "missing_non_functional_requirements.plain",
@@ -187,12 +187,28 @@ def test_missing_non_functional_requirements(get_test_data_path):
 def test_without_non_functional_requirement(get_test_data_path):
     with pytest.raises(
         Exception,
-        match="specifies functionalities but no implementation reqs",
+        match="defines functionalities but specifies no implementation reqs",
     ):
         plain_file.plain_file_parser(
             "without_non_functional_requirement.plain",
             [get_test_data_path("data/plainfile")],
         )
+
+
+def test_missing_impl_reqs_with_requires_adds_hint():
+    plain_source = {plain_spec.NON_FUNCTIONAL_REQUIREMENTS: None}
+    with pytest.raises(
+        PlainSyntaxError,
+        match="not inherited through 'requires'",
+    ):
+        plain_file.validate_functionalities_have_implementation_reqs(plain_source, "my_app", has_requires=True)
+
+
+def test_missing_impl_reqs_without_requires_has_no_hint():
+    plain_source = {plain_spec.NON_FUNCTIONAL_REQUIREMENTS: None}
+    with pytest.raises(PlainSyntaxError) as exc_info:
+        plain_file.validate_functionalities_have_implementation_reqs(plain_source, "my_app", has_requires=False)
+    assert "requires" not in str(exc_info.value)
 
 
 def test_no_functional_specs_section(get_test_data_path):

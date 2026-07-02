@@ -168,8 +168,13 @@ def count_functionalities(plain_source) -> int:
     return len(section.children) if section is not None else 0
 
 
-def validate_functionalities_have_implementation_reqs(plain_source, module_name) -> None:
-    """Raise if the module has functionalities but no implementation reqs are specified."""
+def validate_functionalities_have_implementation_reqs(plain_source, module_name, has_requires=False) -> None:
+    """Raise if the module has functionalities but no implementation reqs are specified.
+
+    ``has_requires`` indicates whether the module depends on another module via ``requires``.
+    Unlike ``import``, ``requires`` does not inherit implementation reqs, so a hint is added to
+    steer users who expected inheritance.
+    """
     implementation_reqs = plain_source[plain_spec.NON_FUNCTIONAL_REQUIREMENTS]
     has_implementation_reqs = (
         implementation_reqs is not None
@@ -177,10 +182,16 @@ def validate_functionalities_have_implementation_reqs(plain_source, module_name)
         and len(implementation_reqs.children) > 0
     )
     if not has_implementation_reqs:
-        raise PlainSyntaxError(
-            f"Plain syntax error: Module '{module_name}' specifies functionalities but no implementation reqs. "
-            f"At least one implementation req is required."
+        message = (
+            f"Plain syntax error: Module '{module_name}' defines functionalities but specifies no "
+            f"{plain_spec.NON_FUNCTIONAL_REQUIREMENTS}. At least one implementation req is required."
         )
+        if has_requires:
+            message += (
+                " Implementation reqs are not inherited through 'requires' — "
+                "add them to this module, or 'import' a module that provides them."
+            )
+        raise PlainSyntaxError(message)
 
 
 def _is_acceptance_test_heading(token) -> tuple[bool, str | None]:
@@ -763,7 +774,11 @@ def plain_file_parser(  # noqa: C901
             f"'{plain_spec.FUNCTIONAL_REQUIREMENTS}' section. At least one functionality must be specified."
         )
 
-    validate_functionalities_have_implementation_reqs(plain_file_parse_result.plain_source, module_name)
+    validate_functionalities_have_implementation_reqs(
+        plain_file_parse_result.plain_source,
+        module_name,
+        has_requires=bool(plain_file_parse_result.required_modules),
+    )
 
     exported_definitions = process_required_modules(
         plain_file_parse_result.required_modules,
