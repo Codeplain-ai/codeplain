@@ -9,7 +9,7 @@ def test_imported_module_with_functionalities(load_test_data, get_test_data_path
     template_dirs = [get_test_data_path("data/imports")]
     with pytest.raises(
         ImportedModuleWithFunctionalitiesError,
-        match="is imported but contains functional specs",
+        match="use 'requires' instead of 'import'",
     ):
         plain_file.parse_plain_source(plain_source_text, {}, template_dirs, [], [])
 

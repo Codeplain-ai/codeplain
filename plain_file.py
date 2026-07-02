@@ -403,8 +403,9 @@ def process_imports(
 
         if has_functional_specs_section(plain_file_parse_result.plain_source):
             raise ImportedModuleWithFunctionalitiesError(
-                f"Module {module_name} is imported but contains functional specs. "
-                f"Imported modules may only provide definitions, implementation reqs, and test reqs."
+                f"Module '{module_name}' is imported but contains functional specs. "
+                f"Imported modules may only provide definitions, implementation reqs, and test reqs — "
+                f"use 'requires' instead of 'import' if this module's functionalities should be built on."
             )
 
         for specification_heading in plain_file_parse_result.plain_source:
@@ -748,7 +749,7 @@ def plain_file_parser(  # noqa: C901
     if not has_functional_specs_section(plain_file_parse_result.plain_source):
         # No ***functional specs*** section at all: valid as an import, but not renderable. Usage error.
         raise MissingFunctionalitiesError(
-            f"Module {module_name} does not have any functionality specified. "
+            f"Module '{module_name}' does not have any functionality specified. "
             f"At least one functionality is required for rendering."
         )
 
