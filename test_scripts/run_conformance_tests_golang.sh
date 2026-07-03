@@ -16,9 +16,9 @@ if [ -z "$2" ]; then
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
-current_dir=$(pwd)
+GO_BUILD_SUBFOLDER="/tmp/go_$(basename "$1")"
 
-GO_BUILD_SUBFOLDER=go_$1
+trap 'rm -rf "$GO_BUILD_SUBFOLDER"' EXIT
 
 if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
   printf "Preparing Go build subfolder: $GO_BUILD_SUBFOLDER\n"
@@ -53,10 +53,10 @@ fi
 echo "Runinng go get in the build folder..."
 go get
 
-cd "$current_dir/$2" 2>/dev/null
+cd "$2" 2>/dev/null
 
 if [ $? -ne 0 ]; then
-  printf "Error: Conformance tests folder '$current_dir/$2' does not exist.\n"
+  printf "Error: Conformance tests folder '$2' does not exist.\n"
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
@@ -69,12 +69,12 @@ else
 fi
 
 # Move back to build directory
-cd "$current_dir/$GO_BUILD_SUBFOLDER" 2>/dev/null
+cd "$GO_BUILD_SUBFOLDER" 2>/dev/null
 
 # Execute Go lang conformance tests
 printf "Running Golang conformance tests...\n\n"
 
-output=$(go run $current_dir/$2/conformance_tests.go 2>&1)
+output=$(go run "$2/conformance_tests.go" 2>&1)
 exit_code=$?
 
 # If there was an error, print the output and exit with the error code

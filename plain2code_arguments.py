@@ -1,10 +1,16 @@
 import argparse
 import os
-from typing import Any
+from typing import Optional, Sequence
 
+from path_resolution import resolve_path
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
 from plain2code_read_config import get_args_from_config
+
+# Attribute on the parsed Namespace mapping each argument dest to its source:
+# "cli" (explicit on the command line), "config" (from config.yaml), or
+# "default" (neither -- the argparse default was used).
+ARGUMENT_SOURCES = "argument_sources"
 
 CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
 
@@ -20,36 +26,48 @@ DEFAULT_LOG_FILE_NAME = "codeplain.log"
 PREPARE_ENVIRONMENT_SCRIPT_NAME = "prepare_environment_script"
 
 
-def process_test_script_path(script_arg_name, config):
-    """Resolve script paths in config."""
-    config_file = config.config_name
-    script_input_path = getattr(config, script_arg_name, None)
-    if script_input_path is None:
-        return config
+def _resolve_path_arg(
+    arg_name: str,
+    args,
+    cwd: str,
+    config_dir: Optional[str],
+    spec_dir: str,
+) -> Optional[str]:
+    """Resolve a path-valued argument on ``args`` in-place using its recorded source.
 
-    # Check if the script path is absolute and keep the same path
-    if isinstance(script_input_path, str) and script_input_path.startswith("/"):
-        if not os.path.exists(script_input_path):
-            raise FileNotFoundError(
-                f"File not found: Path for {script_arg_name} not found: {script_input_path}. Set it to the absolute path or relative to the config file.\n"
-            )
-        return config
+    Returns the resolved absolute path, or ``None`` if the argument is unset.
+    """
+    original_value = getattr(args, arg_name, None)
+    if original_value is None:
+        return None
 
-    # Otherwise the script path is relative
-    # First look for it in the config file directory, then the renderer directory
-    config_dir = os.path.dirname(os.path.abspath(config_file))
-    config_relative_path = os.path.join(config_dir, script_input_path)
-    renderer_dir = os.path.dirname(os.path.abspath(__file__))
-    renderer_relative_path = os.path.join(renderer_dir, script_input_path)
-    if os.path.exists(config_relative_path):
-        setattr(config, script_arg_name, config_relative_path)
-    elif os.path.exists(renderer_relative_path):
-        setattr(config, script_arg_name, renderer_relative_path)
-    else:
+    source = getattr(args, ARGUMENT_SOURCES, {}).get(arg_name, "default")
+    resolved = resolve_path(original_value, source, cwd=cwd, config_dir=config_dir, spec_dir=spec_dir)
+    setattr(args, arg_name, resolved)
+    return resolved
+
+
+def _resolve_script_path(
+    script_arg_name: str,
+    args,
+    cwd: str,
+    config_dir: Optional[str],
+    spec_dir: str,
+) -> None:
+    """Resolve a script-path argument and verify the script exists on disk.
+
+    Scripts are expected to exist at parse time because we are about to execute
+    them; missing directories, by contrast, are created on demand.
+    """
+    original_value = getattr(args, script_arg_name, None)
+    resolved = _resolve_path_arg(script_arg_name, args, cwd, config_dir, spec_dir)
+    if resolved is None:
+        return
+
+    if not os.path.exists(resolved):
         raise FileNotFoundError(
-            f"File not found: Path for {script_arg_name} not found: {script_input_path}. Set it to the absolute path or relative to the config file.\n"
+            f"File not found: Path for {script_arg_name} not found: {original_value} (resolved to {resolved})."
         )
-    return config
 
 
 def non_empty_string(s):
@@ -119,93 +137,133 @@ def resolve_config_file(config_name: str, plain_file_path: str):
     return None
 
 
-def update_args_with_config(args, parser):
+def _detect_cli_provided_keys(command_line: Optional[Sequence[str]] = None) -> set[str]:
+    """Return the set of argument dests that were explicitly provided on the command line.
+
+    Uses a second parser with every default replaced by ``argparse.SUPPRESS``, so
+    any dest that ends up on the resulting namespace must have come from the
+    command line.
+    """
+    tracker = create_parser()
+    for action in tracker._actions:
+        action.default = argparse.SUPPRESS
+    tracked_ns, _ = tracker.parse_known_args(command_line)
+    return set(vars(tracked_ns).keys())
+
+
+def update_args_with_config(args, parser, cli_provided: set[str]):
+    """Merge config.yaml values into ``args`` and record the source of each value.
+
+    CLI-supplied values always win. Anything the CLI did not supply is taken
+    from config.yaml if present, else left at its argparse default. The mapping
+    from dest to source ("cli" / "config" / "default") is attached to ``args``
+    as ``ARGUMENT_SOURCES`` so downstream code can resolve paths against the right
+    base directory.
+    """
+    action_dests = {action.dest for action in parser._actions}
+    sources: dict[str, str] = {dest: ("cli" if dest in cli_provided else "default") for dest in action_dests}
+
     try:
         resolved_config = resolve_config_file(args.config_name, args.filename)
 
         if resolved_config is None:
             console.info(f"No config file '{args.config_name}' found. Proceeding without one.")
+            setattr(args, ARGUMENT_SOURCES, sources)
             return args
 
         args.config_name = resolved_config
         config_args = get_args_from_config(resolved_config, parser)
 
-        # Get all action types from the parser
-        action_types = {action.dest: action for action in parser._actions}
-
-        # Update args with config values, but command line args take precedence
         for key, value in vars(config_args).items():
-            # Skip if the argument was provided on command line
-            if key in vars(args):
-                arg_action = action_types.get(key)
-                if arg_action and isinstance(arg_action, argparse._StoreAction):
-                    # For regular arguments, only skip if explicitly provided
-                    if getattr(args, key) is not None and (arg_action.default is None or value == arg_action.default):
-                        continue
-                elif arg_action and isinstance(arg_action, argparse._StoreTrueAction):
-                    # For boolean flags, skip if True (explicitly set)
-                    if getattr(args, key):
-                        continue
-
-            # Set the value from config
-            if key in action_types:
-                setattr(args, key, value)
-            else:
+            if key not in action_dests:
                 parser.error(f"Invalid argument: {key}")
+
+            # CLI takes precedence over config.
+            if key in cli_provided:
+                continue
+
+            setattr(args, key, value)
+            sources[key] = "config"
 
     except AmbiguousConfigFileError as e:
         parser.error(str(e))
     except Exception as e:
         parser.error(f"Error reading config file: {str(e)}")
 
+    setattr(args, ARGUMENT_SOURCES, sources)
     return args
+
+
+def _add_arg(parser, *args, path=False, **kwargs):
+    """Add an argument; tag as path-valued when ``path=True`` so ``parse_arguments`` resolves it."""
+    action = parser.add_argument(*args, **kwargs)
+    if path:
+        action._is_path = True
 
 
 def create_parser():
     """Create the argument parser without parsing arguments."""
-    parser_kwargs: dict[str, Any] = {
-        "description": "Render plain code to target code.",
-    }
+    parser = argparse.ArgumentParser(
+        description=(
+            "Render plain code to target code. "
+            "Path arguments resolve based on where they were written: "
+            "values given on the command line are resolved against the current working "
+            "directory, values read from config.yaml are resolved against the config "
+            "file's directory, and defaults are resolved against the directory containing "
+            "the plain file. Absolute paths (and paths starting with '~') are used as-is."
+        ),
+    )
 
-    parser = argparse.ArgumentParser(**parser_kwargs)
-
-    parser.add_argument(
+    _add_arg(
+        parser,
         "filename",
         type=str,
         nargs="?",
         help="Path to the plain file to render. The directory containing this file has highest precedence for template loading, "
         "so you can place custom templates here to override the defaults. See --template-dir for more details about template loading.",
     )
-    parser.add_argument(
+
+    _add_arg(
+        parser,
         "--verbose",
         "-v",
         action="store_true",
         default=False,
         help="Set default log level to DEBUG for TUI and file logs",
     )
-    parser.add_argument("--base-folder", type=str, help="Base folder for the build files")
-    parser.add_argument(
-        "--build-folder", type=non_empty_string, default=DEFAULT_BUILD_FOLDER, help="Folder for build files"
+
+    _add_arg(parser, "--base-folder", type=str, help="Base folder for the build files", path=True)
+
+    _add_arg(
+        parser,
+        "--build-folder",
+        type=non_empty_string,
+        default=DEFAULT_BUILD_FOLDER,
+        help="Folder for build files",
+        path=True,
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--log-to-file",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable logging to a file. Defaults to True. Set to False to disable.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--log-file-name",
         type=str,
         default=DEFAULT_LOG_FILE_NAME,
-        help=f"Name of the log file. Defaults to '{DEFAULT_LOG_FILE_NAME}'."
-        "Always resolved relative to the plain file directory."
-        "If file on this path already exists, the already existing log file will be overwritten by the current logs.",
+        help=f"Name of the log file. Defaults to '{DEFAULT_LOG_FILE_NAME}'. "
+        "If a file already exists at the resolved path, it will be overwritten by the current logs.",
+        path=True,
     )
 
     # Add config file arguments
     config_group = parser.add_argument_group("configuration")
-    config_group.add_argument(
+    _add_arg(
+        config_group,
         "--config-name",
         type=non_empty_string,
         default="config.yaml",
@@ -213,39 +271,46 @@ def create_parser():
     )
 
     render_range_group = parser.add_mutually_exclusive_group()
-    render_range_group.add_argument(
+    _add_arg(
+        render_range_group,
         "--render-range",
         type=frid_range_string,
         help="Specify a range of functionalities to render (e.g. `1` , `2`, `3`). "
         "Use comma to separate start and end IDs. If only one functionality ID is provided, only that functionality is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
-    render_range_group.add_argument(
+    _add_arg(
+        render_range_group,
         "--render-from",
         type=frid_string,
         help="Continue generation starting from this specific functionality (e.g. `2`). "
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--force-render",
         action="store_true",
         default=False,
         help="Force re-render of all the required modules.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--unittests-script",
         type=str,
         help="Shell script to run unit tests on generated code. Receives the build folder path as its first argument (default: 'plain_modules').",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--conformance-tests-folder",
         type=non_empty_string,
         default=DEFAULT_CONFORMANCE_TESTS_FOLDER,
         help="Folder for conformance test files",
+        path=True,
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--conformance-tests-script",
         type=str,
         help="Path to conformance tests shell script. Every conformance test script should accept two arguments: "
@@ -253,51 +318,59 @@ def create_parser():
         "2) Path to a subfolder of the conformance tests folder (e.g. `conformance_tests/subfoldername`) containing test files.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--prepare-environment-script",
         type=str,
         help="Path to a shell script that prepares the testing environment. The script should accept the source code folder path as its first argument.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--test-script-timeout",
         type=int,
         default=None,
         help="Timeout for test scripts in seconds. If not provided, the default timeout of 120 seconds is used.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--api",
         type=str,
         nargs="?",
         const="https://api.codeplain.ai",
         help="Alternative base URL for the API. Default: `https://api.codeplain.ai`",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--api-key",
         type=str,
         default=CODEPLAIN_API_KEY,
         help="API key used to access the API. If not provided, the `CODEPLAIN_API_KEY` environment variable is used.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--full-plain",
         action="store_true",
-        help="Full preview ***plain specification before code generation."
+        help="Full preview ***plain specification before code generation. "
         "Use when you want to preview context of all ***plain primitives that are going to be included in order to render the given module.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--dry-run",
         action="store_true",
         help="Dry run preview of the code generation (without actually making any changes).",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--replay-with",
         type=str,
         default=None,
         help="",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--template-dir",
         type=str,
         default=None,
@@ -305,47 +378,58 @@ def create_parser():
         "1) Directory containing the plain file, "
         "2) Custom template directory (if provided through this argument), "
         "3) Built-in standard_template_library directory",
+        path=True,
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--copy-build",
         action="store_true",
         default=True,
         help="If set, copy the rendered contents of code in `--base-folder` folder to `--build-dest` folder after successful rendering.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--build-dest",
         type=non_empty_string,
         default=DEFAULT_BUILD_DEST,
         help="Target folder to copy rendered contents of code to (used only if --copy-build is set).",
+        path=True,
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--copy-conformance-tests",
         action="store_true",
         default=False,
         help="If set, copy the conformance tests of code in `--conformance-tests-folder` folder to `--conformance-tests-dest` folder successful rendering. Requires --conformance-tests-script.",
     )
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--conformance-tests-dest",
         type=non_empty_string,
         default=DEFAULT_CONFORMANCE_TESTS_DEST,
         help="Target folder to copy conformance tests of code to (used only if --copy-conformance-tests is set).",
+        path=True,
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--render-machine-graph",
         action="store_true",
         default=False,
         help="If set, render the state machine graph.",
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--logging-config-path",
         type=str,
         default="logging_config.yaml",
         help="Path to the logging configuration file.",
+        path=True,
     )
 
-    parser.add_argument(
+    _add_arg(
+        parser,
         "--headless",
         action="store_true",
         default=False,
@@ -371,18 +455,38 @@ def create_parser():
     return parser
 
 
-def parse_arguments():
+def parse_arguments(command_line: Optional[Sequence[str]] = None):
     parser = create_parser()
 
-    args = parser.parse_args()
+    args = parser.parse_args(command_line)
+    cli_provided = _detect_cli_provided_keys(command_line)
+
+    if args.version:
+        if args.dry_run or args.full_plain:
+            parser.error("--version cannot be used with --dry-run or --full-plain")
+        return args
+
+    if args.status:
+        if args.dry_run or args.full_plain:
+            parser.error("--status cannot be used with --dry-run or --full-plain")
+        return args
 
     # Validate filename is provided when needed
-    if not args.status and not args.version and not args.filename:
+    if not args.version and not args.status and not args.filename:
         parser.error("the following arguments are required: filename")
 
-    # Only process config if filename is provided (not needed for --status)
-    if args.filename:
-        args = update_args_with_config(args, parser)
+    args = update_args_with_config(args, parser, cli_provided)
+
+    cwd = os.getcwd()
+
+    spec_dir = os.path.dirname(os.path.abspath(args.filename))
+    # args.config_name is the resolved absolute path when a config file was found,
+    # otherwise it is still just the lookup name (e.g. "config.yaml").
+    config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
+
+    for action in parser._actions:
+        if getattr(action, "_is_path", False):
+            _resolve_path_arg(action.dest, args, cwd, config_dir, spec_dir)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
@@ -394,17 +498,14 @@ def parse_arguments():
     if not args.render_conformance_tests and args.copy_conformance_tests:
         parser.error("--copy-conformance-tests requires --conformance-tests-script to be set")
 
-    if not args.log_to_file and args.log_file_name != DEFAULT_LOG_FILE_NAME:
+    if not args.log_to_file and args.argument_sources.get("log_file_name") != "default":
         parser.error("--log-file-name cannot be used when --log-to-file is False.")
 
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")
 
-    if args.status and (args.dry_run or args.full_plain):
-        parser.error("--status cannot be used with --dry-run or --full-plain")
-
     script_arg_names = [UNIT_TESTS_SCRIPT_NAME, CONFORMANCE_TESTS_SCRIPT_NAME, PREPARE_ENVIRONMENT_SCRIPT_NAME]
     for script_name in script_arg_names:
-        args = process_test_script_path(script_name, args)
+        _resolve_script_path(script_name, args, cwd, config_dir, spec_dir)
 
     return args

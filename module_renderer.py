@@ -158,13 +158,14 @@ class ModuleRenderer:
                     module.wipe_module()
 
         self.loaded_modules = list[PlainModule]()
+
         _, rendering_failed = self._render_module(self.plain_module, self.render_range, True)
+
         if not rendering_failed:
-            # Get the last module that completed rendering
             if self.args.copy_build:
                 rendered_code_path = f"{self.args.build_dest}/"
             else:
-                rendered_code_path = f"{os.path.join(self.args.build_folder, self.plain_module.module_name)}/"
+                rendered_code_path = self.args.build_folder
 
             self.run_state.set_render_generated_code_path(rendered_code_path)
             self.event_bus.publish(RenderCompleted(rendered_code_path=rendered_code_path))
