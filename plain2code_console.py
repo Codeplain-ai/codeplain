@@ -1,4 +1,5 @@
 import logging
+import os
 
 from rich.console import Console
 from rich.style import Style
@@ -87,7 +88,7 @@ class Plain2CodeConsole(Console):
         """
         tree = Tree(root_folder)
         for path, content in files.items():
-            parts = path.split("/")
+            parts = path.split(os.sep)
             current_level = tree
             for part in parts:
                 existing_level = None
