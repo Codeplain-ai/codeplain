@@ -13,9 +13,9 @@ from render_machine.agent.tools import (
     grep,
     ls_files,
     read_file,
+    report_progress,
     run_command,
     run_unit_tests,
-    think,
     write_file,
     write_memory,
 )
@@ -30,7 +30,8 @@ FIX_UNIT_TESTS_TOOLS = {
     "read_file": read_file,
     "ls_files": ls_files,
     "grep": grep,
-    "think": think,
+    "report_progress": report_progress,
+    "think": report_progress,  # alias for older servers
     "write_memory": write_memory,
 }
 

@@ -42,7 +42,15 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:  # noqa: U
         stop_event=render_context.stop_event,
     )
     if exit_code == 0:
-        return "All unit tests passed successfully. The fix was successful, end the task and perform no further tool calls!"
+        # Do not claim the overall task is done here — in the conformance fix loop this
+        # tool is a regression check, not the goal. Task completion semantics belong to
+        # the task prompts. Also leave room to record a hard-won learning: right after
+        # a fix is verified is exactly when key_learning-grade insight exists.
+        return (
+            "All unit tests passed successfully. If this completes your task, record any durable, "
+            "non-obvious learning with write_memory and then finish; otherwise continue with your "
+            "remaining work."
+        )
 
     lines = output.split("\n") if output else []
     total_lines = len(lines)
@@ -191,14 +199,37 @@ def _track_file_change(full_path: str, render_context: RenderContext):
         ctx.track_file_before_modification(full_path)
 
 
+def _describe_match_locations(original_content: str, search_text: str, max_locations: int = 5) -> str:
+    """List the line numbers (with one line of preceding context) where search_text occurs.
+
+    Included in the multiple-matches error so the model can disambiguate its search
+    string in one shot instead of re-reading the file first.
+    """
+    locations = []
+    start = 0
+    while len(locations) < max_locations:
+        index = original_content.find(search_text, start)
+        if index == -1:
+            break
+        line_number = original_content.count("\n", 0, index) + 1
+        lines = original_content.splitlines()
+        preceding = lines[line_number - 2].strip() if line_number >= 2 else "(start of file)"
+        locations.append(f"  - line {line_number} (preceded by: {preceding!r})")
+        start = index + 1
+    return "\n".join(locations)
+
+
 def _do_exact_match(
     full_path: str, original_content: str, search_text: str, replace_text: str, render_context: RenderContext
 ) -> str:
     count = original_content.count(search_text)
     if count > 1:
+        listed = _describe_match_locations(original_content, search_text)
+        suffix = "" if count <= 5 else f"\n  (first 5 of {count} occurrences shown)"
         return (
-            f"Error: Search text found {count} times in '{full_path}'. "
-            f"Please provide a more specific search string that uniquely identifies the text to replace."
+            f"Error: Search text found {count} times in '{full_path}', at:\n{listed}{suffix}\n"
+            f"Extend the search string with surrounding lines so it uniquely identifies "
+            f"the occurrence to replace."
         )
 
     new_content = original_content.replace(search_text, replace_text, 1)
@@ -227,13 +258,18 @@ def _do_fuzzy_match(
     best_match_start = -1
     best_match_end = -1
 
-    for i in range(len(content_lines) - len(search_lines) + 1):
-        window = content_lines[i : i + len(search_lines)]
-        ratio = difflib.SequenceMatcher(None, search_lines, window).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_match_start = i
-            best_match_end = i + len(search_lines)
+    # Also try windows slightly shorter/longer than the search text: a fixed-size
+    # window can never match when the file differs from the search block by an
+    # inserted or deleted line, no matter how similar the rest is.
+    window_sizes = {size for size in range(len(search_lines) - 2, len(search_lines) + 3) if size >= 1}
+    for window_size in window_sizes:
+        for i in range(len(content_lines) - window_size + 1):
+            window = content_lines[i : i + window_size]
+            ratio = difflib.SequenceMatcher(None, search_lines, window).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_match_start = i
+                best_match_end = i + window_size
 
     if best_ratio > 0.9:
         matched_text = "\n".join(content_lines[best_match_start:best_match_end])
@@ -267,11 +303,19 @@ def _do_fuzzy_match(
         except Exception as e:
             return f"Error: failed to write to '{full_path}': {e}"
 
+    closest = ""
+    if best_match_start >= 0:
+        closest_text = "\n".join(content_lines[best_match_start:best_match_end])
+        if len(closest_text) > 2000:
+            closest_text = closest_text[:2000] + "\n... [truncated]"
+        closest = (
+            f"\nThe closest section (lines {best_match_start + 1}-{best_match_end}) is:\n"
+            f"{closest_text}\n"
+            f"If this is the section you meant to edit, resend the edit using this exact text as the search string."
+        )
     return (
         f"Error: Search text not found in '{full_path}'. "
-        f"Best match was {best_ratio:.1%} similar (threshold is 90%).\n"
-        f"Please verify the search text matches the actual file content. "
-        f"Use read_file to view the current content."
+        f"Best match was {best_ratio:.1%} similar (threshold is 90%).{closest}"
     )
 
 
@@ -912,12 +956,16 @@ def get_session_changes(args: dict, render_context: RenderContext) -> str:  # no
     return output
 
 
-def think(args: dict, render_context: RenderContext) -> str:  # noqa: U100
+def report_progress(args: dict, render_context: RenderContext) -> str:  # noqa: U100
     """Log the agent's reasoning or progress note to the user.
 
     Use this to narrate what you are doing, what you found, or what you are about to do next.
     Call it before major steps (exploration, planning, implementing) and after finding something
     significant. This is the primary way to keep the user informed during long tasks.
+
+    Previously named "think" — renamed because models treat "think" as a private
+    scratchpad rather than user-facing narration (and Gemini has native thinking
+    anyway). The old name stays registered as an alias for older servers.
 
     Args:
         args: Dictionary containing:

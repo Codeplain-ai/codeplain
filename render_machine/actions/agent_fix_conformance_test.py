@@ -14,9 +14,9 @@ from render_machine.agent.tools import (
     grep,
     ls_files,
     read_file,
+    report_progress,
     run_command,
     run_unit_tests,
-    think,
     write_file,
     write_memory,
 )
@@ -96,7 +96,8 @@ class AgentFixConformanceTest(BaseAction):
             "run_command": run_command,
             "run_unit_tests": run_unit_tests,
             "get_session_changes": get_session_changes,
-            "think": think,
+            "report_progress": report_progress,
+            "think": report_progress,  # alias for older servers
             "write_memory": write_memory,
         }
 
