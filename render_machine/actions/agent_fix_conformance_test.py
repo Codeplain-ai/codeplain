@@ -132,6 +132,10 @@ class AgentFixConformanceTest(BaseAction):
                 render_context,
                 tool_executor,
                 keep_session_alive=True,  # Keep session alive for future continuations
+                # Handoffs mean a previous session already exhausted its turn budget
+                # on this failure with the default model — escalate to the task's
+                # stronger model instead of retrying with the same one.
+                escalated=bool(ctx.fix_handoffs),
             )
 
             # Store session ID for future attempts
@@ -185,6 +189,7 @@ class AgentFixConformanceTest(BaseAction):
                         render_context,
                         tool_executor,
                         keep_session_alive=True,
+                        escalated=bool(ctx.fix_handoffs),
                     )
 
                     # Store new session ID
