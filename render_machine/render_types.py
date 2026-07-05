@@ -114,6 +114,12 @@ class ConformanceTestsRunningContext:
         # steps). Carried into the next fresh session so a post-rotation agent does not
         # start blind. Replaces the previous per-attempt fix_history log.
         self.fix_handoffs: list[str] = []
+        # Structured ledger of every submit_fix call for the current failure: the
+        # root cause claimed, change made, verification, confidence, and (once known)
+        # the outcome. Unlike fix_handoffs it is complete — never truncated to the
+        # most recent few — so approaches ruled out early cannot be silently retried
+        # by a later session.
+        self.fix_attempts_ledger: list[dict] = []
         self.last_fix_summary: Optional[dict] = None  # Structured output from last submit_fix call
         # True once a fix has been applied and is awaiting integrity review. The
         # review only runs after the applied fix makes the conformance tests pass,

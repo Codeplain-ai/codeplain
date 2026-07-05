@@ -10,10 +10,12 @@ from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
     delete_file,
     edit_file,
+    get_session_changes,
     grep,
     ls_files,
     read_file,
     run_command,
+    run_unit_tests,
     think,
     write_file,
     write_memory,
@@ -47,6 +49,10 @@ class AgentFixConformanceTest(BaseAction):
         error = previous_action_payload.get("error") if previous_action_payload else None
         prepare_environment_failed = bool(error and error.get("type") == "ENVIRONMENT_ERROR")
 
+        # Re-entering this action means the previous attempt (if any) did not resolve
+        # the failure — record its outcome on the ledger before the next attempt.
+        self._record_previous_attempt_outcome(ctx, review_rejection_feedback, prepare_environment_failed)
+
         console.info(
             f"Agent fixing conformance test for functionality "
             f"{render_context.conformance_tests_running_context.current_testing_frid} "
@@ -76,7 +82,10 @@ class AgentFixConformanceTest(BaseAction):
         frid_implementation_diff = self._build_implementation_diff_text(render_context)
         frid_conformance_tests_diff = self._build_conformance_tests_diff_text(render_context)
 
-        # Code editing tools plus run_command for diagnostics (no full test/review tools).
+        # Code editing tools plus diagnostics: run_command for targeted reproductions,
+        # run_unit_tests so an implementation-code fix can be checked for unit-test
+        # regressions BEFORE submitting (instead of a full cycle later), and
+        # get_session_changes so the agent can self-review its cumulative diff.
         tools = {
             "edit_file": edit_file,
             "write_file": write_file,
@@ -85,6 +94,8 @@ class AgentFixConformanceTest(BaseAction):
             "ls_files": ls_files,
             "grep": grep,
             "run_command": run_command,
+            "run_unit_tests": run_unit_tests,
+            "get_session_changes": get_session_changes,
             "think": think,
             "write_memory": write_memory,
         }
@@ -125,6 +136,7 @@ class AgentFixConformanceTest(BaseAction):
                 frid_implementation_diff=frid_implementation_diff,
                 frid_conformance_tests_diff=frid_conformance_tests_diff,
                 fix_handoffs=ctx.fix_handoffs,
+                fix_attempts_ledger=ctx.fix_attempts_ledger,
             )
             response = agent_runner.run(
                 "fix_conformance_tests",
@@ -182,6 +194,7 @@ class AgentFixConformanceTest(BaseAction):
                         frid_implementation_diff=frid_implementation_diff,
                         frid_conformance_tests_diff=frid_conformance_tests_diff,
                         fix_handoffs=ctx.fix_handoffs,
+                        fix_attempts_ledger=ctx.fix_attempts_ledger,
                     )
                     response = agent_runner.run(
                         "fix_conformance_tests",
@@ -223,6 +236,21 @@ class AgentFixConformanceTest(BaseAction):
         # Store on context so it's available regardless of which path re-enters this action
         ctx.last_fix_summary = fix_summary
 
+        # Every real submit_fix goes on the structured attempts ledger. Unlike the
+        # free-text handoffs (only the most recent few are injected), the ledger is
+        # complete, so approaches ruled out early cannot be silently retried by a
+        # later session. The outcome field is filled in when the result is known.
+        if response.get("terminal_tool_args"):
+            ctx.fix_attempts_ledger.append(
+                {
+                    "root_cause": fix_summary.get("root_cause", ""),
+                    "changes_made": fix_summary.get("changes_made", ""),
+                    "verification": fix_summary.get("verification", ""),
+                    "confidence": fix_summary.get("confidence", ""),
+                    "outcome": "",
+                }
+            )
+
         # Remember the (still unanswered) submit_fix tool call so the next attempt can
         # deliver its feedback as that call's tool result, preserving the tool loop and
         # Gemini's prompt cache instead of resetting it with a new user message.
@@ -248,6 +276,26 @@ class AgentFixConformanceTest(BaseAction):
             "acceptance_tests": acceptance_tests,
             "conformance_test_folder": conformance_test_folder,
         }
+
+    @staticmethod
+    def _record_previous_attempt_outcome(ctx, review_rejection_feedback: str, prepare_environment_failed: bool) -> None:
+        """Fill in the outcome of the most recent ledger entry once it is known.
+
+        This action re-runs only when the previous fix attempt failed, so at entry the
+        latest outcome-less ledger entry can be resolved from the feedback that routed
+        us back here.
+        """
+        if not ctx or not ctx.fix_attempts_ledger:
+            return
+        last_attempt = ctx.fix_attempts_ledger[-1]
+        if last_attempt.get("outcome"):
+            return
+        if review_rejection_feedback:
+            last_attempt["outcome"] = "rejected by the integrity reviewer"
+        elif prepare_environment_failed:
+            last_attempt["outcome"] = "build/compile failed after the fix; the tests never ran"
+        else:
+            last_attempt["outcome"] = "conformance tests still failing"
 
     def _get_conformance_test_folder(self, render_context: RenderContext) -> str:
         ctx = render_context.conformance_tests_running_context
@@ -368,6 +416,7 @@ class AgentFixConformanceTest(BaseAction):
         frid_implementation_diff: str,
         frid_conformance_tests_diff: str,
         fix_handoffs: list,
+        fix_attempts_ledger: list | None = None,
     ) -> None:
         """Add the optional task params (only when present) shared by both start paths."""
         if frid_implementation_diff:
@@ -376,6 +425,10 @@ class AgentFixConformanceTest(BaseAction):
             task_params["frid_conformance_tests_diff"] = frid_conformance_tests_diff
         if fix_handoffs:
             task_params["fix_handoffs"] = fix_handoffs[-MAX_HANDOFFS_INJECTED:]
+        # The structured ledger is injected in full — it is compact (a few lines per
+        # attempt), and truncating it is what allows failed approaches to be retried.
+        if fix_attempts_ledger:
+            task_params["attempts_ledger"] = list(fix_attempts_ledger)
 
     @staticmethod
     def _session_exhausted(response: dict) -> bool:

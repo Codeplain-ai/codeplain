@@ -106,6 +106,41 @@ def test_grep_still_excludes_artifact_dirs_when_not_project_folders(project_dir)
     assert "No matches found" in result
 
 
+def test_get_session_changes_reports_cumulative_diff(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+
+    modified_path = os.path.join(build_folder, "app.py")
+    Path(modified_path).write_text("original_value = 1\n", encoding="utf-8")
+    new_path = os.path.join(build_folder, "helper.py")
+
+    render_context = _fake_render_context(build_folder)
+    render_context.conformance_tests_running_context = SimpleNamespace(
+        file_change_tracker={modified_path: "original_value = 1\n", new_path: None}
+    )
+
+    Path(modified_path).write_text("original_value = 2\n", encoding="utf-8")
+    Path(new_path).write_text("def helper():\n    return 42\n", encoding="utf-8")
+
+    result = tools.get_session_changes({}, render_context)
+
+    assert "-original_value = 1" in result
+    assert "+original_value = 2" in result
+    assert "(new file)" in result
+    assert "def helper():" in result
+
+
+def test_get_session_changes_without_tracked_changes(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    render_context = _fake_render_context(build_folder)
+    render_context.conformance_tests_running_context = SimpleNamespace(file_change_tracker={})
+
+    result = tools.get_session_changes({}, render_context)
+
+    assert "No changes have been made" in result
+
+
 def _find_server_repo() -> Path | None:
     """Locate the sibling server repository, if checked out."""
     env_override = os.environ.get("CODEPLAIN_SERVER_REPO")
