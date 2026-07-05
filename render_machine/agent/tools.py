@@ -637,8 +637,11 @@ def read_file(args: dict, render_context: RenderContext) -> str:
 
     total_lines = len(all_lines)
 
-    # Apply offset (1-based)
-    start = max(0, total_lines - DEFAULT_READ_LIMIT)
+    # Apply offset (1-based). Without an offset, read from the beginning — this must
+    # match the tool description the model sees ("If not provided, reads from the
+    # beginning"); for source files the top (imports, class definitions) is what the
+    # agent needs first.
+    start = 0
     if offset is not None:
         start = max(0, int(offset) - 1)
 
@@ -668,11 +671,24 @@ def read_file(args: dict, render_context: RenderContext) -> str:
         if shown_end - shown_start > max_lines:
             header = "[The file is too large to display all lines!] " + header
         return header + "\n\n '```\n" + content + "\n```\n"
-    elif total_lines > max_lines:
-        header = f"[The file is too large to display all lines. Showing lines 1-{max_lines} of {total_lines} total. Use offset/limit to read more. The rest of the file was truncated. If you want to read further, call read_file again with different offset and limit values.]\n "
-        return header + "\n\n '```\n" + "".join(all_lines[:max_lines]) + "\n```\n"
 
     return content
+
+
+def _grep_artifact_dir_exclusions(render_context: RenderContext) -> list[str]:
+    """Return artifact directory names grep may exclude without hiding project code.
+
+    "build" and "dist" are common build-artifact directory names, but they are also
+    plausible names for the actual build/output folders of this render (the default
+    build folder is literally named "build"). Excluding them unconditionally makes a
+    grep from the project root silently skip the entire implementation, so a name is
+    only excluded when it does not appear as a path component of any folder the agent
+    is meant to search (build folder, conformance tests folder, memory folder).
+    """
+    protected_components: set[str] = set()
+    for folder in _get_allowed_read_folders(render_context):
+        protected_components.update(os.path.normpath(folder).split(os.sep))
+    return [name for name in ("build", "dist") if name not in protected_components]
 
 
 def grep(args: dict, render_context: RenderContext) -> str:
@@ -722,8 +738,7 @@ def grep(args: dict, render_context: RenderContext) -> str:
         "--exclude-dir=venv",
         "--exclude-dir=.mypy_cache",
         "--exclude-dir=.pytest_cache",
-        "--exclude-dir=dist",
-        "--exclude-dir=build",
+        *[f"--exclude-dir={name}" for name in _grep_artifact_dir_exclusions(render_context)],
         "--exclude=*.pyc",
         "--exclude=*.class",
         "--exclude=*.so",
