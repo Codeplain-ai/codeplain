@@ -106,6 +106,85 @@ def test_grep_still_excludes_artifact_dirs_when_not_project_folders(project_dir)
     assert "No matches found" in result
 
 
+def test_edit_file_multiple_matches_lists_locations(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    Path(file_path).write_text("def alpha():\n    return 1\n\ndef beta():\n    return 1\n", encoding="utf-8")
+
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "    return 1", "replace": "    return 2"},
+        _fake_render_context(build_folder),
+    )
+
+    assert result.startswith("Error: Search text found 2 times")
+    assert "line 2" in result
+    assert "line 5" in result
+    assert "def alpha():" in result
+    assert "def beta():" in result
+
+
+def test_edit_file_fuzzy_miss_shows_closest_section(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    file_lines = [
+        "def compute_total(items):",
+        "    total = 0",
+        "    for item in items:",
+        "        total += item.price * item.quantity",
+        "    return total",
+    ]
+    Path(file_path).write_text("\n".join(file_lines) + "\n", encoding="utf-8")
+
+    # Two of five lines differ from the file -> below the 90% threshold, but close
+    # enough that a best-match window exists.
+    search_lines = [
+        "def compute_total(items):",
+        "    total = 0.0",
+        "    for item in items:",
+        "        total += item.price * item.qty",
+        "    return total",
+    ]
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "\n".join(search_lines), "replace": "x"},
+        _fake_render_context(build_folder),
+    )
+
+    assert result.startswith("Error: Search text not found")
+    # The closest section is included so the model can correct its search string
+    # without a read_file round trip.
+    assert "total += item.price * item.quantity" in result
+
+
+def test_edit_file_fuzzy_match_tolerates_extra_line(project_dir):
+    """A search block that is off by one inserted line should still fuzzy-match."""
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    file_lines = [
+        "def process(data):",
+        "    validate(data)",
+        "    log_input(data)",  # extra line the search block does not know about
+        "    normalized = normalize(data)",
+        "    enriched = enrich(normalized)",
+        "    result = transform(enriched)",
+        "    audit(result)",
+        "    return result",
+    ]
+    Path(file_path).write_text("\n".join(file_lines) + "\n", encoding="utf-8")
+
+    search = "\n".join(line for line in file_lines if line != "    log_input(data)")
+    result = tools.edit_file(
+        {"file_path": file_path, "search": search, "replace": "def process(data):\n    return transform(data)"},
+        _fake_render_context(build_folder),
+    )
+
+    assert "Successfully edited" in result
+    assert "fuzzy match" in result
+    assert "return transform(data)" in Path(file_path).read_text(encoding="utf-8")
+
+
 def test_get_session_changes_reports_cumulative_diff(project_dir):
     build_folder = os.path.join(project_dir, "build")
     os.makedirs(build_folder)
@@ -171,7 +250,10 @@ def test_tool_names_match_server_definitions():
         if line.startswith("def ")
     }
 
-    client_tool_names = set(DEFAULT_TOOLS) | TERMINAL_TOOLS
+    # Compatibility aliases the client keeps for older servers; not part of the
+    # current server contract.
+    client_only_aliases = {"think"}
+    client_tool_names = (set(DEFAULT_TOOLS) | TERMINAL_TOOLS) - client_only_aliases
 
     assert server_tool_names == client_tool_names, (
         f"Tool contract drift between server definitions and client implementations.\n"

@@ -19,7 +19,9 @@ DEFAULT_TOOLS: dict[str, ToolFunction] = {
     "ls_files": tools.ls_files,
     "grep": tools.grep,
     "get_session_changes": tools.get_session_changes,
-    "think": tools.think,
+    "report_progress": tools.report_progress,
+    # Compatibility alias: older server versions still offer the tool as "think".
+    "think": tools.report_progress,
     "write_memory": tools.write_memory,
 }
 

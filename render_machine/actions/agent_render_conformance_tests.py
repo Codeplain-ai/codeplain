@@ -14,8 +14,8 @@ from render_machine.agent.tools import (
     grep,
     ls_files,
     read_file,
+    report_progress,
     run_command,
-    think,
     write_file,
     write_memory,
 )
@@ -30,7 +30,8 @@ RENDER_CONFORMANCE_TESTS_TOOLS = {
     "ls_files": ls_files,
     "grep": grep,
     "run_command": run_command,
-    "think": think,
+    "report_progress": report_progress,
+    "think": report_progress,  # alias for older servers
     "write_memory": write_memory,
 }
 
