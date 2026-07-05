@@ -534,7 +534,13 @@ class CodeplainAPI:
         return self.post_request(endpoint_url, headers, payload, run_state)
 
     def agent_start(
-        self, task_type: str, task_params: dict, run_state: RunState, module_name: str = "", frid: str = ""
+        self,
+        task_type: str,
+        task_params: dict,
+        run_state: RunState,
+        module_name: str = "",
+        frid: str = "",
+        escalated: bool = False,
     ):
         endpoint_url = f"{self.api_url}/agent/start"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -544,6 +550,10 @@ class CodeplainAPI:
             "module_name": module_name,
             "frid": frid,
         }
+        if escalated:
+            # Ask the server to run this session on the task's stronger escalation
+            # model (the model choice itself stays server-side).
+            payload["escalated"] = True
         return self.post_request(endpoint_url, headers, payload, run_state)
 
     def agent_continue(

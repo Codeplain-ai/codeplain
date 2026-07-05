@@ -8,7 +8,7 @@ from render_machine.render_context import RenderContext
 MAX_AGENT_TURNS = 100
 MAX_REVIEWER_TURNS = 30
 
-TERMINAL_TOOLS = {"submit_fix"}
+TERMINAL_TOOLS = {"submit_fix", "submit_review"}
 
 
 def run(
@@ -18,6 +18,7 @@ def run(
     tool_executor: ToolExecutor | None = None,
     max_turns: int | None = None,
     keep_session_alive: bool = False,
+    escalated: bool = False,
 ) -> dict:
     """Run an agent task to completion.
 
@@ -28,6 +29,9 @@ def run(
         tool_executor: Optional custom tool executor. Uses default if not provided.
         max_turns: Optional maximum number of turns. Defaults to MAX_AGENT_TURNS.
         keep_session_alive: If True, keep the session alive after completion for continuation.
+        escalated: If True, ask the server to run this session on the task's stronger
+            escalation model. Used when previous sessions already failed at this work
+            (e.g. a fresh fix session carrying handoffs).
 
     Returns:
         The final response from the agent (status "completed" or "failed").
@@ -51,6 +55,7 @@ def run(
         run_state=render_context.run_state,
         module_name=render_context.module_name,
         frid=render_context.frid_context.frid if render_context.frid_context else "",
+        escalated=escalated,
     )
 
     turn_count = 0
@@ -61,6 +66,11 @@ def run(
         if terminal_result is not None:
             # Agent called a terminal tool — end the loop, use its args as structured result
             response = _build_terminal_response(terminal_result, response.get("session_id"))
+            if not keep_session_alive:
+                # The terminal tool call is never answered for one-shot sessions (e.g.
+                # the reviewer), so tell the server to release the session instead of
+                # leaving it to expire via TTL.
+                _end_session_quietly(response.get("session_id"), render_context)
             break
 
         tool_results = tool_executor.execute_calls(response["calls"], render_context)
@@ -156,6 +166,16 @@ def continue_session(
         console.warning(f"Agent session '{session_id}' ended with status: {response.get('status')}")
 
     return response
+
+
+def _end_session_quietly(session_id: str | None, render_context: RenderContext) -> None:
+    """Best-effort release of a server-side session; failures are only logged."""
+    if not session_id:
+        return
+    try:
+        render_context.codeplain_api.agent_end_session(session_id, render_context.run_state)
+    except Exception as e:
+        console.warning(f"Could not end agent session '{session_id}': {e}")
 
 
 def _build_terminal_response(terminal_result: dict, session_id: str | None) -> dict:

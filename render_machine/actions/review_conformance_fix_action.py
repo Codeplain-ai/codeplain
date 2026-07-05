@@ -117,9 +117,22 @@ class ReviewConformanceFixAction(BaseAction):
             max_turns=agent_runner.MAX_REVIEWER_TURNS,
         )
 
-        # Parse the reviewer's final response for VERDICT
+        # The reviewer normally delivers its verdict through the submit_review
+        # terminal tool (structured), falling back to "VERDICT:" string matching only
+        # when it was force-concluded on its final turn (tool calls are ignored there).
         result_text = response.get("result", "")
-        if "VERDICT: APPROVED" in result_text.upper():
+        verdict_args = response.get("terminal_tool_args") or {}
+        structured_verdict = str(verdict_args.get("verdict", "")).strip().upper()
+        feedback = str(verdict_args.get("feedback", "")).strip()
+        if structured_verdict:
+            # For terminal-tool responses "result" is the JSON-encoded tool args, not
+            # prose — use the feedback field (or a placeholder) as the rejection text.
+            result_text = feedback or "The reviewer rejected the fix without detailed feedback."
+
+        approved = (
+            structured_verdict == "APPROVED" if structured_verdict else "VERDICT: APPROVED" in result_text.upper()
+        )
+        if approved:
             console.info("[green]Review APPROVED[/green]")
             ctx.reset_file_change_tracker()
             # The fix is confirmed (tests pass + review approved), so any durable learning
