@@ -2,6 +2,7 @@ import difflib
 import os
 import subprocess
 
+import diff_utils
 import render_machine.render_utils as render_utils
 from render_machine.render_context import RenderContext
 
@@ -863,6 +864,52 @@ def ls_files(args: dict, render_context: RenderContext) -> str:
         return "Error: ls command not found (are you on Windows? Use WSL or Git Bash)"
     except Exception as e:
         return f"Error: ls failed to run: {e}"
+
+
+def get_session_changes(args: dict, render_context: RenderContext) -> str:  # noqa: U100
+    """Return the cumulative diff of all changes made during the current fix loop.
+
+    Computed from the file change tracker (original content captured before the first
+    modification of each file, accumulated across fix attempts since the last accepted
+    fix), so it reflects the true current state — unlike the diffs the session was
+    seeded with, which go stale as soon as editing starts.
+    """
+    ctx = render_context.conformance_tests_running_context
+    if not ctx or not ctx.file_change_tracker:
+        return "No changes have been made in this fix session yet."
+
+    current_files: dict[str, str] = {}
+    original_files: dict[str, str] = {}
+    new_files: set[str] = set()
+    for absolute_path, original_content in ctx.file_change_tracker.items():
+        relative_path = os.path.relpath(absolute_path)
+        if original_content is not None:
+            original_files[relative_path] = original_content
+        else:
+            new_files.add(relative_path)
+        if os.path.exists(absolute_path):
+            with open(absolute_path, "r", encoding="utf-8") as f:
+                current_files[relative_path] = f.read()
+        else:
+            current_files[relative_path] = ""
+
+    diff_by_file = diff_utils.get_code_diff(current_files, original_files)
+    if not diff_by_file:
+        return "Files were touched during this fix session, but their content is back to the pre-fix baseline."
+
+    parts = ["Cumulative changes in this fix session (vs the pre-fix baseline):"]
+    for file_name, file_diff in diff_by_file.items():
+        if file_name in new_files:
+            parts.append(f"--- {file_name} (new file)\n{file_diff}")
+        else:
+            parts.append(f"--- {file_name}\n{file_diff}")
+    output = "\n\n".join(parts)
+
+    lines = output.split("\n")
+    if len(lines) > 800:
+        omitted = len(lines) - 800
+        output = "\n".join(lines[:800]) + f"\n... ({omitted} more lines truncated)"
+    return output
 
 
 def think(args: dict, render_context: RenderContext) -> str:  # noqa: U100
