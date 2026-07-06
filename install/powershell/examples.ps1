@@ -77,10 +77,19 @@ if (-not $SKIP_DOWNLOAD) {
                     Remove-Item -Path $GITIGNORE_PATH -Force
                 }
 
+                Clear-Host
                 Write-Host ""
                 Write-Host "  ${GREEN}✓ Examples downloaded successfully!${NC}"
                 Write-Host ""
-                Write-Host "  Examples are in: ${WHITE}${EXTRACTED_DIR}${NC}"
+                Write-Host "  ${GRAY}Examples are in: ${EXTRACTED_DIR}${NC}"
+                Write-Host ""
+                Write-Host "  ${WHITE}${BOLD}Try the hello, world example:${NC}"
+                Write-Host ""
+                Write-Host "  ${GRAY}Example folder:${NC} ${WHITE}cd ${EXTRACTED_DIR}\hello-world\python${NC}"
+                Write-Host ""
+                Write-Host "  ${GRAY}Render the example:${NC} ${WHITE}codeplain hello-world-python.plain${NC}"
+                Write-Host ""
+                Write-Host "  ${GRAY}See hello-world/python/README.md for details.${NC}"
                 Write-Host ""
             } catch {
                 Write-Host "  ${RED}✗ Failed to extract examples.${NC}"

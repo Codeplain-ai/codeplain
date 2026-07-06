@@ -72,10 +72,19 @@ if [ "$SKIP_DOWNLOAD" = false ]; then
                 rm -f "${EXTRACTED_DIR}/.gitignore"
             fi
 
+            clear
             echo ""
             echo -e "  ${GREEN}✓ Examples downloaded successfully!${NC}"
             echo ""
-            echo -e "  Examples are in: ${WHITE}${EXTRACTED_DIR}${NC}"
+            echo -e "  ${GRAY}Examples are in: ${EXTRACTED_DIR}${NC}"
+            echo ""
+            echo -e "  ${WHITE}${BOLD}Try the hello, world example:${NC}"
+            echo ""
+            echo -e "  ${GRAY}Example folder:${NC} ${WHITE}cd ${EXTRACTED_DIR}/hello-world/python${NC}"
+            echo ""
+            echo -e "  ${GRAY}Render the example:${NC} ${WHITE}codeplain hello-world-python.plain${NC}"
+            echo ""
+            echo -e "  ${GRAY}See hello-world/python/README.md for details.${NC}"
             echo ""
         else
             echo -e "  ${RED}✗ Failed to extract examples.${NC}"
