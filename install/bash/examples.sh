@@ -5,6 +5,7 @@ set -euo pipefail
 # Brand Colors (use exported colors if available, otherwise define them)
 YELLOW="${YELLOW:-\033[38;2;224;255;110m}"
 GREEN="${GREEN:-\033[38;2;121;252;150m}"
+WHITE="${WHITE:-\033[38;2;255;255;255m}"
 RED="${RED:-\033[38;2;239;68;68m}"
 GRAY="${GRAY:-\033[38;2;128;128;128m}"
 BOLD="${BOLD:-\033[1m}"
@@ -16,9 +17,9 @@ EXAMPLES_DOWNLOAD_URL="https://github.com/Codeplain-ai/plainlang-examples/archiv
 
 # Show current directory and ask for extraction path
 CURRENT_DIR=$(pwd)
-echo -e "  current folder: ${YELLOW}${CURRENT_DIR}${NC}"
+echo -e "  Current folder: ${WHITE}${CURRENT_DIR}${NC}"
 echo ""
-echo -e "  extract examples here, or enter a different path:"
+echo -e "  Extract examples here, or enter a different path:"
 echo ""
 read -r -p "  [Enter for current, or type path]: " EXTRACT_PATH < /dev/tty
 echo ""
@@ -35,24 +36,24 @@ SKIP_DOWNLOAD=false
 
 # Check if directory exists, create if not
 if [ ! -d "$EXTRACT_PATH" ]; then
-    echo -e "  ${GRAY}creating directory...${NC}"
+    echo -e "  ${GRAY}Creating directory...${NC}"
     mkdir -p "$EXTRACT_PATH" 2>/dev/null
     if [ $? -ne 0 ]; then
-        echo -e "  ${RED}✗${NC} failed to create directory: ${EXTRACT_PATH}"
-        echo -e "  ${GRAY}skipping example download.${NC}"
+        echo -e "  ${RED}✗ Failed to create directory: ${EXTRACT_PATH}${NC}"
+        echo -e "  ${GRAY}Skipping example download.${NC}"
         SKIP_DOWNLOAD=true
     fi
 fi
 
 if [ "$SKIP_DOWNLOAD" = false ]; then
-    echo -e "  ${GRAY}downloading examples...${NC}"
+    echo -e "  ${GRAY}Downloading examples...${NC}"
 
     # Download the zip file
     TEMP_ZIP=$(mktemp)
     curl -L -s -o "$TEMP_ZIP" "$EXAMPLES_DOWNLOAD_URL"
 
     if [ $? -eq 0 ] && [ -s "$TEMP_ZIP" ]; then
-        echo -e "  ${GRAY}extracting to ${EXTRACT_PATH}...${NC}"
+        echo -e "  ${GRAY}Extracting to ${EXTRACT_PATH}...${NC}"
 
         # Extract the zip file
         unzip -q -o "$TEMP_ZIP" -d "$EXTRACT_PATH" 2>/dev/null
@@ -72,21 +73,22 @@ if [ "$SKIP_DOWNLOAD" = false ]; then
             fi
 
             echo ""
-            echo -e "  ${GREEN}✓${NC} examples downloaded successfully!"
+            echo -e "  ${GREEN}✓ Examples downloaded successfully!${NC}"
             echo ""
-            echo -e "  examples are in: ${YELLOW}${EXTRACTED_DIR}${NC}"
+            echo -e "  Examples are in: ${WHITE}${EXTRACTED_DIR}${NC}"
             echo ""
         else
-            echo -e "  ${RED}✗${NC} failed to extract examples."
+            echo -e "  ${RED}✗ Failed to extract examples.${NC}"
         fi
 
         # Clean up temp file
         rm -f "$TEMP_ZIP"
     else
-        echo -e "  ${RED}✗${NC} failed to download examples."
+        echo -e "  ${RED}✗ Failed to download examples.${NC}"
         rm -f "$TEMP_ZIP"
     fi
 
     echo ""
-    read -r -p "  press [Enter] to continue..." < /dev/tty
+    PROMPT=$(printf '%b' "  Press ${WHITE}[Enter]${NC} to continue...")
+    read -r -p "$PROMPT" < /dev/tty
 fi
