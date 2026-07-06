@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 # prompts and Clear-Host calls. Same env var name as install.sh.
 $nonInteractive = ($env:CODEPLAIN_INSTALL_NONINTERACTIVE -eq "1")
 if ($nonInteractive) {
-    Write-Host "running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
+    Write-Host "Running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
 }
 
 # Base URL for additional scripts
@@ -42,11 +42,11 @@ $env:BOLD = $BOLD
 $env:NC = $NC
 
 if (-not $nonInteractive) { Clear-Host }
-Write-Host "started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
+Write-Host "Started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
 
 # Install uv if not present
 function Install-Uv {
-    Write-Host "installing uv package manager..."
+    Write-Host "Installing uv package manager..."
     if ($IsWindows -or ($env:OS -eq "Windows_NT")) {
         irm https://astral.sh/uv/install.ps1 | iex
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -78,7 +78,7 @@ $codeplainLine = $uvOutput | Where-Object { $_ -match '^codeplain' } | Select-Ob
 if ($codeplainLine) {
     $currentVersion = ($codeplainLine -replace 'codeplain v', '').Trim()
     Write-Host "${GRAY}codeplain ${currentVersion} is already installed.${NC}"
-    Write-Host "upgrading to latest version..."
+    Write-Host "Upgrading to latest version..."
     Write-Host ""
 
     try {
@@ -98,7 +98,7 @@ if ($codeplainLine) {
         Write-Host "${GREEN}✓${NC} codeplain upgraded from ${currentVersion} to ${newVersion}!"
     }
 } else {
-    Write-Host "installing codeplain...${NC}"
+    Write-Host "Installing codeplain...${NC}"
     Write-Host ""
     uv tool install codeplain
     if (-not $nonInteractive) { Clear-Host }
@@ -127,18 +127,18 @@ Write-Host ""
 $skipApiKeySetup = $false
 if ($env:CODEPLAIN_API_KEY) {
     if ($nonInteractive) {
-        Write-Host "${GREEN}✓${NC} using existing CODEPLAIN_API_KEY (non-interactive mode)."
+        Write-Host "${GREEN}✓${NC} Using existing CODEPLAIN_API_KEY (non-interactive mode)."
         $skipApiKeySetup = $true
     } else {
-        Write-Host "  you already have an API key configured."
+        Write-Host "  You already have an API key configured."
         Write-Host ""
-        Write-Host "  would you like to log in and get a new one?"
+        Write-Host "  ${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to log in and get a new one?${NC}"
         Write-Host ""
         $getNewKey = Read-Host "  [y/N]"
         Write-Host ""
 
         if ($getNewKey -notmatch '^[Yy]$') {
-            Write-Host "${GREEN}✓${NC} using existing API key."
+            Write-Host "${GREEN}✓${NC} Using existing API key."
             $skipApiKeySetup = $true
         }
     }
@@ -147,11 +147,11 @@ if ($env:CODEPLAIN_API_KEY) {
 $apiKey = $null
 if (-not $skipApiKeySetup) {
     if ($nonInteractive) {
-        Write-Host "${GRAY}no CODEPLAIN_API_KEY set; skipping key setup (non-interactive mode).${NC}"
+        Write-Host "${GRAY}No CODEPLAIN_API_KEY set; skipping key setup (non-interactive mode).${NC}"
     } else {
-        Write-Host "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
+        Write-Host "Go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
         Write-Host ""
-        $apiKey = Read-Host "paste your API key here"
+        $apiKey = Read-Host "Paste your API key here"
         Write-Host ""
     }
 }
@@ -159,7 +159,7 @@ if (-not $skipApiKeySetup) {
 if ($skipApiKeySetup) {
     # API key already set, nothing to do
 } elseif (-not $apiKey) {
-    Write-Host "${GRAY}no API key provided. you can set it later with:${NC}"
+    Write-Host "${GRAY}No API key provided. You can set it later with:${NC}"
     Write-Host '  $env:CODEPLAIN_API_KEY = "your_api_key"'
 } else {
     # Set for current session
@@ -172,10 +172,6 @@ if ($skipApiKeySetup) {
 
 # ASCII Art Welcome
 if (-not $nonInteractive) { Clear-Host }
-Write-Host ""
-Write-Host "${NC}"
-Write-Host "${GRAY}────────────────────────────────────────────${NC}"
-Write-Host ""
 Write-Host @'
                _            _       _
    ___ ___   __| | ___ _ __ | | __ _(_)_ __
@@ -185,19 +181,16 @@ Write-Host @'
                       |_|
 '@
 Write-Host ""
-Write-Host "${GREEN}✓${NC} Sign in successful."
+Write-Host "${GREEN}✓ Sign in successful.${NC}"
 Write-Host ""
-Write-Host "  ${YELLOW}welcome to *codeplain!${NC}"
+Write-Host "  ${WHITE}Welcome to *codeplain!${NC}"
 Write-Host ""
-Write-Host "  spec-driven, production-ready code generation"
-Write-Host ""
-Write-Host ""
-Write-Host "${GRAY}────────────────────────────────────────────${NC}"
+Write-Host "  ${GRAY}Spec-driven, production-ready code generation${NC}"
 Write-Host ""
 if ($nonInteractive) {
     $walkthroughChoice = "n"
 } else {
-    Write-Host "  would you like to get a quick intro to ***plain specification language?"
+    Write-Host "  ${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to get a quick intro to ***plain specification language?${NC}"
     Write-Host ""
     $walkthroughChoice = Read-Host "  [Y/n]"
     Write-Host ""
@@ -244,20 +237,91 @@ if ($walkthroughChoice -notmatch '^[Nn]$') {
     Invoke-SubScript "walkthrough.ps1"
 }
 
+# Install plain-forge step
+if ($nonInteractive) {
+    $installPlainForge = "n"
+} else {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ${YELLOW}${BOLD}plain-forge${NC}"
+    Write-Host ""
+    Write-Host "  plain-forge plugs into your AI coding agent (Claude Code, Codex,"
+    Write-Host "  ForgeCode, OpenCode, ...) and turns a conversation into a"
+    Write-Host "  complete ***plain spec, keeping it maintained as you grow it."
+    Write-Host ""
+    Write-Host "  ${GRAY}Read more: https://github.com/Codeplain-ai/plain-forge${NC}"
+    Write-Host ""
+    Write-Host "  ${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to install it now?${NC}"
+    Write-Host ""
+    $installPlainForge = Read-Host "  [Y/n]"
+    Write-Host ""
+}
+
+$plainForgeInstalled = $false
+if ($installPlainForge -notmatch '^[Nn]$') {
+    if (Get-Command npx -ErrorAction SilentlyContinue) {
+        npx plain-forge install
+        $plainForgeInstalled = $true
+        Write-Host ""
+    } else {
+        Write-Host "${GRAY}npx not found. Install Node.js, then run:${NC}"
+        Write-Host "  npx plain-forge install"
+        Write-Host ""
+    }
+}
+
+# Install plyn editor extension step
+$editorCmds = @()
+if (Get-Command cursor -ErrorAction SilentlyContinue) { $editorCmds += [pscustomobject]@{ Cmd = "cursor"; Name = "Cursor" } }
+if (Get-Command code -ErrorAction SilentlyContinue) { $editorCmds += [pscustomobject]@{ Cmd = "code"; Name = "VS Code" } }
+
+if ($nonInteractive) {
+    $installPlyn = "n"
+} else {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ${YELLOW}${BOLD}plyn Editor Extension${NC}"
+    Write-Host ""
+    Write-Host "  plyn adds ***plain syntax highlighting to VS Code and Cursor."
+    Write-Host ""
+    if ($editorCmds.Count -gt 0) {
+        $editorNames = ($editorCmds | ForEach-Object { $_.Name }) -join ", "
+        Write-Host "  Detected ${editorNames}."
+        Write-Host ""
+        Write-Host "  ${YELLOW}?${NC} ${WHITE}${BOLD}Install the extension now?${NC}"
+        Write-Host ""
+        $installPlyn = Read-Host "  [Y/n]"
+        Write-Host ""
+    } else {
+        Write-Host "  Install it manually from:"
+        Write-Host "  ${YELLOW}https://marketplace.visualstudio.com/items?itemName=Codeplain.plyn${NC}"
+        Write-Host ""
+        $installPlyn = "n"
+    }
+}
+
+$plynInstalled = $false
+if ($editorCmds.Count -gt 0 -and $installPlyn -notmatch '^[Nn]$') {
+    foreach ($editor in $editorCmds) {
+        & $editor.Cmd --install-extension Codeplain.plyn
+        Write-Host "${GREEN}✓${NC} plyn installed for $($editor.Name)"
+    }
+    $plynInstalled = $true
+    Write-Host ""
+}
+
 # Download examples step
 if ($nonInteractive) {
     $downloadExamples = "n"
 } else {
     Clear-Host
     Write-Host ""
-    Write-Host "${GRAY}────────────────────────────────────────────${NC}"
     Write-Host "  ${YELLOW}${BOLD}Example Projects${NC}"
-    Write-Host "${GRAY}────────────────────────────────────────────${NC}"
     Write-Host ""
-    Write-Host "  we've prepared some example Plain projects for you"
+    Write-Host "  We've prepared some example ***plain projects for you"
     Write-Host "  to explore and experiment with."
     Write-Host ""
-    Write-Host "  would you like to download them?"
+    Write-Host "  ${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to download them?${NC}"
     Write-Host ""
     $downloadExamples = Read-Host "  [Y/n]"
     Write-Host ""
@@ -271,19 +335,31 @@ if ($downloadExamples -notmatch '^[Nn]$') {
 # Final message
 if (-not $nonInteractive) { Clear-Host }
 Write-Host ""
-Write-Host "${GRAY}────────────────────────────────────────────${NC}"
-Write-Host "  ${YELLOW}${BOLD}You're all set!${NC}"
-Write-Host "${GRAY}────────────────────────────────────────────${NC}"
+Write-Host "  ${WHITE}${BOLD}You're all set!${NC}"
 Write-Host ""
-Write-Host "  thank you for using ${YELLOW}*codeplain!${NC}"
+Write-Host "  ${GRAY}Thank you for using *codeplain!${NC}"
 Write-Host ""
-Write-Host "  ${BOLD}next steps:${NC}"
+Write-Host "  ${WHITE}${BOLD}Next steps:${NC}"
 Write-Host ""
-Write-Host "  join our Discord community: ${YELLOW}https://discord.gg/cgbynb9hFq${NC}"
+$stepNum = 1
+if (-not $plainForgeInstalled) {
+    Write-Host "  ${GRAY}${stepNum}.${NC} ${GRAY}Let your agent work in specs, not code:${NC}"
+    Write-Host "     ${WHITE}${BOLD}npx plain-forge install${NC}"
+    Write-Host ""
+    $stepNum++
+}
+if (-not $plynInstalled) {
+    Write-Host "  ${GRAY}${stepNum}.${NC} ${GRAY}Get ***plain syntax highlighting in VS Code / Cursor:${NC}"
+    Write-Host "     ${WHITE}${BOLD}https://marketplace.visualstudio.com/items?itemName=Codeplain.plyn${NC}"
+    Write-Host ""
+    $stepNum++
+}
+Write-Host "  ${GRAY}${stepNum}.${NC} ${GRAY}Convert your spec into tested and validated code:${NC}"
+Write-Host "     ${WHITE}${BOLD}codeplain your-project.plain${NC}"
 Write-Host ""
-Write-Host "  learn more about ${YELLOW}***plain${NC} at ${YELLOW}https://plainlang.org/${NC}"
+Write-Host "  ${GRAY}Discord: https://discord.gg/cgbynb9hFq   Docs: https://plainlang.org/${NC}"
 Write-Host ""
-Write-Host "  ${GREEN}happy development!${NC} 🚀"
+Write-Host "  ${GRAY}Happy development!${NC} 🚀"
 Write-Host ""
 
 # Refresh environment for this session

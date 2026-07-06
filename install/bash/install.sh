@@ -25,15 +25,15 @@ export YELLOW GREEN GREEN_LIGHT GREEN_DARK BLUE BLACK WHITE RED GRAY GRAY_LIGHT 
 NONINTERACTIVE="${CODEPLAIN_INSTALL_NONINTERACTIVE:-0}"
 
 if [ "$NONINTERACTIVE" = "1" ]; then
-    echo "running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
+    echo "Running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
 else
     clear
 fi
-echo -e "started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
+echo -e "Started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
 
 # Install uv if not present
 install_uv() {
-    echo -e "installing uv package manager..."
+    echo -e "Installing uv package manager..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     # Add uv to PATH for this session
     export PATH="$HOME/.local/bin:$PATH"
@@ -54,7 +54,7 @@ echo -e ""
 if uv tool list 2>/dev/null | grep -q "^codeplain"; then
     CURRENT_VERSION=$(uv tool list 2>/dev/null | grep "^codeplain" | sed 's/codeplain v//')
     echo -e "${GRAY}codeplain ${CURRENT_VERSION} is already installed.${NC}"
-    echo -e "upgrading to latest version..."
+    echo -e "Upgrading to latest version..."
     echo -e ""
     uv tool upgrade codeplain &> /dev/null
     NEW_VERSION=$(uv tool list 2>/dev/null | grep "^codeplain" | sed 's/codeplain v//')
@@ -64,7 +64,7 @@ if uv tool list 2>/dev/null | grep -q "^codeplain"; then
         echo -e "${GREEN}✓${NC} codeplain upgraded from ${CURRENT_VERSION} to ${NEW_VERSION}!"
     fi
 else
-    echo -e "installing codeplain...${NC}"
+    echo -e "Installing codeplain...${NC}"
     echo -e ""
     uv tool install codeplain
     if [ "$NONINTERACTIVE" != "1" ]; then
@@ -77,18 +77,18 @@ fi
 SKIP_API_KEY_SETUP=false
 if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
     if [ "$NONINTERACTIVE" = "1" ]; then
-        echo -e "${GREEN}✓${NC} using existing CODEPLAIN_API_KEY (non-interactive mode)."
+        echo -e "${GREEN}✓${NC} Using existing CODEPLAIN_API_KEY (non-interactive mode)."
         SKIP_API_KEY_SETUP=true
     else
-        echo -e "  you already have an API key configured."
+        echo -e "  You already have an API key configured."
         echo ""
-        echo -e "  would you like to log in and get a new one?"
+        echo -e "${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to log in and get a new one?${NC}"
         echo ""
-        read -r -p "  [y/N]: " GET_NEW_KEY < /dev/tty
+        read -r -p " [y/N]: " GET_NEW_KEY < /dev/tty
         echo ""
 
         if [[ ! "$GET_NEW_KEY" =~ ^[Yy]$ ]]; then
-            echo -e "${GREEN}✓${NC} using existing API key."
+            echo -e "${GREEN}✓${NC} Using existing API key."
             SKIP_API_KEY_SETUP=true
         fi
     fi
@@ -96,11 +96,11 @@ fi
 
 if [ "$SKIP_API_KEY_SETUP" = false ]; then
     if [ "$NONINTERACTIVE" = "1" ]; then
-        echo -e "${GRAY}no CODEPLAIN_API_KEY set; skipping key setup (non-interactive mode).${NC}"
+        echo -e "${GRAY}No CODEPLAIN_API_KEY set; skipping key setup (non-interactive mode).${NC}"
     else
-        echo -e "go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
+        echo -e "Go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
         echo ""
-        read -r -p "paste your API key here: " API_KEY < /dev/tty
+        read -r -p "Paste your API key here: " API_KEY < /dev/tty
         echo ""
     fi
 fi
@@ -108,7 +108,7 @@ fi
 if [ "$SKIP_API_KEY_SETUP" = true ]; then
     : # API key already set, nothing to do
 elif [ -z "${API_KEY:-}" ]; then
-    echo -e "${GRAY}no API key provided. you can set it later with:${NC}"
+    echo -e "${GRAY}No API key provided. You can set it later with:${NC}"
     echo -e "  export CODEPLAIN_API_KEY=\"your_api_key\""
 else
     # Export for current session
@@ -150,10 +150,6 @@ fi
 if [ "$NONINTERACTIVE" != "1" ]; then
     clear
 fi
-echo ""
-echo -e "${NC}"
-echo -e "${GRAY}────────────────────────────────────────────${NC}"
-echo -e ""
 cat << 'EOF'
                _            _       _
    ___ ___   __| | ___ _ __ | | __ _(_)_ __
@@ -163,19 +159,16 @@ cat << 'EOF'
                       |_|
 EOF
 echo ""
-echo -e "${GREEN}✓${NC} Sign in successful."
+echo -e "${GREEN}✓ Sign in successful.${NC}"
 echo ""
-echo -e "  ${YELLOW}welcome to *codeplain!${NC}"
+echo -e "  ${WHITE}Welcome to *codeplain!${NC}"
 echo ""
-echo -e "  spec-driven, production-ready code generation"
-echo ""
-echo ""
-echo -e "${GRAY}────────────────────────────────────────────${NC}"
+echo -e "  ${GRAY}Spec-driven, production-ready code generation${NC}"
 echo ""
 if [ "$NONINTERACTIVE" = "1" ]; then
     WALKTHROUGH_CHOICE="n"
 else
-    echo -e "  would you like to get a quick intro to ***plain specification language?"
+    echo -e "${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to get a quick intro to ***plain specification language?${NC}"
     echo ""
     read -r -p "  [Y/n]: " WALKTHROUGH_CHOICE < /dev/tty
     echo ""
@@ -215,20 +208,95 @@ if [[ ! "$WALKTHROUGH_CHOICE" =~ ^[Nn]$ ]]; then
     run_script "walkthrough.sh"
 fi
 
+# Install plain-forge step
+if [ "$NONINTERACTIVE" = "1" ]; then
+    INSTALL_PLAIN_FORGE="n"
+else
+    clear
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}plain-forge${NC}"
+    echo ""
+    echo -e "  plain-forge plugs into your AI coding agent (Claude Code, Codex,"
+    echo -e "  ForgeCode, OpenCode, ...) and turns a conversation into a"
+    echo -e "  complete ***plain spec, keeping it maintained as you grow it."
+    echo ""
+    echo -e "  ${GRAY}Read more: https://github.com/Codeplain-ai/plain-forge${NC}"
+    echo ""
+    echo -e "  ${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to install it now?${NC}"
+    echo ""
+    read -r -p "  [Y/n]: " INSTALL_PLAIN_FORGE < /dev/tty
+    echo ""
+fi
+
+PLAIN_FORGE_INSTALLED=false
+if [[ ! "${INSTALL_PLAIN_FORGE:-}" =~ ^[Nn]$ ]]; then
+    if command -v npx &> /dev/null; then
+        npx plain-forge install < /dev/tty
+        PLAIN_FORGE_INSTALLED=true
+        echo ""
+    else
+        echo -e "${GRAY}npx not found. Install Node.js, then run:${NC}"
+        echo -e "  npx plain-forge install"
+        echo ""
+    fi
+fi
+
+# Install plyn editor extension step
+EDITOR_CMDS=()
+command -v cursor &> /dev/null && EDITOR_CMDS+=("cursor:Cursor")
+command -v code &> /dev/null && EDITOR_CMDS+=("code:VS Code")
+
+if [ "$NONINTERACTIVE" = "1" ]; then
+    INSTALL_PLYN="n"
+else
+    clear
+    echo ""
+    echo -e "${GRAY}────────────────────────────────────────────${NC}"
+    echo -e "  ${YELLOW}${BOLD}plyn Editor Extension${NC}"
+    echo -e "${GRAY}────────────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  plyn adds ***plain syntax highlighting to VS Code and Cursor."
+    echo ""
+    if [ "${#EDITOR_CMDS[@]}" -gt 0 ]; then
+        EDITOR_NAMES=$(printf '%s, ' "${EDITOR_CMDS[@]#*:}")
+        echo -e "  Detected ${EDITOR_NAMES%, }."
+        echo ""
+        echo -e "  ${YELLOW}?${NC} ${WHITE}${BOLD}Install the extension now?${NC}"
+        echo ""
+        read -r -p "  [Y/n]: " INSTALL_PLYN < /dev/tty
+        echo ""
+    else
+        echo -e "  Install it manually from:"
+        echo -e "  ${YELLOW}https://marketplace.visualstudio.com/items?itemName=Codeplain.plyn${NC}"
+        echo ""
+        INSTALL_PLYN="n"
+    fi
+fi
+
+PLYN_INSTALLED=false
+if [ "${#EDITOR_CMDS[@]}" -gt 0 ] && [[ ! "${INSTALL_PLYN:-}" =~ ^[Nn]$ ]]; then
+    for entry in "${EDITOR_CMDS[@]}"; do
+        editor_cmd="${entry%%:*}"
+        editor_name="${entry#*:}"
+        "$editor_cmd" --install-extension Codeplain.plyn
+        echo -e "${GREEN}✓${NC} plyn installed for ${editor_name}"
+    done
+    PLYN_INSTALLED=true
+    echo ""
+fi
+
 # Download examples step
 if [ "$NONINTERACTIVE" = "1" ]; then
     DOWNLOAD_EXAMPLES="n"
 else
     clear
     echo ""
-    echo -e "${GRAY}────────────────────────────────────────────${NC}"
     echo -e "  ${YELLOW}${BOLD}Example Projects${NC}"
-    echo -e "${GRAY}────────────────────────────────────────────${NC}"
     echo ""
-    echo -e "  we've prepared some example Plain projects for you"
+    echo -e "  We've prepared some example ***plain projects for you"
     echo -e "  to explore and experiment with."
     echo ""
-    echo -e "  would you like to download them?"
+    echo -e "  ${YELLOW}?${NC} ${WHITE}${BOLD}Would you like to download them?${NC}"
     echo ""
     read -r -p "  [Y/n]: " DOWNLOAD_EXAMPLES < /dev/tty
     echo ""
@@ -244,19 +312,31 @@ if [ "$NONINTERACTIVE" != "1" ]; then
     clear
 fi
 echo ""
-echo -e "${GRAY}────────────────────────────────────────────${NC}"
-echo -e "  ${YELLOW}${BOLD}You're all set!${NC}"
-echo -e "${GRAY}────────────────────────────────────────────${NC}"
+echo -e "  ${WHITE}${BOLD}You're all set!${NC}"
 echo ""
-echo -e "  thank you for using ${YELLOW}*codeplain!${NC}"
+echo -e "  ${GRAY}Thank you for using *codeplain!${NC}"
 echo ""
-echo -e "  ${BOLD}next steps:${NC}"
+echo -e "  ${WHITE}${BOLD}Next steps:${NC}"
 echo ""
-echo -e "  join our Discord community: ${YELLOW}https://discord.gg/cgbynb9hFq${NC}"
+STEP_NUM=1
+if [ "$PLAIN_FORGE_INSTALLED" = false ]; then
+    echo -e "  ${GRAY}${STEP_NUM}.${NC} ${GRAY}Let your agent work in specs, not code:${NC}"
+    echo -e "     ${WHITE}${BOLD}npx plain-forge install${NC}"
+    echo ""
+    STEP_NUM=$((STEP_NUM + 1))
+fi
+if [ "$PLYN_INSTALLED" = false ]; then
+    echo -e "  ${GRAY}${STEP_NUM}.${NC} ${GRAY}Get ***plain syntax highlighting in VS Code / Cursor:${NC}"
+    echo -e "     ${WHITE}${BOLD}https://marketplace.visualstudio.com/items?itemName=Codeplain.plyn${NC}"
+    echo ""
+    STEP_NUM=$((STEP_NUM + 1))
+fi
+echo -e "  ${GRAY}${STEP_NUM}.${NC} ${GRAY}Convert your spec into tested and validated code:${NC}"
+echo -e "     ${WHITE}${BOLD}codeplain your-project.plain${NC}"
 echo ""
-echo -e "  learn more about ${YELLOW}***plain${NC} at ${YELLOW}https://plainlang.org/${NC}"
+echo -e "  ${GRAY}Discord: https://discord.gg/cgbynb9hFq   Docs: https://plainlang.org/${NC}"
 echo ""
-echo -e "  ${GREEN}happy development!${NC} 🚀"
+echo -e "  ${GRAY}Happy development!${NC} 🚀"
 echo ""
 
 if [ "$NONINTERACTIVE" != "1" ]; then

@@ -1,8 +1,9 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
 # Brand Colors (use exported colors if available, otherwise define them)
 if (-not $env:YELLOW)     { $YELLOW      = "$([char]27)[38;2;224;255;110m" } else { $YELLOW      = $env:YELLOW }
 if (-not $env:GREEN)      { $GREEN       = "$([char]27)[38;2;121;252;150m" } else { $GREEN       = $env:GREEN }
+if (-not $env:WHITE)      { $WHITE       = "$([char]27)[38;2;255;255;255m" } else { $WHITE       = $env:WHITE }
 if (-not $env:RED)        { $RED         = "$([char]27)[38;2;239;68;68m"   } else { $RED         = $env:RED }
 if (-not $env:GRAY)       { $GRAY        = "$([char]27)[38;2;128;128;128m" } else { $GRAY        = $env:GRAY }
 if (-not $env:BOLD)       { $BOLD        = "$([char]27)[1m"               } else { $BOLD        = $env:BOLD }
@@ -14,9 +15,9 @@ $EXAMPLES_DOWNLOAD_URL = "https://github.com/Codeplain-ai/plainlang-examples/arc
 
 # Show current directory and ask for extraction path
 $CURRENT_DIR = Get-Location
-Write-Host "  current folder: ${YELLOW}${CURRENT_DIR}${NC}"
+Write-Host "  Current folder: ${WHITE}${CURRENT_DIR}${NC}"
 Write-Host ""
-Write-Host "  extract examples here, or enter a different path:"
+Write-Host "  Extract examples here, or enter a different path:"
 Write-Host ""
 $EXTRACT_PATH = Read-Host "  [Enter for current, or type path]"
 Write-Host ""
@@ -35,18 +36,18 @@ $SKIP_DOWNLOAD = $false
 
 # Check if directory exists, create if not
 if (-not (Test-Path $EXTRACT_PATH -PathType Container)) {
-    Write-Host "  ${GRAY}creating directory...${NC}"
+    Write-Host "  ${GRAY}Creating directory...${NC}"
     try {
         New-Item -ItemType Directory -Path $EXTRACT_PATH -Force | Out-Null
     } catch {
-        Write-Host "  ${RED}✗${NC} failed to create directory: ${EXTRACT_PATH}"
-        Write-Host "  ${GRAY}skipping example download.${NC}"
+        Write-Host "  ${RED}✗ Failed to create directory: ${EXTRACT_PATH}${NC}"
+        Write-Host "  ${GRAY}Skipping example download.${NC}"
         $SKIP_DOWNLOAD = $true
     }
 }
 
 if (-not $SKIP_DOWNLOAD) {
-    Write-Host "  ${GRAY}downloading examples...${NC}"
+    Write-Host "  ${GRAY}Downloading examples...${NC}"
 
     $TEMP_ZIP = Join-Path ([System.IO.Path]::GetTempPath()) "plainlang-examples.zip"
 
@@ -54,7 +55,7 @@ if (-not $SKIP_DOWNLOAD) {
         Invoke-WebRequest -Uri $EXAMPLES_DOWNLOAD_URL -OutFile $TEMP_ZIP -UseBasicParsing
 
         if (Test-Path $TEMP_ZIP) {
-            Write-Host "  ${GRAY}extracting to ${EXTRACT_PATH}...${NC}"
+            Write-Host "  ${GRAY}Extracting to ${EXTRACT_PATH}...${NC}"
 
             try {
                 Expand-Archive -Path $TEMP_ZIP -DestinationPath $EXTRACT_PATH -Force
@@ -77,23 +78,23 @@ if (-not $SKIP_DOWNLOAD) {
                 }
 
                 Write-Host ""
-                Write-Host "  ${GREEN}✓${NC} examples downloaded successfully!"
+                Write-Host "  ${GREEN}✓ Examples downloaded successfully!${NC}"
                 Write-Host ""
-                Write-Host "  examples are in: ${YELLOW}${EXTRACTED_DIR}${NC}"
+                Write-Host "  Examples are in: ${WHITE}${EXTRACTED_DIR}${NC}"
                 Write-Host ""
             } catch {
-                Write-Host "  ${RED}✗${NC} failed to extract examples."
+                Write-Host "  ${RED}✗ Failed to extract examples.${NC}"
             }
 
             Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
         } else {
-            Write-Host "  ${RED}✗${NC} failed to download examples."
+            Write-Host "  ${RED}✗ Failed to download examples.${NC}"
         }
     } catch {
-        Write-Host "  ${RED}✗${NC} failed to download examples."
+        Write-Host "  ${RED}✗ Failed to download examples.${NC}"
         Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
     }
 
     Write-Host ""
-    Read-Host "  press [Enter] to continue..."
+    Read-Host "  Press ${WHITE}[Enter]${NC} to continue..."
 }
