@@ -1,6 +1,7 @@
 import difflib
 import os
 import subprocess
+import tempfile
 
 import diff_utils
 import render_machine.render_utils as render_utils
@@ -14,6 +15,11 @@ MAX_COMMAND_TIMEOUT = 300  # Hard cap (seconds) for an agent run_command call
 # head and tail (the middle is replaced with a TRUNCATED notice). Head+tail == the cap.
 COMMAND_OUTPUT_HEAD_LINES = 100
 COMMAND_OUTPUT_TAIL_LINES = 100
+# Hard total budget (characters) for any tool result assembled from command/diff/grep
+# output. Line-count caps alone do not bound size — a single minified-JS, base64 or
+# JSON line can be megabytes — so this is the backstop that actually protects the
+# context window. ~30k chars ≈ 7-8k tokens.
+MAX_INLINE_OUTPUT_CHARS = 30_000
 
 # Catastrophic command patterns refused by run_command as defense-in-depth. Commands
 # run on the user's own machine against their own project, but a fixing agent should
@@ -30,6 +36,83 @@ _DESTRUCTIVE_COMMAND_PATTERNS = (
     "> /dev/sd",
     "of=/dev/sd",
 )
+
+
+def _bound_inline_output(
+    output: str,
+    head_lines: int = COMMAND_OUTPUT_HEAD_LINES,
+    tail_lines: int = COMMAND_OUTPUT_TAIL_LINES,
+    max_line_chars: int = MAX_LINE_LENGTH,
+    max_total_chars: int = MAX_INLINE_OUTPUT_CHARS,
+) -> tuple[str, str]:
+    """Bound arbitrary tool output before it is inlined into the model's context.
+
+    Three layers, each catching what the previous one cannot:
+      1. per-line cap — a single minified/base64/JSON line can be megabytes;
+      2. line-count cap — keep the head (how it started) and tail (how it failed),
+         drop the middle with an explicit notice;
+      3. total character budget — the hard backstop, since 200 capped lines can
+         still exceed any sane context allowance.
+
+    Returns (bounded_text, truncation_note). The note is "" when nothing was cut;
+    otherwise it describes what was cut so the caller can point the agent at the
+    full output on disk.
+    """
+    total_chars = len(output)
+    lines = output.split("\n")
+    total_lines = len(lines)
+    notes = []
+
+    long_lines = 0
+    capped_lines = []
+    for line in lines:
+        if len(line) > max_line_chars:
+            long_lines += 1
+            capped_lines.append(line[:max_line_chars] + f"... [line truncated, was {len(line):,} chars]")
+        else:
+            capped_lines.append(line)
+    if long_lines:
+        notes.append(f"{long_lines} line(s) over {max_line_chars:,} chars cut short")
+
+    if total_lines > head_lines + tail_lines:
+        omitted = total_lines - head_lines - tail_lines
+        middle_notice = (
+            f"══════════ TRUNCATED: lines {head_lines + 1}–{total_lines - tail_lines} "
+            f"omitted ({omitted} lines) ══════════"
+        )
+        # list[-0:] would return the whole list, so guard the zero-tail case.
+        tail_slice = capped_lines[-tail_lines:] if tail_lines else []
+        capped_lines = capped_lines[:head_lines] + ["", middle_notice, ""] + tail_slice
+        notes.append(f"showing first {head_lines} and last {tail_lines} of {total_lines} lines")
+
+    text = "\n".join(capped_lines)
+
+    if len(text) > max_total_chars:
+        keep_head = int(max_total_chars * 0.6)
+        keep_tail = max_total_chars - keep_head
+        text = (
+            text[:keep_head]
+            + f"\n\n══════════ TRUNCATED: middle omitted, total budget {max_total_chars:,} chars ══════════\n\n"
+            + text[-keep_tail:]
+        )
+        notes.append(f"capped at {max_total_chars:,} of {total_chars:,} chars")
+
+    return text, "; ".join(notes)
+
+
+def _spill_output_to_temp_file(output: str, suffix: str = ".tool_output") -> str | None:
+    """Persist full tool output to a temp file so the agent can read_file the rest.
+
+    Used when a tool truncated its inline result but has no temp file from the
+    underlying runner. read_file applies its own per-line and per-call caps, so
+    this is the safe consumption path for arbitrarily large output.
+    """
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=suffix) as f:
+            f.write(output)
+            return f.name
+    except OSError:
+        return None
 
 
 def run_unit_tests(args: dict, render_context: RenderContext) -> str:  # noqa: U100
@@ -52,17 +135,21 @@ def run_unit_tests(args: dict, render_context: RenderContext) -> str:  # noqa: U
             "remaining work."
         )
 
-    lines = output.split("\n") if output else []
-    total_lines = len(lines)
+    if not output:
+        return f"Tests failed (exit code {exit_code}) with no output."
 
-    if total_lines <= MAX_INLINE_OUTPUT_LINES:
+    # Failures and summaries live at the end of test-runner output, so the tail gets
+    # most of the line budget.
+    bounded, note = _bound_inline_output(output, head_lines=40, tail_lines=160)
+    if not note:
         return f"Tests failed (exit code {exit_code}):\n{output}"
 
-    truncated = "\n".join(lines[-MAX_INLINE_OUTPUT_LINES:])
-    if temp_file_path:
-        return f"Tests failed (exit code {exit_code}). " f"Full output of the tests is available at: {temp_file_path}\n"
-    else:
-        return f"Tests failed (exit code {exit_code}):\n{truncated}"
+    if not temp_file_path:
+        temp_file_path = _spill_output_to_temp_file(output, suffix=".unittest_output")
+    pointer = (
+        f" Full output is saved at: {temp_file_path} — use read_file for the parts you need." if temp_file_path else ""
+    )
+    return f"Tests failed (exit code {exit_code}). Output truncated ({note}).{pointer}\n{bounded}"
 
 
 def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
@@ -616,42 +703,27 @@ def run_command(args: dict, render_context: RenderContext) -> str:
     if not output:
         return f"{header}\n(no output)"
 
-    lines = output.split("\n")
-    total = len(lines)
     open_divider = "──────────────────────────── command output ────────────────────────────"
     close_divider = "─────────────────────────── end command output ───────────────────────────"
 
-    # Short output: show it all, just separated from the status line.
-    if total <= MAX_INLINE_OUTPUT_LINES:
+    bounded, note = _bound_inline_output(output)
+
+    # Untruncated output: show it all, just separated from the status line.
+    if not note:
         return f"{header}\n{open_divider}\n{output}\n{close_divider}"
 
-    # Long output: keep the head and tail (the head shows how the run started, the tail
-    # shows where it ended/failed) and drop the middle with an explicit notice so the
-    # agent knows exactly which lines are missing and where the full output lives.
-    head = "\n".join(lines[:COMMAND_OUTPUT_HEAD_LINES])
-    tail = "\n".join(lines[-COMMAND_OUTPUT_TAIL_LINES:])
-    omitted_start = COMMAND_OUTPUT_HEAD_LINES + 1
-    omitted_end = total - COMMAND_OUTPUT_TAIL_LINES
-    omitted_count = omitted_end - omitted_start + 1
-    middle_notice = (
-        f"══════════ TRUNCATED: lines {omitted_start}–{omitted_end} omitted " f"({omitted_count} lines) ══════════"
-    )
-
+    # Something was cut — make sure the full output is on disk and say where.
+    if not temp_file_path:
+        temp_file_path = _spill_output_to_temp_file(output, suffix=".command_output")
     full_output_note = ""
     if temp_file_path:
         full_output_note = (
-            f" The full {total}-line output is saved at: {temp_file_path} — "
-            f'read it with read_file(file_path="{temp_file_path}").'
+            f" The full output ({len(output):,} chars, {output.count(chr(10)) + 1} lines) is saved at: "
+            f'{temp_file_path} — read the parts you need with read_file(file_path="{temp_file_path}").'
         )
 
     return (
-        f"{header} Output was {total} lines; showing the first {COMMAND_OUTPUT_HEAD_LINES} "
-        f"and last {COMMAND_OUTPUT_TAIL_LINES}.{full_output_note}\n"
-        f"{open_divider}\n"
-        f"{head}\n"
-        f"\n{middle_notice}\n\n"
-        f"{tail}\n"
-        f"{close_divider}"
+        f"{header} Output truncated ({note}).{full_output_note}\n" f"{open_divider}\n" f"{bounded}\n" f"{close_divider}"
     )
 
 
@@ -814,12 +886,14 @@ def grep(args: dict, render_context: RenderContext) -> str:
         if not output.strip():
             return f"No matches found for '{pattern}' in '{search_path}'"
 
-        # Truncate if output is too long
-        lines = output.strip().split("\n")
-        if len(lines) > 100:
-            return "\n".join(lines[:100]) + f"\n\n... ({len(lines) - 100} more matches truncated)"
-
-        return output.strip()
+        # Grep is for locating code, not reading it — a match on a minified or
+        # data line would otherwise inline that entire line. Cap match lines hard
+        # (500 chars is plenty to identify a location) and bound the total; the
+        # agent can read_file the location or narrow the pattern for more.
+        bounded, note = _bound_inline_output(output.strip(), head_lines=100, tail_lines=0, max_line_chars=500)
+        if note:
+            return f"{bounded}\n\n[Output truncated ({note}) — narrow the pattern or read_file specific locations.]"
+        return bounded
 
     except subprocess.TimeoutExpired:
         return "Error: grep command timed out (>10 seconds)"
@@ -949,11 +1023,12 @@ def get_session_changes(args: dict, render_context: RenderContext) -> str:  # no
             parts.append(f"--- {file_name}\n{file_diff}")
     output = "\n\n".join(parts)
 
-    lines = output.split("\n")
-    if len(lines) > 800:
-        omitted = len(lines) - 800
-        output = "\n".join(lines[:800]) + f"\n... ({omitted} more lines truncated)"
-    return output
+    bounded, note = _bound_inline_output(output, head_lines=600, tail_lines=200)
+    if note:
+        spill_path = _spill_output_to_temp_file(output, suffix=".session_diff")
+        pointer = f" The full diff is saved at: {spill_path} — use read_file for the rest." if spill_path else ""
+        return f"{bounded}\n\n[Diff truncated ({note}).{pointer}]"
+    return bounded
 
 
 def report_progress(args: dict, render_context: RenderContext) -> str:  # noqa: U100
