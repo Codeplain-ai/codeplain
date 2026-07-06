@@ -2,19 +2,15 @@
 
 ## What is \*codeplain?
 
-\*codeplain makes coding agents better by having them write and maintain specifications instead of code. It extends coding agents with agentic skills for working at the specification layer, and with tools that convert specifications into tested and validated implementation code — this repository is the renderer that powers that last step, turning \*\*\*plain specs into software using the Codeplain API. The result is a software development workflow centered on specifications, which are faster and more efficient for AI to produce and easier for developers to review and maintain than raw code.
+\*codeplain makes coding agents better by having them write and maintain specifications instead of code. It extends coding agents with agentic skills for working at the specification layer, and with tools that convert specifications into tested and validated implementation code.
+
+This repository is the renderer that powers that last step, turning \*\*\*plain specs into software using the *codeplain API.
+
+The result is a software development workflow centered on specifications, which are faster and more efficient for AI to produce and easier for developers to review and maintain than raw code.
 
 Schematic overview of the *codeplain's code rendering:
 
 <img src="https://raw.githubusercontent.com/Codeplain-ai/plain2code_client/main/resources/codeplain_overview.png">
-
-### Abstracting Away Code Generation Complexity with \*\*\*plain
-
-\*\*\*plain is a novel specification language that helps abstracting away complexity of using large language models for code generation.
-
-An example application in \*\*\*plain
-
-<img src="resources/plain_example.png" width="70%" height="70%">
 
 ## Getting started
 
@@ -88,6 +84,20 @@ If you're using Visual Studio Code or Cursor IDE, we also recommend installing t
 Share what you're building! Join the [\*codeplain Discord](https://discord.gg/cgbynb9hFq) if you have questions, ideas, or want to share what you built.
 
 Hit an edge case or have feedback? Reach us at [support@codeplain.ai](mailto:support@codeplain.ai).
+
+## Abstracting Away Code Generation Complexity with \*\*\*plain
+
+\*\*\*plain is the language of spec-driven development — a specification language that combines the efficiency of natural language with the control and precision of code.
+
+Structured sections for definitions, functional specs, implementation requirements, test requirements, and acceptance tests let your specs (not scattered docs or ad hoc prompts) become the source of truth for your software's behavior, abstracting away the complexity of using large language models for code generation.
+
+Specs are plain text, so they fit into the workflows you already use — version control, pull requests, and code review.
+
+See the [\*\*\*plain language guide](https://www.plainlang.org/docs/language-guide/) to learn the full syntax.
+
+An example application in \*\*\*plain
+
+<img src="resources/plain_example.png" width="70%" height="70%">
 
 ## Additional Resources
 
