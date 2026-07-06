@@ -31,6 +31,7 @@ def _fake_render_context(build_folder: str) -> SimpleNamespace:
         prepare_environment_script=None,
         unittests_script=None,
         frid_context=None,
+        stop_event=None,
     )
 
 
@@ -218,6 +219,75 @@ def test_get_session_changes_without_tracked_changes(project_dir):
     result = tools.get_session_changes({}, render_context)
 
     assert "No changes have been made" in result
+
+
+def test_bound_inline_output_caps_single_huge_line():
+    """Line-count caps alone do not bound size — one line can be megabytes."""
+    output = "x" * 2_000_000  # one 2MB line, well under any line-count cap
+
+    bounded, note = tools._bound_inline_output(output)
+
+    assert len(bounded) <= tools.MAX_INLINE_OUTPUT_CHARS + 200  # + truncation notices
+    assert note
+    assert "line truncated" in bounded
+
+
+def test_bound_inline_output_caps_many_capped_lines_by_total_budget():
+    """200 lines each under the per-line cap can still blow the total budget."""
+    output = "\n".join("y" * 9_000 for _ in range(150))  # ~1.35MB across 150 lines
+
+    bounded, note = tools._bound_inline_output(output)
+
+    assert len(bounded) <= tools.MAX_INLINE_OUTPUT_CHARS + 200
+    assert "capped at" in note
+
+
+def test_bound_inline_output_head_tail_and_untouched_small_output():
+    many_lines = "\n".join(f"line {i}" for i in range(1, 1001))
+    bounded, note = tools._bound_inline_output(many_lines)
+    assert "line 1" in bounded and "line 1000" in bounded
+    assert "line 500" not in bounded
+    assert "omitted" in bounded and note
+
+    small = "hello\nworld"
+    bounded, note = tools._bound_inline_output(small)
+    assert bounded == small and note == ""
+
+
+def test_bound_inline_output_zero_tail_keeps_head_only():
+    output = "\n".join(f"match {i}" for i in range(1, 301))
+    bounded, note = tools._bound_inline_output(output, head_lines=100, tail_lines=0)
+    assert "match 100" in bounded
+    assert "match 250" not in bounded and "match 300" not in bounded
+    assert note
+
+
+def test_run_command_bounds_pathological_output(project_dir):
+    """A command emitting one enormous line must not flood the tool result."""
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+
+    result = tools.run_command(
+        {"command": "head -c 2000000 /dev/zero | tr '\\0' 'x'"},
+        _fake_render_context(build_folder),
+    )
+
+    assert len(result) <= tools.MAX_INLINE_OUTPUT_CHARS + 1_000  # + header/notices/path
+    assert "Output truncated" in result
+    assert "saved at:" in result  # full output remains reachable via read_file
+
+
+def test_grep_bounds_match_on_minified_line(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    minified = "var a=1;" * 100_000 + "needle_xyz" + ";var b=2;" * 100_000
+    Path(os.path.join(build_folder, "bundle.js")).write_text(minified, encoding="utf-8")
+
+    result = tools.grep({"pattern": "needle_xyz", "file_path": build_folder}, _fake_render_context(build_folder))
+
+    assert len(result) <= tools.MAX_INLINE_OUTPUT_CHARS + 1_000
+    assert "bundle.js" in result
+    assert "line truncated" in result
 
 
 def _find_server_repo() -> Path | None:
