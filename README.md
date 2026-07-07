@@ -2,7 +2,7 @@
 
 ## What is \*codeplain?
 
-\*codeplain makes coding agents better by having them write and maintain specifications instead of code. It extends coding agents with agentic skills for working at the specification layer, and with tools that convert specifications into tested and validated implementation code.
+\*codeplain platform makes coding agents better by having them write and maintain specifications instead of code. It extends coding agents with agentic skills for working at the specification layer, and with tools that convert specifications into tested and validated implementation code.
 
 This repository is the renderer that powers that last step, turning \*\*\*plain specs into software using the *codeplain API.
 
@@ -32,7 +32,7 @@ irm https://codeplain.ai/install.ps1 | iex
 
 **Windows users:** Please install WSL (Windows Subsystem for Linux) as this is currently the supported environment for running plain code on Windows.
 
-Follow the installation instructions to complete setup. The installer installs the `codeplain` CLI and walks you through setting your `CODEPLAIN_API_KEY`.
+Follow the installation instructions to complete setup. The installer installs the `codeplain` CLI, walks you through setting your `CODEPLAIN_API_KEY`, and offers to set up [plain-forge](#2-let-your-agent-work-in-specs-not-code) and the [plyn editor extension](#vs-code--cursor-extension) for you in the same session.
 
 If you'd rather not run the installer, sign up at [platform.codeplain.ai](https://platform.codeplain.ai) to get your API key and export it yourself:
 
@@ -42,7 +42,9 @@ export CODEPLAIN_API_KEY="your_actual_api_key_here"
 
 ### 2. Let your agent work in specs, not code
 
-You describe what you want in plain English, an agent helps you write a spec in \*\*\*plain language, and \*codeplain renders the actual code.
+You describe what you want in plain English, an agent helps you write a spec in \*\*\*plain language, and \*codeplain renders the actual code. This is what [plain-forge](https://github.com/Codeplain-ai/plain-forge) sets up: a toolkit of skills, rules, and docs that plugs into your AI coding agent of choice — Claude Code, Codex, ForgeCode, OpenCode, or any other agent that reads from a standard skills directory — and turns a conversation into a complete `.plain` spec, then keeps maintaining it across the lifetime of the project.
+
+If you didn't install it during step 1, run it any time:
 
 ```bash
 npx plain-forge install
@@ -77,7 +79,7 @@ You can immediately test the system with a simple "Hello World" example:
 
 ### VS Code / Cursor extension
 
-If you're using Visual Studio Code or Cursor IDE, we also recommend installing the [plyn extension](https://marketplace.visualstudio.com/items?itemName=Codeplain.plyn).
+If you're using Visual Studio Code or Cursor IDE, we also recommend installing the [plyn extension](https://marketplace.visualstudio.com/items?itemName=Codeplain.plyn) for `***plain` syntax highlighting. The installer in step 1 offers to install it automatically if it detects `code` or `cursor` on your `PATH`.
 
 ### Community and support
 
