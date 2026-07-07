@@ -13,7 +13,7 @@ Clear-Host
 Write-Host ""
 Write-Host "  ${WHITE}${BOLD}***plain specification language intro${NC} (1/5)"
 Write-Host ""
-Write-Host "  ***plain is a language of spec-driven development that allows developers to express intent at any level of detail."
+Write-Host "  ***plain is the language of spec-driven development that allows developers to express intent at any level of detail."
 Write-Host ""
 Write-Host "  Write specs in natural language extended with additional syntax based on markdown."
 Write-Host ""
