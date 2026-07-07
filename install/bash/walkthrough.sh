@@ -15,7 +15,7 @@ clear
 echo ""
 echo -e "  ${WHITE}${BOLD}***plain specification language intro${NC} (1/5)"
 echo ""
-echo -e "  ***plain is a language of spec-driven development that allows developers to express intent at any level of detail."
+echo -e "  ***plain is the language of spec-driven development that allows developers to express intent at any level of detail."
 echo ""
 echo -e "  Write specs in natural language extended with additional syntax based on markdown."
 echo ""
