@@ -290,6 +290,60 @@ def test_grep_bounds_match_on_minified_line(project_dir):
     assert "line truncated" in result
 
 
+def _fake_memory_context(memory_folder: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        memory_manager=SimpleNamespace(memory_folder=memory_folder),
+        conformance_tests_running_context=SimpleNamespace(session_memory_notes=[]),
+    )
+
+
+def test_write_memory_scope_routing_and_tracking(project_dir):
+    render_context = _fake_memory_context(project_dir)
+
+    result = tools.write_memory({"file_name": "module-note.md", "content": "a module fact"}, render_context)
+    assert "module scope" in result
+    assert Path(project_dir, "agent_memory", "module-note.md").read_text(encoding="utf-8") == "a module fact"
+
+    result = tools.write_memory(
+        {"file_name": "build-note.md", "content": "a build-system fact", "scope": "global"}, render_context
+    )
+    assert "global scope" in result
+    assert Path(project_dir, "global_memory", "build-note.md").read_text(encoding="utf-8") == "a build-system fact"
+
+    tracked = render_context.conformance_tests_running_context.session_memory_notes
+    assert [Path(p).name for p in tracked] == ["module-note.md", "build-note.md"]
+
+
+def test_write_memory_rejects_invalid_scope(project_dir):
+    render_context = _fake_memory_context(project_dir)
+    result = tools.write_memory({"file_name": "x.md", "content": "y", "scope": "universe"}, render_context)
+    assert result.startswith("Error: scope must be")
+
+
+def test_review_action_memory_curation_helpers(project_dir):
+    from render_machine.actions.review_conformance_fix_action import ReviewConformanceFixAction
+
+    good = Path(project_dir, "good-note.md")
+    bad = Path(project_dir, "bad-note.md")
+    good.write_text("service X must be running before tests", encoding="utf-8")
+    bad.write_text("just pkill all python processes in @BeforeAll", encoding="utf-8")
+    ctx = SimpleNamespace(session_memory_notes=[str(good), str(bad)])
+
+    notes = ReviewConformanceFixAction._read_session_memory_notes(ctx)
+    assert set(notes) == {"good-note.md", "bad-note.md"}
+    assert "pkill" in notes["bad-note.md"]
+
+    ReviewConformanceFixAction._delete_rejected_memory_notes(ctx, ["bad-note.md"], "canonizes process-killing")
+    assert not bad.exists()
+    assert good.exists()
+    assert ctx.session_memory_notes == [str(good)]
+
+    # No-ops are safe.
+    ReviewConformanceFixAction._delete_rejected_memory_notes(ctx, [], "")
+    ReviewConformanceFixAction._delete_rejected_memory_notes(None, ["bad-note.md"], "")
+    assert ctx.session_memory_notes == [str(good)]
+
+
 def _find_server_repo() -> Path | None:
     """Locate the sibling server repository, if checked out."""
     env_override = os.environ.get("CODEPLAIN_SERVER_REPO")

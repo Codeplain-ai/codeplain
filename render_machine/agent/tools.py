@@ -1061,35 +1061,51 @@ def report_progress(args: dict, render_context: RenderContext) -> str:  # noqa: 
 def write_memory(args: dict, render_context: RenderContext) -> str:
     """Write a persistent memory note for future fixing agents.
 
-    Notes are stored in the module's agent memory folder and injected into the context
-    of future agent sessions. Writing to an existing file name overwrites the note.
+    Notes are stored in the module's memory folder and injected into the context of
+    future agent sessions; scope "global" routes the note to the global memory
+    subfolder, from which it is propagated to every module. Writing to an existing
+    file name overwrites the note. Notes written during a conformance fix loop are
+    tracked on the running context so the integrity reviewer can judge their content
+    (and have violating notes removed) — memory feeds every future session, so bad
+    content compounds.
 
     Args:
         args: Dictionary containing:
             - file_name (str, required): Plain file name for the note (no directories).
             - content (str, required): The note content.
+            - scope (str, optional): "module" (default) or "global".
         render_context: The current render context.
 
     Returns:
         Success message or error description.
     """
-    from memory_management import MemoryManager
+    from memory_management import AGENT_MEMORY_SUBFOLDER, GLOBAL_MEMORY_SUBFOLDER, MemoryManager
 
     file_name = args.get("file_name", "")
     content = args.get("content", "")
+    scope = str(args.get("scope", "module")).strip().lower()
 
     if not file_name:
         return "Error: file_name is required"
     if not content:
         return "Error: content is required"
+    if scope not in ("module", "global"):
+        return f"Error: scope must be 'module' or 'global', got '{scope}'"
 
     if os.path.basename(file_name) != file_name or file_name in (".", ".."):
         return f"Error: file_name must be a plain file name without directories, got '{file_name}'"
 
+    subfolder = GLOBAL_MEMORY_SUBFOLDER if scope == "global" else AGENT_MEMORY_SUBFOLDER
     try:
         full_path = MemoryManager.write_agent_memory_file(
-            render_context.memory_manager.memory_folder, file_name, content
+            render_context.memory_manager.memory_folder, file_name, content, subfolder=subfolder
         )
-        return f"Memory note saved to '{full_path}'. It will be available to future fixing agents."
     except Exception as e:
         return f"Error: failed to write memory note '{file_name}': {e}"
+
+    ctx = render_context.conformance_tests_running_context
+    if ctx is not None and full_path not in ctx.session_memory_notes:
+        ctx.session_memory_notes.append(full_path)
+
+    audience = "agents of every module" if scope == "global" else "future agents of this module"
+    return f"Memory note saved to '{full_path}' ({scope} scope). It will be available to {audience}."

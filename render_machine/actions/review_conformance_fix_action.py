@@ -100,6 +100,17 @@ class ReviewConformanceFixAction(BaseAction):
             "module_name": render_context.module_name,
         }
 
+        # Memory produced by the fix session is reviewed alongside the fix: it feeds
+        # every future session (global scope: every module), so destructive or noisy
+        # content compounds if it slips through.
+        proposed_key_learning = str((fix_summary or {}).get("key_learning") or "").strip()
+        if proposed_key_learning:
+            learning_scope = str((fix_summary or {}).get("learning_scope", "module"))
+            review_task_params["proposed_key_learning"] = f"[scope: {learning_scope}]\n{proposed_key_learning}"
+        session_memory_notes = self._read_session_memory_notes(ctx)
+        if session_memory_notes:
+            review_task_params["session_memory_notes"] = session_memory_notes
+
         # Reviewer gets read-only tools
         reviewer_tools = {
             "report_progress": report_progress,
@@ -119,9 +130,69 @@ class ReviewConformanceFixAction(BaseAction):
             max_turns=agent_runner.MAX_REVIEWER_TURNS,
         )
 
-        # The reviewer normally delivers its verdict through the submit_review
-        # terminal tool (structured), falling back to "VERDICT:" string matching only
-        # when it was force-concluded on its final turn (tool calls are ignored there).
+        verdict = self._extract_review_verdict(response)
+        approved = verdict["approved"]
+        result_text = verdict["result_text"]
+        key_learning_verdict = verdict["key_learning_verdict"]
+        memory_notes_to_reject = verdict["memory_notes_to_reject"]
+        memory_feedback = verdict["memory_feedback"]
+        trace(
+            "review",
+            verdict="APPROVED" if approved else "REJECTED",
+            structured=verdict["structured"],
+            diff_files=len(diff_text),
+            diff_chars=len(diff_str),
+            feedback=preview(result_text) if not approved else None,
+            key_learning_verdict=key_learning_verdict or None,
+            memory_notes_rejected=len(memory_notes_to_reject) or None,
+        )
+
+        # Notes the reviewer flagged as violating the memory guidelines are removed
+        # regardless of the fix verdict — bad memory must not survive to be re-fed to
+        # future sessions.
+        self._delete_rejected_memory_notes(ctx, memory_notes_to_reject, memory_feedback)
+
+        if approved:
+            console.info("[green]Review APPROVED[/green]")
+            ctx.reset_file_change_tracker()
+            # The fix is confirmed (tests pass + review approved). Persist the durable
+            # learning only if the reviewer also approved the learning itself — a good
+            # fix can still carry a bad learning (e.g. one canonizing the workaround
+            # instead of the constraint).
+            if key_learning_verdict == "rejected":
+                console.warning(
+                    "Reviewer rejected the proposed key learning; not persisting it to memory."
+                    + (f" Reason: {memory_feedback}" if memory_feedback else "")
+                )
+                trace("review", event="key-learning-rejected", reason=preview(memory_feedback))
+            else:
+                self._persist_key_learning(render_context, fix_summary)
+            # Surviving session notes are now reviewed and accepted — stop tracking them.
+            ctx.session_memory_notes = []
+            # The fix is accepted and the tests already pass: release the fix agent
+            # session and clear unresolved memory, the cleanup previously done by
+            # RunConformanceTests on a passing run (now deferred until acceptance).
+            render_context.finalize_accepted_conformance_fix()
+            return self.APPROVED, {"review_rejection_feedback": ""}
+
+        console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
+        console.info("Reverting rejected changes...")
+        ctx.revert_tracked_changes()
+        result_text += "\nThe rejected changes have been reverted. Propose a new fix."
+        if memory_feedback:
+            result_text += f"\nMemory feedback from the reviewer: {memory_feedback}"
+        return self.REJECTED, {
+            "review_rejection_feedback": result_text,
+        }
+
+    @staticmethod
+    def _extract_review_verdict(response: dict) -> dict:
+        """Extract the reviewer's verdicts from its response.
+
+        The reviewer normally delivers its verdict through the submit_review terminal
+        tool (structured), falling back to "VERDICT:" string matching only when it was
+        force-concluded on its final turn (tool calls are ignored there).
+        """
         result_text = response.get("result", "")
         verdict_args = response.get("terminal_tool_args") or {}
         structured_verdict = str(verdict_args.get("verdict", "")).strip().upper()
@@ -134,35 +205,55 @@ class ReviewConformanceFixAction(BaseAction):
         approved = (
             structured_verdict == "APPROVED" if structured_verdict else "VERDICT: APPROVED" in result_text.upper()
         )
-        trace(
-            "review",
-            verdict="APPROVED" if approved else "REJECTED",
-            structured=bool(structured_verdict),
-            diff_files=len(diff_text),
-            diff_chars=len(diff_str),
-            feedback=preview(result_text) if not approved else None,
-        )
-        if approved:
-            console.info("[green]Review APPROVED[/green]")
-            ctx.reset_file_change_tracker()
-            # The fix is confirmed (tests pass + review approved), so any durable learning
-            # the fixing agent attached to submit_fix is now trustworthy — persist it to
-            # the module's memory for future agents. Done only here, on the real approval
-            # path, so unconfirmed or stale learnings are never recorded.
-            self._persist_key_learning(render_context, fix_summary)
-            # The fix is accepted and the tests already pass: release the fix agent
-            # session and clear unresolved memory, the cleanup previously done by
-            # RunConformanceTests on a passing run (now deferred until acceptance).
-            render_context.finalize_accepted_conformance_fix()
-            return self.APPROVED, {"review_rejection_feedback": ""}
-
-        console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
-        console.info("Reverting rejected changes...")
-        ctx.revert_tracked_changes()
-        result_text += "\nThe rejected changes have been reverted. Propose a new fix."
-        return self.REJECTED, {
-            "review_rejection_feedback": result_text,
+        return {
+            "approved": approved,
+            "structured": bool(structured_verdict),
+            "result_text": result_text,
+            "key_learning_verdict": str(verdict_args.get("key_learning_verdict", "")).strip().lower(),
+            "memory_notes_to_reject": verdict_args.get("memory_notes_to_reject") or [],
+            "memory_feedback": str(verdict_args.get("memory_feedback", "")).strip(),
         }
+
+    @staticmethod
+    def _read_session_memory_notes(ctx) -> dict:
+        """Read the content of memory notes written during this fix loop, by file name."""
+        notes: dict[str, str] = {}
+        for note_path in ctx.session_memory_notes if ctx else []:
+            try:
+                with open(note_path, "r", encoding="utf-8") as f:
+                    notes[os.path.basename(note_path)] = f.read()
+            except OSError:
+                continue
+        return notes
+
+    @staticmethod
+    def _delete_rejected_memory_notes(ctx, memory_notes_to_reject, memory_feedback: str) -> None:
+        """Delete session memory notes the reviewer flagged as violating the memory guidelines.
+
+        Memory is fed to every future session (global notes to every module), so a note
+        that canonizes a destructive or brittle practice compounds with each render —
+        flagged notes are removed even when the fix itself is approved or the review
+        loop continues.
+        """
+        if not ctx or not memory_notes_to_reject:
+            return
+        rejected_names = {os.path.basename(str(name)) for name in memory_notes_to_reject}
+        kept: list[str] = []
+        for note_path in ctx.session_memory_notes:
+            if os.path.basename(note_path) not in rejected_names:
+                kept.append(note_path)
+                continue
+            try:
+                os.remove(note_path)
+                console.warning(
+                    f"Deleted memory note '{os.path.basename(note_path)}' rejected by the reviewer."
+                    + (f" Reason: {memory_feedback}" if memory_feedback else "")
+                )
+                trace("review", event="memory-note-deleted", note=os.path.basename(note_path))
+            except OSError as e:
+                console.warning(f"Could not delete rejected memory note '{note_path}': {e}")
+                kept.append(note_path)
+        ctx.session_memory_notes = kept
 
     def _persist_key_learning(self, render_context: RenderContext, fix_summary: dict) -> None:
         """Save the fixing agent's key_learning (from submit_fix) to the module's memory.
