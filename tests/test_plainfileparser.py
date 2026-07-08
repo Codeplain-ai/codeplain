@@ -27,6 +27,32 @@ def test_regular_plain_source(get_test_data_path):
     }
 
 
+def test_parser_keeps_subdirectory_in_module_name(get_test_data_path):
+    # A template-relative filename with a subdirectory (as passed for required/imported modules)
+    # must keep its subdirectory prefix in the module name so it resolves under template_dirs.
+    data_dir = get_test_data_path("data/requires_subdir")
+
+    module_name, _, required = plain_file.plain_file_parser("nested/leaf.plain", [data_dir])
+
+    assert module_name == "nested/leaf"
+    assert required == []
+
+
+def test_requires_module_in_subdirectory_resolves(get_test_data_path):
+    # Regression: rendering a top module (referenced by basename, its dir supplied via
+    # template_dirs) that `requires` a module in a subdirectory must build the full PlainModule
+    # tree without a "Module does not exist" error, preserving the subdirectory in build paths.
+    import plain_modules
+
+    data_dir = get_test_data_path("data/requires_subdir")
+
+    module = plain_modules.PlainModule("main_in_subdir.plain", "build", "conformance", [data_dir])
+
+    assert module.module_name == "main_in_subdir"
+    assert [m.module_name for m in module.required_modules] == ["nested/leaf"]
+    assert [m.module_build_folder for m in module.required_modules] == [os.path.join("build", "nested/leaf")]
+
+
 def test_unknown_section():
     plain_source = """
 ***definitions***

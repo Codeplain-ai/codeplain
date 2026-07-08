@@ -355,7 +355,7 @@ def main():  # noqa: C901
     # Parse the plain file (and its required modules) once; reused by dry-run and rendering.
     try:
         plain_module = plain_modules.PlainModule(
-            args.filename,
+            os.path.basename(args.filename),
             args.build_folder,
             args.conformance_tests_folder,
             template_dirs,

@@ -1,0 +1,12 @@
+---
+requires:
+  - nested/leaf
+---
+
+***implementation reqs***
+
+- Main implementation requirement.
+
+***functional specs***
+
+- Display "hello, world"
