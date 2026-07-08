@@ -5,6 +5,9 @@ set -euo pipefail
 # Base URL for additional scripts
 CODEPLAIN_SCRIPTS_BASE_URL="${CODEPLAIN_SCRIPTS_BASE_URL:-https://codeplain.ai}"
 
+# Base URL for the Codeplain API (used to verify the API key)
+CODEPLAIN_API_URL="${CODEPLAIN_API_URL:-https://api.codeplain.ai}"
+
 # Brand Colors (True Color / 24-bit)
 YELLOW='\033[38;2;224;255;110m'    # #E0FF6E
 GREEN='\033[38;2;121;252;150m'     # #79FC96
@@ -37,6 +40,30 @@ install_uv() {
     curl -LsSf https://astral.sh/uv/install.sh | sh
     # Add uv to PATH for this session
     export PATH="$HOME/.local/bin:$PATH"
+}
+
+# Trim leading/trailing whitespace (spaces, tabs, newlines, carriage returns).
+# Users often copy the API key with surrounding whitespace or newlines.
+trim_whitespace() {
+    local value="$*"
+    value="${value#"${value%%[![:space:]]*}"}"  # strip leading whitespace
+    value="${value%"${value##*[![:space:]]}"}"   # strip trailing whitespace
+    printf '%s' "$value"
+}
+
+# Verify an API key against the Codeplain API's /status endpoint.
+# Sets the global VALIDATION_HTTP_CODE and returns 0 only when the key is valid
+# (HTTP 200). This checks only the API key, nothing else about the install.
+validate_api_key() {
+    local key="$1"
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        --max-time 30 \
+        -X POST "${CODEPLAIN_API_URL}/status" \
+        -H "Content-Type: application/json" \
+        --data "{\"api_key\":\"${key}\"}" 2>/dev/null || true)
+    VALIDATION_HTTP_CODE="${http_code:-000}"
+    [ "$VALIDATION_HTTP_CODE" = "200" ]
 }
 
 # Check if uv is installed
@@ -100,8 +127,33 @@ if [ "$SKIP_API_KEY_SETUP" = false ]; then
     else
         echo -e "Go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
         echo ""
-        read -r -p "Paste your API key here: " API_KEY < /dev/tty
-        echo ""
+        # Keep prompting until we get a valid API key (or the user submits an
+        # empty value to skip). The pasted key is trimmed and verified against
+        # the Codeplain API before we accept it.
+        while true; do
+            read -r -p "Paste your API key here: " API_KEY < /dev/tty
+            echo ""
+            API_KEY="$(trim_whitespace "$API_KEY")"
+
+            # Empty input: let the user skip key setup for now.
+            if [ -z "$API_KEY" ]; then
+                break
+            fi
+
+            echo -e "${GRAY}Verifying your API key...${NC}"
+            if validate_api_key "$API_KEY"; then
+                echo -e "${GREEN}✓${NC} API key verified."
+                echo ""
+                break
+            elif [ "$VALIDATION_HTTP_CODE" = "401" ]; then
+                echo -e "${RED}Invalid API key. Please make sure the full key was copied.${NC}"
+                echo ""
+            else
+                echo -e "${RED}Could not verify the API key (could not reach ${CODEPLAIN_API_URL}).${NC}"
+                echo -e "${GRAY}Check your internet connection and try again.${NC}"
+                echo ""
+            fi
+        done
     fi
 fi
 
@@ -159,8 +211,11 @@ cat << 'EOF'
                       |_|
 EOF
 echo ""
-echo -e "${GREEN}✓ Sign in successful.${NC}"
-echo ""
+# Only claim success when a verified API key is actually configured.
+if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
+    echo -e "${GREEN}✓ Sign in successful.${NC}"
+    echo ""
+fi
 echo -e "  ${WHITE}Welcome to *codeplain!${NC}"
 echo ""
 echo -e "  ${GRAY}Spec-driven, production-ready code generation${NC}"
