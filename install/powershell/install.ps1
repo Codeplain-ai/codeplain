@@ -420,6 +420,28 @@ if ($downloadExamples -notmatch '^[Nn]$') {
     Invoke-SubScript "examples.ps1"
 }
 
+# Final verification: make sure the installed codeplain can actually run and
+# reach the API. Only meaningful when an API key is configured, so users who
+# skipped the key are not falsely told something went wrong.
+if ($env:CODEPLAIN_API_KEY) {
+    Write-Host "${GRAY}Verifying your installation...${NC}"
+    $verifyOk = $false
+    try {
+        & codeplain --status *> $null
+        $verifyOk = ($LASTEXITCODE -eq 0)
+    } catch {
+        $verifyOk = $false
+    }
+    if ($verifyOk) {
+        Write-Host "${GREEN}✓${NC} Installation verified."
+    } else {
+        Write-Host "${RED}Something went wrong during installation.${NC}"
+        Write-Host "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
+        Write-Host "  uv tool install --force codeplain"
+        exit 1
+    }
+}
+
 # Final message
 if (-not $nonInteractive) { Clear-Host }
 Write-Host ""
