@@ -389,6 +389,23 @@ if [[ ! "${DOWNLOAD_EXAMPLES:-}" =~ ^[Nn]$ ]]; then
     run_script "examples.sh"
 fi
 
+# Final verification: make sure the installed codeplain can actually run and
+# reach the API. Only meaningful when an API key is configured, so users who
+# skipped the key are not falsely told something went wrong.
+if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
+    # Ensure the freshly installed tool is findable in this session.
+    export PATH="$HOME/.local/bin:$PATH"
+    echo -e "${GRAY}Verifying your installation...${NC}"
+    if codeplain --status > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Installation verified."
+    else
+        echo -e "${RED}Something went wrong during installation.${NC}"
+        echo -e "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
+        echo -e "  uv tool install --force codeplain"
+        exit 1
+    fi
+fi
+
 # Final message
 if [ "$NONINTERACTIVE" != "1" ]; then
     clear

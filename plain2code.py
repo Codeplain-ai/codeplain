@@ -327,7 +327,7 @@ def main():  # noqa: C901
             console.error(
                 "Your API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
             )
-            return
+            sys.exit(1)
 
         if not args.api:
             args.api = "https://api.codeplain.ai"
@@ -336,6 +336,7 @@ def main():  # noqa: C901
             print_status(args.api_key, args.api, system_config.client_version)
         except Exception as e:
             console.error(f"Error fetching status: {str(e)}")
+            sys.exit(1)
         return
 
     template_dirs = file_utils.get_template_directories(args.filename, args.template_dir, DEFAULT_TEMPLATE_DIRS)
