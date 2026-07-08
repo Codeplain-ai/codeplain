@@ -127,6 +127,12 @@ class ConformanceTestsRunningContext:
         # agent so explicitly.
         self.last_failure_signature: Optional[str] = None
         self.failure_signature_streak: int = 0
+        # Absolute paths of memory notes written (via the write_memory tool) during
+        # the current fix loop. The integrity reviewer judges their content alongside
+        # the fix; notes it rejects are deleted so destructive or noisy practices are
+        # never canonized into long-term memory. Cleared by the reviewer once
+        # processed on an approved fix.
+        self.session_memory_notes: list[str] = []
         self.last_fix_summary: Optional[dict] = None  # Structured output from last submit_fix call
         # True once a fix has been applied and is awaiting integrity review. The
         # review only runs after the applied fix makes the conformance tests pass,
