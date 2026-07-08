@@ -120,6 +120,13 @@ class ConformanceTestsRunningContext:
         # most recent few — so approaches ruled out early cannot be silently retried
         # by a later session.
         self.fix_attempts_ledger: list[dict] = []
+        # Fingerprint of the last failing conformance run (see fix_signals) and how
+        # many consecutive fixes have left it unchanged. An unchanged signature after
+        # a fix means the fix did not move the failure — either the edit never reached
+        # the executed code or the hypothesis class is wrong; the fix loop tells the
+        # agent so explicitly.
+        self.last_failure_signature: Optional[str] = None
+        self.failure_signature_streak: int = 0
         self.last_fix_summary: Optional[dict] = None  # Structured output from last submit_fix call
         # True once a fix has been applied and is awaiting integrity review. The
         # review only runs after the applied fix makes the conformance tests pass,

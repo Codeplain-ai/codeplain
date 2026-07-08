@@ -5,6 +5,7 @@ import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import console
 from plain2code_trace import preview, trace
+from render_machine import fix_signals
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
@@ -29,6 +30,12 @@ from render_machine.render_context import RenderContext
 # what it inherited), so only the latest few are carried to keep the prompt bounded.
 MAX_HANDOFFS_INJECTED = 3
 
+# A submit_fix whose description matches an already-failed ledger entry is bounced
+# back to the agent instead of spending a test/review cycle on it — but only once
+# per attempt, so a determined resubmission (with its stated justification) still
+# goes through rather than deadlocking the loop.
+MAX_DUPLICATE_SUBMISSION_BOUNCES = 1
+
 
 class AgentFixConformanceTest(BaseAction):
     FIX_APPLIED = "fix_applied"
@@ -49,6 +56,12 @@ class AgentFixConformanceTest(BaseAction):
         # environment preparation output instead.
         error = previous_action_payload.get("error") if previous_action_payload else None
         prepare_environment_failed = bool(error and error.get("type") == "ENVIRONMENT_ERROR")
+
+        # Fingerprint the current failure and compare with the previous run: an
+        # unchanged signature after a fix is the strongest signal the agent has that
+        # its approach isn't working. Computed before outcomes are recorded so the
+        # ledger entry can carry it.
+        failure_signature_notice = self._update_failure_signature(render_context, ctx, prepare_environment_failed)
 
         # Re-entering this action means the previous attempt (if any) did not resolve
         # the failure — record its outcome on the ledger before the next attempt.
@@ -175,6 +188,7 @@ class AgentFixConformanceTest(BaseAction):
                 review_rejection_feedback=review_rejection_feedback,
                 prepare_environment_failed=prepare_environment_failed,
                 prepare_environment_output_file=prepare_environment_output_file,
+                failure_signature_notice=failure_signature_notice,
             )
 
             try:
@@ -234,6 +248,10 @@ class AgentFixConformanceTest(BaseAction):
                 else:
                     # Re-raise other errors
                     raise
+
+        # A submission that repeats an already-failed ledger attempt is bounced back
+        # to the agent before a test/review cycle is spent on it.
+        response = self._bounce_duplicate_submissions(response, render_context, tool_executor, ctx)
 
         # If the agent ran out of turns without submitting a fix, the server force-
         # concludes the session and returns its final free-text response (no terminal
@@ -312,6 +330,115 @@ class AgentFixConformanceTest(BaseAction):
         }
 
     @staticmethod
+    def _update_failure_signature(render_context: RenderContext, ctx, prepare_environment_failed: bool) -> str:
+        """Fingerprint the current failing test output and compare with the last run.
+
+        Returns a notice for the agent when consecutive fixes have not changed the
+        failure signature (empty string otherwise). Skipped when the environment
+        preparation failed — the conformance output is stale in that case.
+        """
+        if not ctx or prepare_environment_failed:
+            return ""
+        output_path = render_context.script_execution_history.latest_conformance_test_output_path
+        if not output_path:
+            return ""
+        try:
+            with open(output_path, "r", encoding="utf-8", errors="replace") as f:
+                signature = fix_signals.compute_failure_signature(f.read())
+        except OSError:
+            return ""
+        if signature is None:
+            return ""
+
+        previous_signature = ctx.last_failure_signature
+        fix_was_applied = bool(ctx.fix_attempts_ledger)
+        ctx.last_failure_signature = signature
+
+        if not fix_was_applied or previous_signature != signature:
+            ctx.failure_signature_streak = 0
+            return ""
+
+        ctx.failure_signature_streak += 1
+        trace(
+            "fix-loop",
+            event="failure-signature-unchanged",
+            streak=ctx.failure_signature_streak,
+            signature=signature,
+        )
+        if ctx.failure_signature_streak == 1:
+            return (
+                "IMPORTANT: the failure signature is IDENTICAL to the run before your fix — the same "
+                "tests fail with the same errors. Your change did not move the failure. First verify "
+                "your edit is actually reaching the executed code (see the dead-edit axiom); if it is, "
+                "your hypothesis is wrong — investigate a different component or layer."
+            )
+        return (
+            f"CRITICAL: {ctx.failure_signature_streak} consecutive fixes have left the failure signature "
+            "completely unchanged. Your current hypothesis class is exhausted — do NOT refine it further. "
+            "You MUST change strategy: (1) verify your edits reach the executed code (dead-edit axiom), "
+            "(2) re-read the failure output from scratch without your prior assumptions, and (3) pick a "
+            "different component or layer to investigate. State your new hypothesis via report_progress "
+            "before editing anything."
+        )
+
+    def _bounce_duplicate_submissions(self, response: dict, render_context: RenderContext, tool_executor, ctx) -> dict:
+        """Bounce a submit_fix that repeats an already-failed ledger attempt.
+
+        The bounce answers the pending submit_fix call with an explanation and lets
+        the session continue, instead of spending a full test/review cycle on an
+        approach the ledger already records as failed. Bounced at most
+        MAX_DUPLICATE_SUBMISSION_BOUNCES times per attempt so a deliberate
+        resubmission (with its stated justification) still goes through.
+        """
+        bounces = 0
+        while bounces < MAX_DUPLICATE_SUBMISSION_BOUNCES:
+            fix_summary = response.get("terminal_tool_args")
+            pending_call_id = response.get("terminal_tool_call_id")
+            session_id = response.get("session_id") or (ctx.fix_agent_session_id if ctx else None)
+            if not fix_summary or not pending_call_id or not session_id or not ctx:
+                return response
+
+            duplicate_index = fix_signals.find_duplicate_attempt(fix_summary, ctx.fix_attempts_ledger)
+            if duplicate_index is None:
+                return response
+
+            bounces += 1
+            prior = ctx.fix_attempts_ledger[duplicate_index]
+            console.warning(
+                f"Fix submission matches already-failed attempt #{duplicate_index + 1} "
+                f"(outcome: {prior.get('outcome', 'unknown')}). Bouncing it back to the agent."
+            )
+            trace(
+                "fix-loop",
+                event="duplicate-submission-bounced",
+                matches_attempt=duplicate_index + 1,
+                prior_outcome=prior.get("outcome"),
+                root_cause=preview(str(fix_summary.get("root_cause", ""))),
+            )
+            bounce_message = (
+                f"SUBMISSION BOUNCED BEFORE TESTING: your submitted fix matches attempt "
+                f"#{duplicate_index + 1} from the Previous Fix Attempts ledger, which already failed "
+                f"(outcome: {prior.get('outcome', 'unknown')}).\n"
+                f"That attempt claimed root cause: {prior.get('root_cause', 'n/a')}\n"
+                f"And changed: {prior.get('changes_made', 'n/a')}\n\n"
+                "Do not resubmit the same approach. Either state the NEW evidence that invalidates the "
+                "recorded outcome and adjust the fix accordingly, or change your hypothesis class — "
+                "investigate a different component or layer — and submit a genuinely different fix."
+            )
+            try:
+                response = agent_runner.continue_session(
+                    session_id=session_id,
+                    additional_context=bounce_message,
+                    render_context=render_context,
+                    tool_executor=tool_executor,
+                    pending_tool_call_id=pending_call_id,
+                )
+            except Exception as e:
+                console.warning(f"Could not bounce duplicate submission ({e}); accepting it as-is.")
+                return response
+        return response
+
+    @staticmethod
     def _record_previous_attempt_outcome(ctx, review_rejection_feedback: str, prepare_environment_failed: bool) -> None:
         """Fill in the outcome of the most recent ledger entry once it is known.
 
@@ -328,6 +455,13 @@ class AgentFixConformanceTest(BaseAction):
             last_attempt["outcome"] = "rejected by the integrity reviewer"
         elif prepare_environment_failed:
             last_attempt["outcome"] = "build/compile failed after the fix; the tests never ran"
+        elif ctx.failure_signature_streak >= 1:
+            # The streak reaches fresh sessions via the ledger, so a post-rotation
+            # agent knows these attempts did not even move the failure.
+            last_attempt["outcome"] = (
+                "conformance tests still failing — the failure signature was completely "
+                "unchanged by this fix (same failing tests, same errors)"
+            )
         else:
             last_attempt["outcome"] = "conformance tests still failing"
         trace(
@@ -579,6 +713,7 @@ class AgentFixConformanceTest(BaseAction):
         review_rejection_feedback: str,
         prepare_environment_failed: bool,
         prepare_environment_output_file: str,
+        failure_signature_notice: str = "",
     ) -> str:
         """Build a message to continue the agent session with new test results and feedback."""
         parts = []
@@ -619,6 +754,8 @@ class AgentFixConformanceTest(BaseAction):
                 parts.append(
                     "Your fix was evaluated by running the conformance tests using the conformance tests script, but the tests still failed, and no test output file is available.\n"
                 )
+            if failure_signature_notice:
+                parts.append(f"{failure_signature_notice}\n")
 
         parts.append("\nNext steps:\n")
         parts.append("1. Thoroughly read the:\n")
