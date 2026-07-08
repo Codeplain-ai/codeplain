@@ -157,10 +157,11 @@ Write-Host ""
 
 # Check if API key already exists
 $skipApiKeySetup = $false
+$apiKeyVerified = $false
 if ($env:CODEPLAIN_API_KEY) {
+    $useExisting = $false
     if ($nonInteractive) {
-        Write-Host "${GREEN}✓${NC} Using existing CODEPLAIN_API_KEY (non-interactive mode)."
-        $skipApiKeySetup = $true
+        $useExisting = $true
     } else {
         Write-Host "  You already have an API key configured."
         Write-Host ""
@@ -170,7 +171,33 @@ if ($env:CODEPLAIN_API_KEY) {
         Write-Host ""
 
         if ($getNewKey -notmatch '^[Yy]$') {
+            $useExisting = $true
+        }
+    }
+
+    # Verify the existing key before trusting it, so a stale/expired key
+    # doesn't slip through with a false "Sign in successful".
+    if ($useExisting) {
+        Write-Host "${GRAY}Verifying your existing API key...${NC}"
+        $existingResult = Test-ApiKey $env:CODEPLAIN_API_KEY
+        if ($existingResult -eq "valid") {
             Write-Host "${GREEN}✓${NC} Using existing API key."
+            $skipApiKeySetup = $true
+            $apiKeyVerified = $true
+        } elseif ($existingResult -eq "invalid") {
+            if ($nonInteractive) {
+                Write-Host "${RED}Existing CODEPLAIN_API_KEY is invalid.${NC}"
+                Write-Host "${GRAY}Set a valid CODEPLAIN_API_KEY and re-run the installer.${NC}"
+                $skipApiKeySetup = $true
+            } else {
+                Write-Host "${RED}Your existing API key is invalid. Please enter a new one.${NC}"
+                Write-Host ""
+                # $skipApiKeySetup stays false: fall through to the paste flow.
+            }
+        } else {
+            # Could not reach the API. Keep the existing key rather than
+            # blocking the user over a transient network issue.
+            Write-Host "${GRAY}Could not verify the existing API key (could not reach $($env:CODEPLAIN_API_URL)). Keeping it.${NC}"
             $skipApiKeySetup = $true
         }
     }
@@ -200,6 +227,7 @@ if (-not $skipApiKeySetup) {
             if ($result -eq "valid") {
                 Write-Host "${GREEN}✓${NC} API key verified."
                 Write-Host ""
+                $apiKeyVerified = $true
                 break
             } elseif ($result -eq "invalid") {
                 Write-Host "${RED}Invalid API key. Please make sure the full key was copied.${NC}"
@@ -239,7 +267,7 @@ Write-Host @'
 '@
 Write-Host ""
 # Only claim success when a verified API key is actually configured.
-if ($env:CODEPLAIN_API_KEY) {
+if ($apiKeyVerified) {
     Write-Host "${GREEN}✓ Sign in successful.${NC}"
     Write-Host ""
 }

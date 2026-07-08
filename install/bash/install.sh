@@ -102,10 +102,11 @@ fi
 
 # Check if API key already exists
 SKIP_API_KEY_SETUP=false
+API_KEY_VERIFIED=false
 if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
+    USE_EXISTING=false
     if [ "$NONINTERACTIVE" = "1" ]; then
-        echo -e "${GREEN}✓${NC} Using existing CODEPLAIN_API_KEY (non-interactive mode)."
-        SKIP_API_KEY_SETUP=true
+        USE_EXISTING=true
     else
         echo -e "  You already have an API key configured."
         echo ""
@@ -115,7 +116,32 @@ if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
         echo ""
 
         if [[ ! "$GET_NEW_KEY" =~ ^[Yy]$ ]]; then
+            USE_EXISTING=true
+        fi
+    fi
+
+    # Verify the existing key before trusting it, so a stale/expired key
+    # doesn't slip through with a false "Sign in successful".
+    if [ "$USE_EXISTING" = true ]; then
+        echo -e "${GRAY}Verifying your existing API key...${NC}"
+        if validate_api_key "$CODEPLAIN_API_KEY"; then
             echo -e "${GREEN}✓${NC} Using existing API key."
+            SKIP_API_KEY_SETUP=true
+            API_KEY_VERIFIED=true
+        elif [ "$VALIDATION_HTTP_CODE" = "401" ]; then
+            if [ "$NONINTERACTIVE" = "1" ]; then
+                echo -e "${RED}Existing CODEPLAIN_API_KEY is invalid.${NC}"
+                echo -e "${GRAY}Set a valid CODEPLAIN_API_KEY and re-run the installer.${NC}"
+                SKIP_API_KEY_SETUP=true
+            else
+                echo -e "${RED}Your existing API key is invalid. Please enter a new one.${NC}"
+                echo ""
+                # SKIP_API_KEY_SETUP stays false: fall through to the paste flow.
+            fi
+        else
+            # Could not reach the API. Keep the existing key rather than
+            # blocking the user over a transient network issue.
+            echo -e "${GRAY}Could not verify the existing API key (could not reach ${CODEPLAIN_API_URL}). Keeping it.${NC}"
             SKIP_API_KEY_SETUP=true
         fi
     fi
@@ -144,6 +170,7 @@ if [ "$SKIP_API_KEY_SETUP" = false ]; then
             if validate_api_key "$API_KEY"; then
                 echo -e "${GREEN}✓${NC} API key verified."
                 echo ""
+                API_KEY_VERIFIED=true
                 break
             elif [ "$VALIDATION_HTTP_CODE" = "401" ]; then
                 echo -e "${RED}Invalid API key. Please make sure the full key was copied.${NC}"
@@ -212,7 +239,7 @@ cat << 'EOF'
 EOF
 echo ""
 # Only claim success when a verified API key is actually configured.
-if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
+if [ "$API_KEY_VERIFIED" = true ]; then
     echo -e "${GREEN}✓ Sign in successful.${NC}"
     echo ""
 fi
