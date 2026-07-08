@@ -12,6 +12,11 @@ if (-not $env:CODEPLAIN_SCRIPTS_BASE_URL) {
     $env:CODEPLAIN_SCRIPTS_BASE_URL = "https://codeplain.ai"
 }
 
+# Base URL for the Codeplain API (used to verify the API key)
+if (-not $env:CODEPLAIN_API_URL) {
+    $env:CODEPLAIN_API_URL = "https://api.codeplain.ai"
+}
+
 # Brand Colors (True Color / 24-bit)
 $ESC = [char]27
 $YELLOW     = "$ESC[38;2;224;255;110m"      # #E0FF6E
@@ -53,6 +58,33 @@ function Install-Uv {
     } else {
         bash -c "curl -LsSf https://astral.sh/uv/install.sh | sh"
         $env:PATH = "$HOME/.local/bin:$env:PATH"
+    }
+}
+
+# Verify an API key against the Codeplain API's /status endpoint.
+# Returns a status string: "valid" (HTTP 200), "invalid" (HTTP 401), or
+# "error" (could not reach the API). This checks only the API key.
+function Test-ApiKey {
+    param([string]$Key)
+
+    $body = @{ api_key = $Key } | ConvertTo-Json -Compress
+    try {
+        $response = Invoke-WebRequest -Uri "$($env:CODEPLAIN_API_URL)/status" `
+            -Method Post `
+            -ContentType "application/json" `
+            -Body $body `
+            -TimeoutSec 30 `
+            -UseBasicParsing `
+            -ErrorAction Stop
+        if ($response.StatusCode -eq 200) { return "valid" }
+        return "error"
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        if ($statusCode -eq 401) { return "invalid" }
+        return "error"
     }
 }
 
@@ -151,8 +183,33 @@ if (-not $skipApiKeySetup) {
     } else {
         Write-Host "Go to ${YELLOW}https://platform.codeplain.ai${NC} and sign up to get your API key."
         Write-Host ""
-        $apiKey = Read-Host "Paste your API key here"
-        Write-Host ""
+        # Keep prompting until we get a valid API key (or the user submits an
+        # empty value to skip). The pasted key is trimmed and verified against
+        # the Codeplain API before we accept it.
+        while ($true) {
+            $apiKey = (Read-Host "Paste your API key here").Trim()
+            Write-Host ""
+
+            # Empty input: let the user skip key setup for now.
+            if (-not $apiKey) {
+                break
+            }
+
+            Write-Host "${GRAY}Verifying your API key...${NC}"
+            $result = Test-ApiKey $apiKey
+            if ($result -eq "valid") {
+                Write-Host "${GREEN}✓${NC} API key verified."
+                Write-Host ""
+                break
+            } elseif ($result -eq "invalid") {
+                Write-Host "${RED}Invalid API key. Please make sure the full key was copied.${NC}"
+                Write-Host ""
+            } else {
+                Write-Host "${RED}Could not verify the API key (could not reach $($env:CODEPLAIN_API_URL)).${NC}"
+                Write-Host "${GRAY}Check your internet connection and try again.${NC}"
+                Write-Host ""
+            }
+        }
     }
 }
 
@@ -181,8 +238,11 @@ Write-Host @'
                       |_|
 '@
 Write-Host ""
-Write-Host "${GREEN}✓ Sign in successful.${NC}"
-Write-Host ""
+# Only claim success when a verified API key is actually configured.
+if ($env:CODEPLAIN_API_KEY) {
+    Write-Host "${GREEN}✓ Sign in successful.${NC}"
+    Write-Host ""
+}
 Write-Host "  ${WHITE}Welcome to *codeplain!${NC}"
 Write-Host ""
 Write-Host "  ${GRAY}Spec-driven, production-ready code generation${NC}"
