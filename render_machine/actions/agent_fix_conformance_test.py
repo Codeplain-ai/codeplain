@@ -4,6 +4,7 @@ import file_utils
 import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import console
+from plain2code_trace import preview, trace
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
@@ -52,6 +53,19 @@ class AgentFixConformanceTest(BaseAction):
         # Re-entering this action means the previous attempt (if any) did not resolve
         # the failure — record its outcome on the ledger before the next attempt.
         self._record_previous_attempt_outcome(ctx, review_rejection_feedback, prepare_environment_failed)
+
+        trace(
+            "fix-loop",
+            event="enter",
+            module=ctx.current_testing_module_name,
+            testing_frid=ctx.current_testing_frid,
+            fix_attempts=ctx.fix_attempts,
+            session=ctx.fix_agent_session_id,
+            handoffs=len(ctx.fix_handoffs),
+            ledger_entries=len(ctx.fix_attempts_ledger),
+            review_rejected=bool(review_rejection_feedback),
+            prepare_environment_failed=prepare_environment_failed,
+        )
 
         console.info(
             f"Agent fixing conformance test for functionality "
@@ -178,6 +192,14 @@ class AgentFixConformanceTest(BaseAction):
                     console.warning(
                         "Previous fix session expired or hit max turns. Starting fresh session with accumulated context."
                     )
+                    trace(
+                        "fix-loop",
+                        event="session-rotation",
+                        old_session=session_id,
+                        handoffs=len(ctx.fix_handoffs),
+                        escalated=bool(ctx.fix_handoffs),
+                        reason=preview(str(e)),
+                    )
                     render_context.conformance_tests_running_context.fix_agent_session_id = None
 
                     # Start new session with full context (includes prior handoffs)
@@ -236,6 +258,17 @@ class AgentFixConformanceTest(BaseAction):
 
         # Store on context so it's available regardless of which path re-enters this action
         ctx.last_fix_summary = fix_summary
+
+        trace(
+            "fix-loop",
+            event="fix-submitted",
+            structured=bool(response.get("terminal_tool_args")),
+            root_cause=preview(fix_summary.get("root_cause", "")),
+            changes_made=preview(fix_summary.get("changes_made", "")),
+            verification=preview(fix_summary.get("verification", "")),
+            confidence=fix_summary.get("confidence"),
+            files_modified=fix_summary.get("files_modified") or None,
+        )
 
         # Every real submit_fix goes on the structured attempts ledger. Unlike the
         # free-text handoffs (only the most recent few are injected), the ledger is
@@ -297,6 +330,13 @@ class AgentFixConformanceTest(BaseAction):
             last_attempt["outcome"] = "build/compile failed after the fix; the tests never ran"
         else:
             last_attempt["outcome"] = "conformance tests still failing"
+        trace(
+            "fix-loop",
+            event="attempt-outcome",
+            attempt=len(ctx.fix_attempts_ledger),
+            outcome=last_attempt["outcome"],
+            root_cause=preview(last_attempt.get("root_cause", "")),
+        )
 
     def _get_conformance_test_folder(self, render_context: RenderContext) -> str:
         ctx = render_context.conformance_tests_running_context
@@ -456,6 +496,14 @@ class AgentFixConformanceTest(BaseAction):
             console.warning(
                 "Fix agent ran out of turns without resolving the failure. "
                 "Captured a handoff for the next session and starting fresh."
+            )
+            trace(
+                "fix-loop",
+                event="handoff-captured",
+                session=ctx.fix_agent_session_id,
+                handoff_number=len(ctx.fix_handoffs),
+                handoff_chars=len(handoff),
+                handoff=preview(handoff),
             )
         # End the exhausted session so the next cycle does not try to continue a
         # turn-exhausted session (which would just be force-concluded again).

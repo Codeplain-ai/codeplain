@@ -10,6 +10,7 @@ from plain2code_events import (
     RenderPaused,
     RenderStateUpdated,
 )
+from plain2code_trace import trace
 from render_machine.render_context import RenderContext
 from render_machine.state_machine_config import StateMachineConfig, States
 
@@ -69,8 +70,23 @@ class CodeRenderer:
 
             self.render_context.previous_action_payload = previous_action_payload
 
-            outcome, previous_action_payload = self.action_map[self.render_context.state].execute(
-                self.render_context, previous_action_payload
+            state_before = self.render_context.state
+            action = self.action_map[state_before]
+            action_started_at = time.monotonic()
+
+            outcome, previous_action_payload = action.execute(self.render_context, previous_action_payload)
+
+            trace(
+                "state-machine",
+                module=self.render_context.module_name,
+                frid=self.render_context.frid_context.frid if self.render_context.frid_context else None,
+                state=state_before,
+                action=type(action).__name__,
+                outcome=outcome,
+                duration_s=time.monotonic() - action_started_at,
+                payload_keys=(
+                    sorted(previous_action_payload.keys()) if isinstance(previous_action_payload, dict) else None
+                ),
             )
 
             if self.render_context.state == States.RENDER_FAILED.value:
@@ -86,6 +102,12 @@ class CodeRenderer:
 
             next_trigger = self.action_result_triggers_map[outcome]
             self.machine.dispatch(next_trigger)
+            trace(
+                "state-machine",
+                module=self.render_context.module_name,
+                trigger=next_trigger,
+                new_state=self.render_context.state,
+            )
 
         self.render_context.run_state.add_to_render_time()
 

@@ -1,7 +1,9 @@
 import logging
+import time
 import traceback
 from typing import Callable
 
+from plain2code_trace import preview, summarize_args, trace
 from render_machine.agent import tools
 from render_machine.render_context import RenderContext
 
@@ -44,11 +46,30 @@ class ToolExecutor:
 
         tool_fn = self._tools.get(name)
         if tool_fn is None:
+            trace("tool", name=name, error="unknown tool")
             return f"Error: Unknown tool '{name}'"
 
+        started_at = time.monotonic()
         try:
-            return tool_fn(args, render_context)
+            output = tool_fn(args, render_context)
         except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"Tool '{name}' crashed with args {args}:\n{tb}")
+            trace(
+                "tool",
+                name=name,
+                args=summarize_args(args),
+                duration_s=time.monotonic() - started_at,
+                crashed=f"{type(e).__name__}: {e}",
+            )
             return f"Error: Tool '{name}' crashed: {type(e).__name__}: {e}\n\nStack trace:\n{tb}"
+
+        trace(
+            "tool",
+            name=name,
+            args=summarize_args(args),
+            duration_s=time.monotonic() - started_at,
+            result_chars=len(output) if isinstance(output, str) else None,
+            result=preview(output, 200),
+        )
+        return output
