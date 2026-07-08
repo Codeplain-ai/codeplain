@@ -10,6 +10,7 @@ from event_bus import EventBus
 from plain2code_console import console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
+from plain2code_trace import trace
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -278,6 +279,13 @@ class RenderContext:
 
     def start_fixing_unit_tests(self, on_limit_exceeded: Callable):
         self.unit_tests_running_context.fix_attempts += 1
+        trace(
+            "fix-loop",
+            event="unit-test-fix-attempt",
+            frid=self.frid_context.frid if self.frid_context else None,
+            attempt=self.unit_tests_running_context.fix_attempts,
+            limit=MAX_UNITTEST_FIX_ATTEMPTS,
+        )
         if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
             on_limit_exceeded()
 

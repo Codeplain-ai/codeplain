@@ -16,6 +16,7 @@ import git_utils
 import plain_spec
 from plain2code_console import console
 from plain2code_exceptions import RenderCancelledError
+from plain2code_trace import preview, trace
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 COMMAND_EXECUTION_TIMEOUT = 60  # Default for ad-hoc agent diagnostic commands (run_command).
@@ -156,6 +157,15 @@ def execute_command(  # noqa: C901
             reader.join(timeout=2)
             partial = _sanitize_script_output("".join(output_chunks))
             temp_path = _write_command_output_file(partial, exit_code=TIMEOUT_ERROR_EXIT_CODE, timed_out=True)
+            trace(
+                "script",
+                type="command",
+                command=preview(command),
+                timed_out=True,
+                timeout_s=cmd_timeout,
+                output_chars=len(partial),
+                output_file=temp_path,
+            )
             return (
                 TIMEOUT_ERROR_EXIT_CODE,
                 f"Command timed out after {cmd_timeout} seconds.\n{partial}",
@@ -187,6 +197,15 @@ def execute_command(  # noqa: C901
 
     output = _sanitize_script_output("".join(output_chunks))
     temp_path = _write_command_output_file(output, exit_code=proc.returncode, timed_out=False)
+    trace(
+        "script",
+        type="command",
+        command=preview(command),
+        exit_code=proc.returncode,
+        duration_s=time.time() - start_time,
+        output_chars=len(output),
+        output_file=temp_path,
+    )
     return proc.returncode, output, temp_path
 
 
@@ -281,6 +300,16 @@ def execute_script(  # noqa: C901
         elapsed_time = time.time() - start_time
 
         sanitized_script_output = _sanitize_script_output(stdout)
+        trace(
+            "script",
+            type=script_type,
+            script=script,
+            frid=frid,
+            module=module,
+            exit_code=proc.returncode,
+            duration_s=elapsed_time,
+            output_chars=len(sanitized_script_output),
+        )
 
         with tempfile.NamedTemporaryFile(
             mode="w+", encoding="utf-8", delete=False, suffix=".script_output"

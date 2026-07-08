@@ -2,8 +2,52 @@ import json
 import os
 
 from plain2code_console import console
+from plain2code_trace import preview, trace
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.render_context import RenderContext
+
+
+def _summarize_task_params(task_params: dict) -> str:
+    """Compact key:size summary of the params a session is seeded with.
+
+    Sizes (not content) are what matters here: they show what the agent's context
+    was built from and how big each part was.
+    """
+    parts = []
+    for key, value in task_params.items():
+        text = value if isinstance(value, str) else repr(value)
+        parts.append(f"{key}:{len(text)}ch")
+    return ",".join(parts) if parts else "-"
+
+
+def _trace_turn(response: dict, task_type: str, turn_count: int) -> None:
+    """One record per agent turn: which tools it called and its narration."""
+    calls = response.get("calls", [])
+    trace(
+        "agent",
+        event="turn",
+        task=task_type,
+        session=response.get("session_id"),
+        turn=turn_count,
+        tool_calls=len(calls),
+        tools=[c.get("name") for c in calls],
+        reasoning=preview(response.get("reasoning", "")) or None,
+    )
+
+
+def _trace_session_end(response: dict, task_type: str, turn_count: int) -> None:
+    trace(
+        "agent",
+        event="session-end",
+        task=task_type,
+        session=response.get("session_id"),
+        turns=turn_count,
+        status=response.get("status"),
+        terminal_tool=response.get("terminal_tool"),
+        error=preview(response.get("error", "")) or None,
+        result=preview(response.get("result", "")) or None,
+    )
+
 
 MAX_AGENT_TURNS = 100
 MAX_REVIEWER_TURNS = 30
@@ -49,6 +93,15 @@ def run(
     # in those tool calls. setdefault so an explicitly provided value is never clobbered.
     task_params.setdefault("project_root", os.getcwd())
 
+    trace(
+        "agent",
+        event="session-start",
+        task=task_type,
+        escalated=escalated,
+        keep_alive=keep_session_alive,
+        params=_summarize_task_params(task_params),
+    )
+
     response = render_context.codeplain_api.agent_start(
         task_type=task_type,
         task_params=task_params,
@@ -61,10 +114,18 @@ def run(
     turn_count = 0
     while response.get("status") == "tool_calls" and turn_count < max_turns:
         turn_count += 1
+        _trace_turn(response, task_type, turn_count)
 
         terminal_result = _extract_terminal_tool(response["calls"])
         if terminal_result is not None:
             # Agent called a terminal tool — end the loop, use its args as structured result
+            trace(
+                "agent",
+                event="terminal-tool",
+                session=response.get("session_id"),
+                turn=turn_count,
+                tool=terminal_result.get("name"),
+            )
             response = _build_terminal_response(terminal_result, response.get("session_id"))
             if not keep_session_alive:
                 # The terminal tool call is never answered for one-shot sessions (e.g.
@@ -81,6 +142,8 @@ def run(
             run_state=render_context.run_state,
             keep_session_alive=keep_session_alive,  # Keep alive if this is a persistent session
         )
+
+    _trace_session_end(response, task_type, turn_count)
 
     if response.get("status") == "completed":
         console.info(f"Agent task '{task_type}' completed successfully.")
@@ -123,6 +186,15 @@ def continue_session(
     if max_turns is None:
         max_turns = MAX_AGENT_TURNS
 
+    trace(
+        "agent",
+        event="session-continue",
+        session=session_id,
+        via="tool-result" if pending_tool_call_id else "user-message",
+        context=preview(additional_context),
+        context_chars=len(additional_context),
+    )
+
     if pending_tool_call_id:
         # Answer the open terminal tool call with the feedback as its result. This
         # continues the same tool loop (no new user turn), preserving prompt caching.
@@ -143,9 +215,17 @@ def continue_session(
     turn_count = 0
     while response.get("status") == "tool_calls" and turn_count < max_turns:
         turn_count += 1
+        _trace_turn(response, "continue", turn_count)
 
         terminal_result = _extract_terminal_tool(response["calls"])
         if terminal_result is not None:
+            trace(
+                "agent",
+                event="terminal-tool",
+                session=session_id,
+                turn=turn_count,
+                tool=terminal_result.get("name"),
+            )
             response = _build_terminal_response(terminal_result, session_id)
             break
 
@@ -157,6 +237,8 @@ def continue_session(
             run_state=render_context.run_state,
             keep_session_alive=True,  # Keep session alive for future continuations
         )
+
+    _trace_session_end(response, "continue", turn_count)
 
     if response.get("status") == "completed":
         console.info(f"Agent session '{session_id}' completed successfully.")

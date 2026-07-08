@@ -28,7 +28,11 @@ class IndentedFormatter(logging.Formatter):
 
         modified_message = original_message.replace("\n", "\n" + self._indent)
 
+        # getMessage() above already interpolated msg % args. Clear args so
+        # super().format() doesn't interpolate a second time — which crashes on
+        # records logged lazily (logger.debug("%s", value)).
         record.msg = modified_message
+        record.args = None
         return super().format(record)
 
 
@@ -61,7 +65,12 @@ class ElapsedTimeFormatter(logging.Formatter):
         original_message = record.getMessage()
         indent = " " * len(elapsed_time + " ")
         modified_message = original_message.replace("\n", "\n" + indent)
+
+        # getMessage() above already interpolated msg % args. Clear args so
+        # super().format() doesn't interpolate a second time — which crashes on
+        # records logged lazily (logger.debug("%s", value)).
         record.msg = modified_message
+        record.args = None
 
         return super().format(record)
 

@@ -124,18 +124,25 @@ def setup_logging(
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
 
-    if log_to_file:
+    # The log file is the debugging artifact: it always captures the full DEBUG
+    # trace (state-machine transitions, agent turns, tool calls, API timings), so a
+    # failed render can be diagnosed without re-running it with --verbose. The
+    # console/TUI keeps the configured level. An explicit logging_config.yaml still
+    # wins, since it exists precisely to override these defaults.
+    file_log_level = configured_log_level if config_loaded else logging.DEBUG
+
+    if log_to_file and log_file_path:
         try:
             file_handler = logging.FileHandler(log_file_path, mode="w", encoding="utf-8")
             file_handler.setFormatter(file_formatter)
-            file_handler.setLevel(configured_log_level)
+            file_handler.setLevel(file_log_level)
             root_logger.addHandler(file_handler)
         except Exception as e:
             console.warning(f"Failed to setup file logging to {log_file_path}: {str(e)}")
     else:
         crash_handler = CrashLogHandler()
         crash_handler.setFormatter(file_formatter)
-        crash_handler.setLevel(configured_log_level)
+        crash_handler.setLevel(file_log_level)
         root_logger.addHandler(crash_handler)
 
     return logging.getLevelName(configured_log_level)

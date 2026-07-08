@@ -1,3 +1,4 @@
+import json
 import time
 from typing import Optional
 
@@ -6,6 +7,7 @@ from requests.exceptions import ConnectionError, RequestException, Timeout
 
 import plain2code_exceptions
 from plain2code_state import RunState
+from plain2code_trace import preview, trace
 
 MAX_RETRIES = 4
 RETRY_DELAY = 3
@@ -126,10 +128,17 @@ class CodeplainAPI:
         if run_state is not None:
             self._extend_payload_with_run_state(payload, run_state)
 
+        endpoint = endpoint_url[len(self.api_url) :] if endpoint_url.startswith(self.api_url) else endpoint_url
+        try:
+            payload_chars = len(json.dumps(payload, default=str))
+        except (TypeError, ValueError):
+            payload_chars = -1
+
         retry_delay = RETRY_DELAY
         response_json = None
 
         for attempt in range(num_retries + 1):
+            request_started_at = time.monotonic()
             try:
                 response = requests.post(endpoint_url, headers=headers, json=payload, timeout=timeout)
 
@@ -139,6 +148,16 @@ class CodeplainAPI:
                     self.console.debug(f"Failed to decode JSON response: {e}. Response text: {response.text}")
                     raise Exception(f"Error rendering plain code: Failed to decode API response ({e}).\n") from e
 
+                trace(
+                    "api",
+                    endpoint=endpoint,
+                    attempt=attempt + 1,
+                    status=response.status_code,
+                    duration_s=time.monotonic() - request_started_at,
+                    payload_chars=payload_chars,
+                    response_chars=len(response.text),
+                )
+
                 if response.status_code == requests.codes.bad_request and "error_code" in response_json:
                     self._raise_for_error_code(response_json)
 
@@ -146,6 +165,14 @@ class CodeplainAPI:
                 return response_json
 
             except Exception as e:
+                trace(
+                    "api",
+                    endpoint=endpoint,
+                    attempt=attempt + 1,
+                    duration_s=time.monotonic() - request_started_at,
+                    payload_chars=payload_chars,
+                    error=preview(f"{type(e).__name__}: {e}"),
+                )
                 # For other errors, check if they should be retried
                 if response_json is not None and "error_code" in response_json:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:

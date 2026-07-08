@@ -6,6 +6,7 @@ import diff_utils
 import file_utils
 from memory_management import AGENT_MEMORY_SUBFOLDER, GLOBAL_MEMORY_SUBFOLDER, MemoryManager
 from plain2code_console import console
+from plain2code_trace import preview, trace
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
@@ -132,6 +133,14 @@ class ReviewConformanceFixAction(BaseAction):
 
         approved = (
             structured_verdict == "APPROVED" if structured_verdict else "VERDICT: APPROVED" in result_text.upper()
+        )
+        trace(
+            "review",
+            verdict="APPROVED" if approved else "REJECTED",
+            structured=bool(structured_verdict),
+            diff_files=len(diff_text),
+            diff_chars=len(diff_str),
+            feedback=preview(result_text) if not approved else None,
         )
         if approved:
             console.info("[green]Review APPROVED[/green]")
