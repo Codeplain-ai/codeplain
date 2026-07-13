@@ -48,7 +48,12 @@ class RunState:
         self.rendered_functionalities += 1
 
     def add_to_render_time(self):
-        self.render_time_accumulated += int(time.monotonic() - self.last_render_start_timestamp)
+        # Advance the baseline together with the accumulator, otherwise the segment
+        # since the previous baseline is counted again on every subsequent call
+        # (e.g. once per rendered module) and the reported time compounds.
+        now = time.monotonic()
+        self.render_time_accumulated += int(now - self.last_render_start_timestamp)
+        self.last_render_start_timestamp = now
 
     def set_last_render_start_timestamp(self):
         self.last_render_start_timestamp = time.monotonic()
