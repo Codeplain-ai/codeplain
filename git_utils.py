@@ -114,6 +114,23 @@ def is_dirty(repo_path: Union[str, os.PathLike]) -> bool:
     return repo.is_dirty(untracked_files=True)
 
 
+def get_dirty_file_names(repo_path: Union[str, os.PathLike]) -> list:
+    """Returns the paths (relative to the repo root) of all modified, added,
+    deleted, and untracked files — the set that add_all_files_and_commit would commit."""
+    repo = Repo(repo_path)
+    names = []
+    # -uall lists files inside untracked directories individually (instead of "dir/").
+    for line in repo.git.status("--porcelain", "-uall").splitlines():
+        if not line.strip():
+            continue
+        path = line[3:]
+        # Renames are reported as "old -> new"; the new path is what gets committed.
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        names.append(path.strip('"'))
+    return names
+
+
 def add_all_files_and_commit(
     repo_path: Union[str, os.PathLike],
     commit_message: str,

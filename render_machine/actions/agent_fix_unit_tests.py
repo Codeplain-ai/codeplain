@@ -3,6 +3,7 @@ from typing import Any
 
 import file_utils
 import plain_spec
+import repo_map
 from memory_management import MemoryManager
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -45,8 +46,9 @@ class AgentFixUnitTests(BaseAction):
         test_output_file = self._save_test_output_to_file(test_output)
         linked_resource_paths = self._get_linked_resource_paths(render_context)
 
+        specifications = self._build_specifications_text(render_context)
         task_params = {
-            "specifications": self._build_specifications_text(render_context),
+            "specifications": specifications,
             "linked_resource_paths": linked_resource_paths,
             "test_output_file": test_output_file,
             "unit_tests_script_path": render_context.unittests_script or "",
@@ -56,6 +58,16 @@ class AgentFixUnitTests(BaseAction):
             "memory_folder": render_context.memory_manager.memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
         }
+        # Orientation seeds: codebase map (boosted by spec terms and the failing test
+        # output, so implicated files keep their outlines when the map is over budget)
+        # plus the per-FRID implementation history.
+        relevance_text = specifications + "\n" + test_output[-4_000:]
+        repo_map_text = repo_map.build_repo_map_param(render_context, relevance_text=relevance_text)
+        if repo_map_text:
+            task_params["repo_map"] = repo_map_text
+        code_brief = repo_map.read_code_brief(render_context.build_folder)
+        if code_brief:
+            task_params["code_brief"] = code_brief
 
         tool_executor = ToolExecutor(available_tools=FIX_UNIT_TESTS_TOOLS)
         response = agent_runner.run("fix_unit_tests", task_params, render_context, tool_executor)

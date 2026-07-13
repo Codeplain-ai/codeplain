@@ -3,6 +3,7 @@ from typing import Any
 
 import file_utils
 import plain_spec
+import repo_map
 from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
@@ -113,8 +114,9 @@ class AgentRenderConformanceTests(BaseAction):
 
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
 
+        specifications = self._build_specifications_text(render_context)
         task_params = {
-            "specifications": self._build_specifications_text(render_context),
+            "specifications": specifications,
             "linked_resource_paths": self._get_linked_resource_paths(render_context),
             "acceptance_tests": all_acceptance_tests,
             "build_folder": render_context.build_folder,
@@ -129,11 +131,28 @@ class AgentRenderConformanceTests(BaseAction):
             "memory_folder": render_context.memory_manager.memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
         }
+        self._add_orientation_params(task_params, render_context, conformance_tests_folder_name, specifications)
 
         tool_executor = ToolExecutor(available_tools=RENDER_CONFORMANCE_TESTS_TOOLS)
         agent_runner.run("render_conformance_tests", task_params, render_context, tool_executor)
 
         return self.SUCCESSFUL_OUTCOME, None
+
+    @staticmethod
+    def _add_orientation_params(
+        task_params: dict, render_context: RenderContext, conformance_tests_folder_name: str, specifications: str
+    ) -> None:
+        """Seed the session with the codebase map and the module's implementation history."""
+        repo_map_text = repo_map.build_repo_map_param(
+            render_context,
+            conformance_tests_folder=conformance_tests_folder_name,
+            relevance_text=specifications,
+        )
+        if repo_map_text:
+            task_params["repo_map"] = repo_map_text
+        code_brief = repo_map.read_code_brief(render_context.build_folder)
+        if code_brief:
+            task_params["code_brief"] = code_brief
 
     def _render_acceptance_test(self, render_context: RenderContext):
         if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:
@@ -156,8 +175,9 @@ class AgentRenderConformanceTests(BaseAction):
 
         console.info(f"Agent generating acceptance test:\n  {acceptance_test}")
 
+        specifications = self._build_specifications_text(render_context)
         task_params = {
-            "specifications": self._build_specifications_text(render_context),
+            "specifications": specifications,
             "linked_resource_paths": self._get_linked_resource_paths(render_context),
             "acceptance_test": acceptance_test,
             "existing_conformance_tests": conformance_tests_files_content,
@@ -173,6 +193,7 @@ class AgentRenderConformanceTests(BaseAction):
             "memory_folder": render_context.memory_manager.memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
         }
+        self._add_orientation_params(task_params, render_context, conformance_tests_folder_name, specifications)
 
         tool_executor = ToolExecutor(available_tools=RENDER_CONFORMANCE_TESTS_TOOLS)
         agent_runner.run("render_conformance_tests", task_params, render_context, tool_executor)

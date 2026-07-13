@@ -2,6 +2,7 @@ from typing import Any
 
 import file_utils
 import plain_spec
+import repo_map
 from memory_management import MemoryManager
 from plain2code_console import console
 from plain2code_trace import preview, trace
@@ -564,7 +565,7 @@ class AgentFixConformanceTest(BaseAction):
         Shared by the first-attempt path and the session-rotation path so the two
         stay in sync.
         """
-        return {
+        task_params = {
             "specifications": specifications,
             "test_output_file": test_output_file,
             "prepare_environment_output_file": prepare_environment_output_file,
@@ -583,6 +584,23 @@ class AgentFixConformanceTest(BaseAction):
             "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
             "keep_session_alive": True,  # Mark this as a persistent session
         }
+
+        # Orientation seeds: codebase map (boosted by spec terms and the failing test
+        # output, so the files implicated in the failure keep their outlines when the
+        # map is over budget) plus the per-FRID implementation history.
+        relevance_text = specifications + "\n" + repo_map.read_text_tail(test_output_file)
+        repo_map_text = repo_map.build_repo_map_param(
+            render_context,
+            conformance_tests_folder=conformance_test_folder,
+            relevance_text=relevance_text,
+        )
+        if repo_map_text:
+            task_params["repo_map"] = repo_map_text
+        code_brief = repo_map.read_code_brief(render_context.build_folder)
+        if code_brief:
+            task_params["code_brief"] = code_brief
+
+        return task_params
 
     def _add_optional_task_params(
         self,

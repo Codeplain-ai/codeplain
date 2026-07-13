@@ -3,6 +3,7 @@ from typing import Any
 import file_utils
 import plain_spec
 import render_machine.render_utils as render_utils
+import repo_map
 from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
@@ -49,8 +50,9 @@ class AgentRenderFunctionalRequirement(BaseAction):
         console.info(msg)
 
         memory_folder = render_context.memory_manager.memory_folder
+        specifications = self._build_specifications_text(render_context)
         task_params = {
-            "specifications": self._build_specifications_text(render_context),
+            "specifications": specifications,
             "linked_resource_paths": self._get_linked_resource_paths(render_context),
             "include_unittests": render_context.should_run_unit_tests(),
             "build_folder": render_context.build_folder,
@@ -58,6 +60,14 @@ class AgentRenderFunctionalRequirement(BaseAction):
             "memory_folder": memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(memory_folder),
         }
+        # Orientation seeds: codebase map + per-FRID implementation history. Built after
+        # revert_changes_for_frid so the map reflects the baseline the agent will see.
+        repo_map_text = repo_map.build_repo_map_param(render_context, relevance_text=specifications)
+        if repo_map_text:
+            task_params["repo_map"] = repo_map_text
+        code_brief = repo_map.read_code_brief(render_context.build_folder)
+        if code_brief:
+            task_params["code_brief"] = code_brief
 
         tool_executor = ToolExecutor(available_tools=RENDER_FUNCTIONAL_REQUIREMENT_TOOLS)
         agent_runner.run("render_functional_requirement", task_params, render_context, tool_executor)
