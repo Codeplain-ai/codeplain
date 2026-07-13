@@ -347,7 +347,7 @@ def test_code_variables(load_test_data, get_test_data_path):
         ],
         "functional specs": [
             {
-                "markdown": "- Implement something nice and useful\n  - the nice thing should be really {{ variable_name }}\n  - the useful thing should be really useful",
+                "markdown": "- Implement something nice and useful\n    - the nice thing should be really {{ variable_name }}\n    - the useful thing should be really useful",
                 "code_variables": [{"name": "variable_name", "value": "nice"}],
             }
         ],
@@ -395,7 +395,7 @@ def test_code_variables(load_test_data, get_test_data_path):
         ],
         "functional specs": [
             {
-                "markdown": "- Implement something nice and useful\n  - the nice thing should be really {{ variable_name_1 }}\n  - the useful thing should be really useful",
+                "markdown": "- Implement something nice and useful\n    - the nice thing should be really {{ variable_name_1 }}\n    - the useful thing should be really useful",
                 "code_variables": [{"name": "variable_name_1", "value": "nice"}],
             }
         ],
