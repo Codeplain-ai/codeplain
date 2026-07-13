@@ -2,7 +2,7 @@ import io
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence, cast
 from urllib.parse import urlparse
 
 import frontmatter
@@ -11,7 +11,8 @@ import mistletoe.block_token
 from liquid2 import DictLoader, Environment
 from mistletoe.block_token import List, Paragraph, Quote
 from mistletoe.markdown_renderer import Fragment, MarkdownRenderer
-from mistletoe.span_token import Emphasis, Link, RawText, Strong
+from mistletoe.span_token import Emphasis, Link, RawText, SpanToken, Strong
+from mistletoe.token import Token
 from mistletoe.utils import traverse
 
 import concept_utils
@@ -55,7 +56,7 @@ class PlainRenderer(MarkdownRenderer):
     def render_link(self, token: Link) -> Iterable[Fragment]:
         yield from self.embed_span(
             Fragment(f"`{RESOURCE_MARKER}"),
-            token.children,
+            cast("Iterable[SpanToken]", token.children),
             Fragment("`"),
         )
 
@@ -214,24 +215,27 @@ def _is_acceptance_test_heading(token) -> tuple[bool, str | None]:
     if not isinstance(token, Paragraph):
         return False, None
 
-    # Check for the specific structure
-    if (
-        len(token.children) == 1
-        and isinstance(token.children[0], Emphasis)
-        and len(token.children[0].children) == 1
-        and isinstance(token.children[0].children[0], Strong)
-        and len(token.children[0].children[0].children) == 1
-        and isinstance(token.children[0].children[0].children[0], RawText)
-    ):
+    # Check for the specific structure, descending one level at a time. mistletoe types
+    # ``children`` as ``Optional[Iterable[Token]]``, so cast each level to a concrete
+    # sequence before indexing/len.
+    children = cast("Sequence[Token]", token.children)
+    if len(children) != 1 or not isinstance(children[0], Emphasis):
+        return False, None
 
-        # Check the actual text content
-        content = token.children[0].children[0].children[0].content.strip()
-        if content == plain_spec.ACCEPTANCE_TEST_HEADING:
-            return True, None
-        problem = f"Syntax error at line {token.line_number}: Invalid acceptance test heading (`{content}`). Expected: `{plain_spec.ACCEPTANCE_TEST_HEADING}.`"
-        return False, problem
+    emphasis_children = cast("Sequence[Token]", children[0].children)
+    if len(emphasis_children) != 1 or not isinstance(emphasis_children[0], Strong):
+        return False, None
 
-    return False, None
+    strong_children = cast("Sequence[Token]", emphasis_children[0].children)
+    if len(strong_children) != 1 or not isinstance(strong_children[0], RawText):
+        return False, None
+
+    # Check the actual text content
+    content = strong_children[0].content.strip()
+    if content == plain_spec.ACCEPTANCE_TEST_HEADING:
+        return True, None
+    problem = f"Syntax error at line {token.line_number}: Invalid acceptance test heading (`{content}`). Expected: `{plain_spec.ACCEPTANCE_TEST_HEADING}.`"
+    return False, problem
 
 
 def _find_acceptance_test_heading(token):
@@ -267,8 +271,8 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
     - If acceptance tests are not specified, it has 1 child:
         - List item element with functionality instructions/text
     """
-    new_children = []
-    functional_requirement_children = iter(functional_requirement.children)
+    new_children: list = []
+    functional_requirement_children = iter(functional_requirement.children or ())
     acceptance_tests_found_already = False
 
     for functional_requirement_child in functional_requirement_children:
@@ -312,7 +316,8 @@ def _process_single_acceptance_test_requirement(functional_requirement: mistleto
 
     # Assign the children property to all the children of the functionality from previous, with exception
     # of those we parsed as acceptance tests
-    functional_requirement.children = type(functional_requirement.children)(new_children)
+    container_type = cast(type, type(functional_requirement.children))
+    functional_requirement.children = container_type(new_children)
 
 
 def process_acceptance_tests(plain_source):
@@ -514,19 +519,25 @@ def parse_plain_source(  # noqa: C901
     for token in plain_file.children:
         token_text = "".join(get_raw_text(token)).strip()
         if isinstance(token, Paragraph):
+            paragraph_children = cast("Sequence[Token]", token.children)
+            emphasis_children = (
+                cast("Sequence[Token]", paragraph_children[0].children)
+                if paragraph_children and isinstance(paragraph_children[0], Emphasis)
+                else ()
+            )
             if not (
-                len(token.children) == 1
-                and isinstance(token.children[0], Emphasis)
-                and isinstance(token.children[0], Emphasis)
-                and len(token.children[0].children) == 1
-                and isinstance(token.children[0].children[0], Strong)
+                len(paragraph_children) == 1
+                and isinstance(paragraph_children[0], Emphasis)
+                and len(emphasis_children) == 1
+                and isinstance(emphasis_children[0], Strong)
             ):
 
                 raise PlainSyntaxError(
                     f"Plain syntax error: Syntax error at line {token.line_number}: Invalid specification (`{token_text}`)"
                 )
 
-            specification_heading = token.children[0].children[0].children[0].content
+            strong_children = cast("Sequence[Token]", emphasis_children[0].children)
+            specification_heading = cast(RawText, strong_children[0]).content
 
             if specification_heading == plain_spec.ACCEPTANCE_TEST_HEADING:
                 raise PlainSyntaxError(
