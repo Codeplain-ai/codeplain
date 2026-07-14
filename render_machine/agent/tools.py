@@ -271,6 +271,37 @@ def _resolve_file_path(file_path: str) -> str:
     return os.path.normpath(os.path.join(_get_project_root(), file_path))
 
 
+def _resolve_agent_path(file_path: str, render_context: RenderContext) -> str:
+    """Resolve a path from the agent, tolerating build-/conformance-relative forms.
+
+    Primary resolution is against the project root (CWD) — the documented base. When
+    the primary target does not exist and the path is relative, fall back to the build
+    folder and the conformance tests folder: the codebase map lists paths relative to
+    those roots, so a model that omits the root prefix should still reach the file it
+    meant instead of a not-found error (or a same-named file elsewhere). The project
+    root stays authoritative — a path that exists there is never reinterpreted.
+
+    For paths that exist nowhere yet (new files being written), a fallback base wins
+    when the path's PARENT directory exists under it — so writing
+    src/main/java/.../New.java lands in the build folder's tree, not in a freshly
+    created tree at the project root.
+    """
+    primary = _resolve_file_path(file_path)
+    if os.path.isabs(file_path) or os.path.exists(primary):
+        return primary
+
+    bases = _get_allowed_write_folders(render_context)
+    for base in bases:
+        candidate = os.path.normpath(os.path.join(base, file_path))
+        if os.path.exists(candidate):
+            return candidate
+    for base in bases:
+        candidate = os.path.normpath(os.path.join(base, file_path))
+        if os.path.isdir(os.path.dirname(candidate)):
+            return candidate
+    return primary
+
+
 def _is_within_any(full_path: str, allowed_folders: list[str]) -> bool:
     """Check if full_path is within any of the allowed folders."""
     for folder in allowed_folders:
@@ -438,7 +469,7 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
             f"If you intended to modify the file, please provide different replacement text."
         )
 
-    full_path = _resolve_file_path(file_path)
+    full_path = _resolve_agent_path(file_path, render_context)
     allowed_folders = _get_allowed_write_folders(render_context)
 
     if not _is_within_any(full_path, allowed_folders):
@@ -478,7 +509,7 @@ def write_file(args: dict, render_context: RenderContext) -> str:
     if not file_path:
         return "Error: file_path is required"
 
-    full_path = _resolve_file_path(file_path)
+    full_path = _resolve_agent_path(file_path, render_context)
     allowed_folders = _get_allowed_write_folders(render_context)
 
     if not _is_within_any(full_path, allowed_folders):
@@ -518,7 +549,7 @@ def delete_file(args: dict, render_context: RenderContext) -> str:
     if not file_path:
         return "Error: file_path is required"
 
-    full_path = _resolve_file_path(file_path)
+    full_path = _resolve_agent_path(file_path, render_context)
     allowed_folders = _get_allowed_write_folders(render_context)
 
     if not _is_within_any(full_path, allowed_folders):
@@ -735,7 +766,7 @@ def read_file(args: dict, render_context: RenderContext) -> str:
     if not file_path:
         return "Error: file_path is required"
 
-    full_path = _resolve_file_path(file_path)
+    full_path = _resolve_agent_path(file_path, render_context)
 
     denial = _check_read_access(full_path, render_context)
     if denial:
@@ -833,7 +864,7 @@ def grep(args: dict, render_context: RenderContext) -> str:
         # Default to build folder
         search_path = render_context.build_folder
     else:
-        search_path = _resolve_file_path(file_path)
+        search_path = _resolve_agent_path(file_path, render_context)
 
     resolved_search = os.path.normpath(os.path.abspath(search_path))
 

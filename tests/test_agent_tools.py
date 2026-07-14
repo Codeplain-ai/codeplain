@@ -384,3 +384,50 @@ def test_tool_names_match_server_definitions():
         f"Defined on server but not handled by client: {sorted(server_tool_names - client_tool_names)}\n"
         f"Handled by client but not defined on server: {sorted(client_tool_names - server_tool_names)}"
     )
+
+
+def test_read_file_resolves_build_relative_path(project_dir, monkeypatch):
+    """A path relative to the build folder (as listed in the codebase map) resolves
+    into the build folder when it doesn't exist at the project root."""
+    monkeypatch.chdir(project_dir)
+    build_folder = os.path.join(project_dir, "plain_modules", "my_module")
+    target = os.path.join(build_folder, "src", "main", "java", "App.java")
+    os.makedirs(os.path.dirname(target))
+    with open(target, "w") as f:
+        f.write("public class App {}\n")
+
+    result = tools.read_file({"file_path": "src/main/java/App.java"}, _fake_render_context(build_folder))
+
+    assert "public class App" in result
+
+
+def test_read_file_project_root_stays_authoritative(project_dir, monkeypatch):
+    """A relative path that exists at the project root is never reinterpreted."""
+    monkeypatch.chdir(project_dir)
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    with open(os.path.join(project_dir, "notes.txt"), "w") as f:
+        f.write("root copy")
+    with open(os.path.join(build_folder, "notes.txt"), "w") as f:
+        f.write("build copy")
+
+    result = tools.read_file({"file_path": "notes.txt"}, _fake_render_context(build_folder))
+
+    assert "root copy" in result
+
+
+def test_write_file_new_file_lands_in_build_tree(project_dir, monkeypatch):
+    """Writing a new build-relative path whose parent exists under the build folder
+    creates the file there — not in a fresh tree at the project root."""
+    monkeypatch.chdir(project_dir)
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(os.path.join(build_folder, "src", "main", "java"))
+
+    result = tools.write_file(
+        {"file_path": "src/main/java/New.java", "content": "public class New {}\n"},
+        _fake_render_context(build_folder),
+    )
+
+    assert "Successfully wrote" in result
+    assert os.path.exists(os.path.join(build_folder, "src", "main", "java", "New.java"))
+    assert not os.path.exists(os.path.join(project_dir, "src"))
