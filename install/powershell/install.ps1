@@ -426,16 +426,20 @@ if ($downloadExamples -notmatch '^[Nn]$') {
 if ($env:CODEPLAIN_API_KEY) {
     Write-Host "${GRAY}Verifying your installation...${NC}"
     $verifyOk = $false
+    $verifyOutput = ""
     try {
-        & codeplain --status *> $null
+        $verifyOutput = & codeplain --status 2>&1 | Out-String
         $verifyOk = ($LASTEXITCODE -eq 0)
     } catch {
+        $verifyOutput = $_ | Out-String
         $verifyOk = $false
     }
     if ($verifyOk) {
         Write-Host "${GREEN}✓${NC} Installation verified."
     } else {
         Write-Host "${RED}Something went wrong during installation.${NC}"
+        Write-Host "${GRAY}Output of 'codeplain --status':${NC}"
+        Write-Host $verifyOutput
         Write-Host "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
         Write-Host "  uv tool install --force codeplain"
         exit 1
