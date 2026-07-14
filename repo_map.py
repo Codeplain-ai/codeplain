@@ -36,9 +36,10 @@ CACHE_FILE_NAME = "repo_map_cache.json"
 CODE_BRIEF_FILE_NAME = "code_brief.md"
 
 MAP_HEADER = (
-    "Every file line below is a complete path relative to the project root — pass it "
-    "VERBATIM to read_file/grep, exactly as written. The map reflects session start and "
-    "may be slightly stale; always read a file before editing it."
+    "A file's path is <section root folder> + <directory line> + <file name>. Paths "
+    "relative to a root folder also work as-is — the file tools resolve them against "
+    "the implementation code and conformance tests folders. The map reflects session "
+    "start and may be slightly stale; always read a file before editing it."
 )
 
 CODE_BRIEF_HEADER = (
@@ -237,47 +238,71 @@ def _relevance_tokens(relevance_text: str) -> set[str]:
     return {token.lower() for token in _IDENTIFIER_RE.findall(relevance_text or "")}
 
 
+def _file_line(entry: _FileEntry, name: str) -> str:
+    line_count = f"  ({entry.lines} lines)" if entry.lines else ""
+    return f"{name}{line_count}"
+
+
+def _render_boosted_block(root: str, entries: list[_FileEntry], boosted: set[str]) -> list[str]:
+    """Task-implicated files (spec terms, failing-test output), as complete single-line
+    paths with outlines. These are the reads that must not miss, so they get verbatim
+    paths at every detail level — the only place the per-file path cost is paid."""
+    lines = []
+    for entry in sorted(entries, key=lambda e: e.rel_path):
+        if entry.abs_path not in boosted:
+            continue
+        lines.append(_file_line(entry, os.path.join(root, entry.rel_path)))
+        lines.extend(f"    {outline_line}" for outline_line in entry.outline)
+    if lines:
+        lines.insert(0, "Key files for this task (complete paths):")
+    return lines
+
+
 def _render_root(label: str, root: str, entries: list[_FileEntry], boosted: set[str], level: int) -> list[str]:
-    """Render one root at a detail level: 0 = all outlines, 1 = boosted outlines only,
-    2 = paths only, 3 = collapsed directories.
+    """Render one root at a detail level: 0 = all outlines, 1 = names only,
+    2+ = collapsed directories.
 
-    Every file line carries the COMPLETE path (root joined with the file's relative
-    path), ready to pass to read_file/grep verbatim. Requiring the model to join a
-    heading prefix with a bare file name is exactly how wrong-file reads happen, so
-    no line here needs mental path arithmetic. Outlines stay indented beneath their
-    file line; paths start at column 0.
+    Layout: directory lines are relative to the section's root folder (stated once on
+    the section line), with bare file names indented beneath them. The root prefix is
+    not repeated per line — repeating it would spend most of the budget re-encoding
+    the same string — and the file tools resolve root-relative paths directly, so
+    even a path used without the prefix reaches the right file. Root-level files sit
+    under the full root folder line to avoid bare names resolving elsewhere. Boosted
+    files additionally appear with complete paths in the block above the tree.
     """
-    lines = [f"{label} — {root} ({len(entries)} files):"]
+    lines = [f"{label} — root folder: {root}/ ({len(entries)} files, directory lines relative to the root folder):"]
+    lines.extend(_render_boosted_block(root, entries, boosted))
 
-    if level >= 3:
-        # Even fully collapsed, the files implicated by the task (spec terms, failing
-        # test output) keep their complete path and outline — they are what the agent
-        # needs to find first.
-        for entry in sorted(entries, key=lambda e: e.rel_path):
-            if entry.abs_path not in boosted:
-                continue
-            line_count = f"  ({entry.lines} lines)" if entry.lines else ""
-            lines.append(f"{os.path.join(root, entry.rel_path)}{line_count}")
-            lines.extend(f"    {outline_line}" for outline_line in entry.outline)
-        by_dir: dict[str, list[_FileEntry]] = {}
-        for entry in entries:
-            by_dir.setdefault(os.path.dirname(entry.rel_path), []).append(entry)
-        for dir_path in sorted(by_dir):
-            dir_entries = by_dir[dir_path]
-            full_dir = os.path.join(root, dir_path) if dir_path else root
+    by_dir: dict[str, list[_FileEntry]] = {}
+    for entry in entries:
+        by_dir.setdefault(os.path.dirname(entry.rel_path), []).append(entry)
+
+    for dir_path in sorted(by_dir):
+        dir_entries = sorted(by_dir[dir_path], key=lambda e: e.rel_path)
+        dir_line = (dir_path + "/") if dir_path else (root + "/")
+
+        if level >= 2:
             names = ", ".join(os.path.basename(e.rel_path) for e in dir_entries[:6])
             more = f", … +{len(dir_entries) - 6} more" if len(dir_entries) > 6 else ""
-            lines.append(f"{full_dir}/ ({len(dir_entries)} files: {names}{more})")
-        return lines
+            lines.append(f"{dir_line} ({len(dir_entries)} files: {names}{more})")
+            continue
 
-    for entry in sorted(entries, key=lambda e: e.rel_path):
-        line_count = f"  ({entry.lines} lines)" if entry.lines else ""
-        lines.append(f"{os.path.join(root, entry.rel_path)}{line_count}")
-        include_outline = level == 0 or (level == 1 and entry.abs_path in boosted)
-        if include_outline:
-            lines.extend(f"    {outline_line}" for outline_line in entry.outline)
+        lines.append(dir_line)
+        for entry in dir_entries:
+            lines.append(f"  {_file_line(entry, os.path.basename(entry.rel_path))}")
+            # Boosted outlines already appear in the block above — no need twice.
+            if level == 0 and entry.abs_path not in boosted:
+                lines.extend(f"    {outline_line}" for outline_line in entry.outline)
 
     return lines
+
+
+def _display_root(path: str) -> str:
+    """Project-root-relative form of a root folder for display, when it lies under
+    the project root (the CWD, which is also what the file tools resolve against);
+    otherwise the path as given."""
+    rel = os.path.relpath(os.path.normpath(os.path.abspath(path)), os.getcwd())
+    return path if rel.startswith("..") else rel
 
 
 def generate_repo_map(
@@ -291,9 +316,13 @@ def generate_repo_map(
     Degrades through detail levels until the result fits max_chars; returns "" when
     no root exists.
     """
-    # Walk the normalized absolute path but display the path as the caller gave it —
-    # the rest of the agent's prompt refers to folders by project-root-relative paths.
-    existing_roots = [(label, path, os.path.normpath(os.path.abspath(path))) for label, path in roots if path]
+    # Walk the normalized absolute path but display a project-root-relative path —
+    # the rest of the agent's prompt refers to folders relative to the project root,
+    # and an absolute build folder (e.g. from an absolute --build-folder) would bloat
+    # every line with the same machine-specific prefix.
+    existing_roots = [
+        (label, _display_root(path), os.path.normpath(os.path.abspath(path))) for label, path in roots if path
+    ]
     existing_roots = [(label, path, abs_path) for label, path, abs_path in existing_roots if os.path.isdir(abs_path)]
     if not existing_roots:
         return ""
@@ -311,9 +340,14 @@ def generate_repo_map(
     tokens = _relevance_tokens(relevance_text)
     boosted = {entry.abs_path for _, _, entries in collected for entry in entries if entry.stem in tokens}
 
+    header = [MAP_HEADER]
+    example = _example_read_call(collected, boosted)
+    if example:
+        header.append(example)
+
     text = ""
-    for level in range(4):
-        parts = [MAP_HEADER]
+    for level in range(3):
+        parts = list(header)
         for label, path, entries in collected:
             parts.extend(_render_root(label, path, entries, boosted, level))
         text = "\n".join(parts)
@@ -321,6 +355,19 @@ def generate_repo_map(
             return text
 
     return text[:max_chars] + "\n… [map truncated to budget]"
+
+
+def _example_read_call(collected: list, boosted: set[str]) -> str:
+    """A worked path-join example using a real file from the map — models follow a
+    concrete example far more reliably than a construction rule alone."""
+    chosen = None
+    for _, display_path, entries in collected:
+        for entry in entries:
+            if chosen is None or entry.abs_path in boosted:
+                chosen = os.path.join(display_path, entry.rel_path)
+                if entry.abs_path in boosted:
+                    return f'Example: read_file("{chosen}")'
+    return f'Example: read_file("{chosen}")' if chosen else ""
 
 
 def build_repo_map_param(render_context, conformance_tests_folder: str | None = None, relevance_text: str = "") -> str:
