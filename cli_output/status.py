@@ -32,7 +32,7 @@ def _display_credit_line(plan_credits: dict) -> None:
     # If naive datetime, assume UTC
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    formatted_date = dt.strftime("%b %-d, %Y")
+    formatted_date = f"{dt.strftime('%b')} {dt.day}, {dt.year}"
 
     # Check if expired
     now = datetime.now(timezone.utc)
@@ -62,7 +62,7 @@ def _display_bucket_credit_line(bucket: dict, label: str) -> None:
     # If naive datetime, assume UTC
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    formatted_date = dt.strftime("%b %-d, %Y")
+    formatted_date = f"{dt.strftime('%b')} {dt.day}, {dt.year}"
 
     # Check if expired
     now = datetime.now(timezone.utc)

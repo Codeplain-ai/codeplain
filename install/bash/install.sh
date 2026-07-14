@@ -396,10 +396,12 @@ if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
     # Ensure the freshly installed tool is findable in this session.
     export PATH="$HOME/.local/bin:$PATH"
     echo -e "${GRAY}Verifying your installation...${NC}"
-    if codeplain --status > /dev/null 2>&1; then
+    if verify_output=$(codeplain --status 2>&1); then
         echo -e "${GREEN}✓${NC} Installation verified."
     else
         echo -e "${RED}Something went wrong during installation.${NC}"
+        echo -e "${GRAY}Output of 'codeplain --status':${NC}"
+        echo "$verify_output"
         echo -e "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
         echo -e "  uv tool install --force codeplain"
         exit 1
