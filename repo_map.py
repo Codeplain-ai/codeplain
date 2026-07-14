@@ -20,9 +20,12 @@ import re
 
 from plain2code_console import console
 
-# ~3k tokens. The map competes with specs and diffs for the session's context
-# budget, so it degrades (outlines -> tree -> collapsed dirs) rather than grow.
-MAX_MAP_CHARS = 12_000
+# ~4k tokens. The map lives in the session-stable (prompt-cached) system content, so
+# it is paid mostly once per session — but it still competes with specs and diffs for
+# the context window, so over budget it degrades (outlines -> paths-only -> collapsed
+# dirs) rather than grow. Full tool-ready paths make lines long; the budget accounts
+# for that.
+MAX_MAP_CHARS = 16_000
 MAX_BRIEF_CHARS = 4_000
 MAX_OUTLINE_LINES_PER_FILE = 24
 MAX_OUTLINE_LINE_CHARS = 110
@@ -33,8 +36,9 @@ CACHE_FILE_NAME = "repo_map_cache.json"
 CODE_BRIEF_FILE_NAME = "code_brief.md"
 
 MAP_HEADER = (
-    "Orientation only: this map lists files and public signatures at session start. "
-    "It may be slightly stale — always read a file before editing it."
+    "Every file line below is a complete path relative to the project root — pass it "
+    "VERBATIM to read_file/grep, exactly as written. The map reflects session start and "
+    "may be slightly stale; always read a file before editing it."
 )
 
 CODE_BRIEF_HEADER = (
@@ -235,30 +239,43 @@ def _relevance_tokens(relevance_text: str) -> set[str]:
 
 def _render_root(label: str, root: str, entries: list[_FileEntry], boosted: set[str], level: int) -> list[str]:
     """Render one root at a detail level: 0 = all outlines, 1 = boosted outlines only,
-    2 = tree only, 3 = collapsed directories."""
-    lines = [f"## {label}: {root}  ({len(entries)} files)"]
+    2 = paths only, 3 = collapsed directories.
 
-    by_dir: dict[str, list[_FileEntry]] = {}
-    for entry in entries:
-        by_dir.setdefault(os.path.dirname(entry.rel_path), []).append(entry)
+    Every file line carries the COMPLETE path (root joined with the file's relative
+    path), ready to pass to read_file/grep verbatim. Requiring the model to join a
+    heading prefix with a bare file name is exactly how wrong-file reads happen, so
+    no line here needs mental path arithmetic. Outlines stay indented beneath their
+    file line; paths start at column 0.
+    """
+    lines = [f"{label} — {root} ({len(entries)} files):"]
 
-    for dir_path in sorted(by_dir):
-        dir_entries = by_dir[dir_path]
-        dir_label = (dir_path + "/") if dir_path else "./"
-
-        if level >= 3:
+    if level >= 3:
+        # Even fully collapsed, the files implicated by the task (spec terms, failing
+        # test output) keep their complete path and outline — they are what the agent
+        # needs to find first.
+        for entry in sorted(entries, key=lambda e: e.rel_path):
+            if entry.abs_path not in boosted:
+                continue
+            line_count = f"  ({entry.lines} lines)" if entry.lines else ""
+            lines.append(f"{os.path.join(root, entry.rel_path)}{line_count}")
+            lines.extend(f"    {outline_line}" for outline_line in entry.outline)
+        by_dir: dict[str, list[_FileEntry]] = {}
+        for entry in entries:
+            by_dir.setdefault(os.path.dirname(entry.rel_path), []).append(entry)
+        for dir_path in sorted(by_dir):
+            dir_entries = by_dir[dir_path]
+            full_dir = os.path.join(root, dir_path) if dir_path else root
             names = ", ".join(os.path.basename(e.rel_path) for e in dir_entries[:6])
             more = f", … +{len(dir_entries) - 6} more" if len(dir_entries) > 6 else ""
-            lines.append(f"{dir_label}  ({len(dir_entries)} files: {names}{more})")
-            continue
+            lines.append(f"{full_dir}/ ({len(dir_entries)} files: {names}{more})")
+        return lines
 
-        lines.append(dir_label)
-        for entry in dir_entries:
-            line_count = f"  ({entry.lines} lines)" if entry.lines else ""
-            lines.append(f"  {os.path.basename(entry.rel_path)}{line_count}")
-            include_outline = level == 0 or (level == 1 and entry.abs_path in boosted)
-            if include_outline:
-                lines.extend(f"    {outline_line}" for outline_line in entry.outline)
+    for entry in sorted(entries, key=lambda e: e.rel_path):
+        line_count = f"  ({entry.lines} lines)" if entry.lines else ""
+        lines.append(f"{os.path.join(root, entry.rel_path)}{line_count}")
+        include_outline = level == 0 or (level == 1 and entry.abs_path in boosted)
+        if include_outline:
+            lines.extend(f"    {outline_line}" for outline_line in entry.outline)
 
     return lines
 
