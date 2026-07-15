@@ -431,3 +431,124 @@ def test_write_file_new_file_lands_in_build_tree(project_dir, monkeypatch):
     assert "Successfully wrote" in result
     assert os.path.exists(os.path.join(build_folder, "src", "main", "java", "New.java"))
     assert not os.path.exists(os.path.join(project_dir, "src"))
+
+
+def test_edit_file_replace_all_replaces_every_occurrence(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    Path(file_path).write_text("old_name(1)\nkeep()\nold_name(2)\nold_name(3)\n", encoding="utf-8")
+
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "old_name", "replace": "new_name", "replace_all": True},
+        _fake_render_context(build_folder),
+    )
+
+    assert "replaced 3 occurrence(s)" in result
+    content = Path(file_path).read_text(encoding="utf-8")
+    assert "old_name" not in content and content.count("new_name") == 3
+
+
+def test_edit_file_multiple_matches_suggests_replace_all(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    Path(file_path).write_text("x = 1\ny = 1\n", encoding="utf-8")
+
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "= 1", "replace": "= 2"},
+        _fake_render_context(build_folder),
+    )
+
+    assert result.startswith("Error: Search text found 2 times")
+    assert "replace_all=true" in result
+
+
+def test_edit_file_replace_all_requires_exact_text(project_dir):
+    """replace_all never fuzzy-matches — a non-verbatim search errors cleanly."""
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    Path(file_path).write_text("def compute():\n    return 1\n", encoding="utf-8")
+
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "def  compute():", "replace": "x", "replace_all": True},
+        _fake_render_context(build_folder),
+    )
+
+    assert result.startswith("Error: replace_all requires the search text to appear verbatim")
+    assert "def compute():" in Path(file_path).read_text(encoding="utf-8")
+
+
+def test_edit_file_fuzzy_matches_single_modified_line(project_dir):
+    """One stale line in a 4+-line search block — the most common way an agent's
+    search text goes stale — must still match."""
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    file_lines = [
+        "def process(data):",
+        "    validate(data)",
+        "    normalized = normalize(data)",
+        "    enriched = enrich(normalized)",
+        "    result = transform(enriched)",
+        "    audit(result)",
+        "    return result",
+    ]
+    Path(file_path).write_text("\n".join(file_lines) + "\n", encoding="utf-8")
+
+    stale = list(file_lines)
+    stale[3] = "    enriched = enrich(normalized, config)"  # one slightly-off line
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "\n".join(stale), "replace": "REPLACED"},
+        _fake_render_context(build_folder),
+    )
+
+    assert "Successfully edited" in result and "fuzzy match" in result
+    assert Path(file_path).read_text(encoding="utf-8") == "REPLACED\n"
+
+
+def test_edit_file_fuzzy_two_modified_lines_still_miss(project_dir):
+    """Two modified lines stay below the acceptance bar — the guard against
+    replacing a region the agent misremembers."""
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    file_lines = [
+        "def compute_total(items):",
+        "    total = 0",
+        "    for item in items:",
+        "        total += item.price * item.quantity",
+        "    return total",
+    ]
+    Path(file_path).write_text("\n".join(file_lines) + "\n", encoding="utf-8")
+
+    stale = list(file_lines)
+    stale[1] = "    total = 0.0"
+    stale[3] = "        total += item.price * item.qty"
+    result = tools.edit_file(
+        {"file_path": file_path, "search": "\n".join(stale), "replace": "x"},
+        _fake_render_context(build_folder),
+    )
+
+    assert result.startswith("Error: Search text not found")
+
+
+def test_edit_file_fuzzy_tolerates_indentation_differences(project_dir):
+    """Whitespace-normalized line matching: tabs-vs-spaces must not defeat the match."""
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    file_path = os.path.join(build_folder, "app.py")
+    Path(file_path).write_text("def f():\n\tvalidate()\n\treturn 1\n", encoding="utf-8")
+
+    result = tools.edit_file(
+        {
+            "file_path": file_path,
+            "search": "def f():\n    validate()\n    return 1",
+            "replace": "def f():\n    return 2",
+        },
+        _fake_render_context(build_folder),
+    )
+
+    assert "Successfully edited" in result
+    assert "return 2" in Path(file_path).read_text(encoding="utf-8")
