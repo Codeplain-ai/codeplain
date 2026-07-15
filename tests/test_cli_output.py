@@ -79,14 +79,14 @@ class TestDisplayCreditLine:
             "type": "pro",
             "total": 1000,
             "remaining": 200,
-            "period_end": "2026-07-15T00:00:00+00:00",
+            "period_end": "2028-07-15T00:00:00+00:00",
         }
         _display_credit_line(plan_credits)
 
         call_args = mock_console.print.call_args[0][0]
         assert "PRO plan" in call_args
         assert "200 of 1000 remaining" in call_args
-        assert "expires Jul 15, 2026" in call_args
+        assert "expires Jul 15, 2028" in call_args
 
     @patch("cli_output.status.console")
     def test_display_expired_credits(self, mock_console):
