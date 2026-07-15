@@ -347,7 +347,8 @@ def _do_exact_match(
         return (
             f"Error: Search text found {count} times in '{full_path}', at:\n{listed}{suffix}\n"
             f"Extend the search string with surrounding lines so it uniquely identifies "
-            f"the occurrence to replace."
+            f"the occurrence to replace — or, if EVERY occurrence should receive the same "
+            f"replacement, retry with replace_all=true."
         )
 
     new_content = original_content.replace(search_text, replace_text, 1)
@@ -363,33 +364,77 @@ def _do_exact_match(
         return f"Error: failed to write to '{full_path}': {e}"
 
 
-def _do_fuzzy_match(
-    full_path: str, original_content: str, search_text: str, replace_text: str, render_context: RenderContext
-) -> str:
-    search_lines = search_text.splitlines()
-    content_lines = original_content.splitlines()
+def _normalize_fuzzy_line(line: str) -> str:
+    """Collapse whitespace so indentation/tab differences don't defeat line matching."""
+    return " ".join(line.split())
 
-    if not search_lines:
-        return "Error: Search text is empty or contains only whitespace"
 
-    best_ratio = 0.0
-    best_match_start = -1
-    best_match_end = -1
+def _find_best_fuzzy_window(search_norm: list[str], content_norm: list[str]) -> tuple[float, int, int]:
+    """Best (ratio, start, end) window of content lines for the search block.
+
+    Lines are compared as whitespace-normalized atoms. The search side is set as the
+    matcher's cached sequence, and each window is pre-screened with the cheap
+    real_quick_ratio/quick_ratio upper bounds — a window whose upper bound cannot beat
+    the current best is skipped without computing the full ratio. This preserves the
+    exact best-window result while making large-file sweeps cheap.
+    """
+    best_ratio, best_start, best_end = 0.0, -1, -1
+    matcher = difflib.SequenceMatcher(None)
+    matcher.set_seq2(search_norm)
 
     # Also try windows slightly shorter/longer than the search text: a fixed-size
     # window can never match when the file differs from the search block by an
     # inserted or deleted line, no matter how similar the rest is.
-    window_sizes = {size for size in range(len(search_lines) - 2, len(search_lines) + 3) if size >= 1}
+    window_sizes = {size for size in range(len(search_norm) - 2, len(search_norm) + 3) if size >= 1}
     for window_size in window_sizes:
-        for i in range(len(content_lines) - window_size + 1):
-            window = content_lines[i : i + window_size]
-            ratio = difflib.SequenceMatcher(None, search_lines, window).ratio()
+        for i in range(len(content_norm) - window_size + 1):
+            matcher.set_seq1(content_norm[i : i + window_size])
+            if matcher.real_quick_ratio() <= best_ratio or matcher.quick_ratio() <= best_ratio:
+                continue
+            ratio = matcher.ratio()
             if ratio > best_ratio:
-                best_ratio = ratio
-                best_match_start = i
-                best_match_end = i + window_size
+                best_ratio, best_start, best_end = ratio, i, i + window_size
+    return best_ratio, best_start, best_end
 
-    if best_ratio > 0.9:
+
+def _is_single_line_drift(window_norm: list[str], search_norm: list[str]) -> bool:
+    """True when the window differs from the search block by exactly one line.
+
+    The line-atom ratio punishes a single modified line hard (one changed line in an
+    8-line block scores 0.875, under the 0.9 bar), yet that is the most common way an
+    agent's search text goes stale. Accept the match when blocks of 4+ lines differ by
+    exactly one line — and, for a modified (rather than inserted/deleted) line, only
+    when the two variants are themselves clearly similar.
+    """
+    if min(len(window_norm), len(search_norm)) < 4:
+        return False
+    diffs = [op for op in difflib.SequenceMatcher(None, window_norm, search_norm).get_opcodes() if op[0] != "equal"]
+    if len(diffs) != 1:
+        return False
+    _tag, i1, i2, j1, j2 = diffs[0]
+    if max(i2 - i1, j2 - j1) != 1:
+        return False
+    if i2 - i1 == 1 and j2 - j1 == 1:
+        return difflib.SequenceMatcher(None, window_norm[i1], search_norm[j1]).ratio() > 0.8
+    return True
+
+
+def _do_fuzzy_match(
+    full_path: str, original_content: str, search_text: str, replace_text: str, render_context: RenderContext
+) -> str:
+    search_norm = [_normalize_fuzzy_line(line) for line in search_text.splitlines()]
+    content_lines = original_content.splitlines()
+    content_norm = [_normalize_fuzzy_line(line) for line in content_lines]
+
+    if not search_norm:
+        return "Error: Search text is empty or contains only whitespace"
+
+    best_ratio, best_match_start, best_match_end = _find_best_fuzzy_window(search_norm, content_norm)
+
+    accepted = best_ratio > 0.9 or (
+        best_match_start >= 0 and _is_single_line_drift(content_norm[best_match_start:best_match_end], search_norm)
+    )
+    if accepted:
         matched_text = "\n".join(content_lines[best_match_start:best_match_end])
         before = "\n".join(content_lines[:best_match_start])
         after = "\n".join(content_lines[best_match_end:])
@@ -437,6 +482,22 @@ def _do_fuzzy_match(
     )
 
 
+def _do_replace_all(
+    full_path: str, original_content: str, search_text: str, replace_text: str, render_context: RenderContext
+) -> str:
+    count = original_content.count(search_text)
+    new_content = original_content.replace(search_text, replace_text)
+    _track_file_change(full_path, render_context)
+    try:
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        return f"Successfully edited '{full_path}': replaced {count} occurrence(s) of the search text (replace_all)"
+    except PermissionError as e:
+        return f"Error: Permission denied writing to '{full_path}': {e}"
+    except Exception as e:
+        return f"Error: failed to write to '{full_path}': {e}"
+
+
 def edit_file(args: dict, render_context: RenderContext) -> str:
     """Edit a file using search and replace with fuzzy matching for robustness.
 
@@ -445,6 +506,9 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
             - file_path (str): Path to the file to edit
             - search (str): Text to search for in the file
             - replace (str): Text to replace the search text with
+            - replace_all (bool, optional): Replace every exact occurrence of the
+              search text instead of requiring uniqueness. Exact match only — fuzzy
+              matching is disabled for replace_all.
         render_context: The current render context
 
     Returns:
@@ -453,6 +517,9 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
     file_path = args.get("file_path", "")
     search_text = args.get("search", "")
     replace_text = args.get("replace", "")
+    replace_all = args.get("replace_all", False)
+    if isinstance(replace_all, str):  # models sometimes send booleans as strings
+        replace_all = replace_all.strip().lower() == "true"
 
     if not file_path:
         return "Error: file_path is required"
@@ -495,7 +562,18 @@ def edit_file(args: dict, render_context: RenderContext) -> str:
 
     # Try exact match first
     if search_text in original_content:
+        if replace_all:
+            return _do_replace_all(full_path, original_content, search_text, replace_text, render_context)
         return _do_exact_match(full_path, original_content, search_text, replace_text, render_context)
+
+    if replace_all:
+        # Fuzzy-replacing every "similar" region is far too dangerous — replace_all
+        # demands exact text so the blast radius is exactly what the agent asked for.
+        return (
+            f"Error: replace_all requires the search text to appear verbatim, and it was not found in "
+            f"'{full_path}'. Read the file and retry with the exact text (fuzzy matching is disabled "
+            f"for replace_all)."
+        )
 
     # Exact match failed - try fuzzy matching with whitespace normalization
     # This handles minor whitespace differences
