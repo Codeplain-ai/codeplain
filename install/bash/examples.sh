@@ -13,7 +13,7 @@ NC="${NC:-\033[0m}"
 
 # Examples configuration
 EXAMPLES_FOLDER_NAME="plainlang-examples"
-EXAMPLES_DOWNLOAD_URL="https://github.com/Codeplain-ai/plainlang-examples/archive/refs/tags/0.1.zip"
+EXAMPLES_DOWNLOAD_URL="https://codeplain.ai/examples/unix"
 
 # Show current directory and ask for extraction path
 CURRENT_DIR=$(pwd)
@@ -55,18 +55,12 @@ if [ "$SKIP_DOWNLOAD" = false ]; then
     if [ $? -eq 0 ] && [ -s "$TEMP_ZIP" ]; then
         echo -e "  ${GRAY}Extracting to ${EXTRACT_PATH}...${NC}"
 
-        # Extract the zip file
-        unzip -q -o "$TEMP_ZIP" -d "$EXTRACT_PATH" 2>/dev/null
+        # Extract the zip file (contents are at the zip root, so extract into the target folder)
+        EXTRACTED_DIR="${EXTRACT_PATH}/${EXAMPLES_FOLDER_NAME}"
+        rm -rf "$EXTRACTED_DIR" 2>/dev/null  # Remove existing if present
+        unzip -q -o "$TEMP_ZIP" -d "$EXTRACTED_DIR" 2>/dev/null
 
         if [ $? -eq 0 ]; then
-            # Find and rename extracted directory to remove version number
-            EXTRACTED_DIR="${EXTRACT_PATH}/${EXAMPLES_FOLDER_NAME}"
-            VERSIONED_DIR=$(find "$EXTRACT_PATH" -maxdepth 1 -type d -name "${EXAMPLES_FOLDER_NAME}-*" | head -1)
-            if [ -n "$VERSIONED_DIR" ]; then
-                rm -rf "$EXTRACTED_DIR" 2>/dev/null  # Remove existing if present
-                mv "$VERSIONED_DIR" "$EXTRACTED_DIR"
-            fi
-
             # Remove the .gitignore file from the root of the extracted directory
             if [ -f "${EXTRACTED_DIR}/.gitignore" ]; then
                 rm -f "${EXTRACTED_DIR}/.gitignore"
