@@ -11,7 +11,7 @@ if (-not $env:NC)         { $NC          = "$([char]27)[0m"               } else
 
 # Examples configuration
 $EXAMPLES_FOLDER_NAME = "plainlang-examples"
-$EXAMPLES_DOWNLOAD_URL = "https://github.com/Codeplain-ai/plainlang-examples/archive/refs/tags/0.1.zip"
+$EXAMPLES_DOWNLOAD_URL = "https://codeplain.ai/examples/windows"
 
 # Show current directory and ask for extraction path
 $CURRENT_DIR = Get-Location
@@ -58,18 +58,12 @@ if (-not $SKIP_DOWNLOAD) {
             Write-Host "  ${GRAY}Extracting to ${EXTRACT_PATH}...${NC}"
 
             try {
-                Expand-Archive -Path $TEMP_ZIP -DestinationPath $EXTRACT_PATH -Force
-
-                # Find and rename extracted directory to remove version number
+                # Extract the zip file (contents are at the zip root, so extract into the target folder)
                 $EXTRACTED_DIR = Join-Path $EXTRACT_PATH $EXAMPLES_FOLDER_NAME
-                $VERSIONED_DIR = Get-ChildItem -Path $EXTRACT_PATH -Directory -Filter "${EXAMPLES_FOLDER_NAME}-*" | Select-Object -First 1
-
-                if ($VERSIONED_DIR) {
-                    if (Test-Path $EXTRACTED_DIR) {
-                        Remove-Item -Path $EXTRACTED_DIR -Recurse -Force -ErrorAction SilentlyContinue
-                    }
-                    Rename-Item -Path $VERSIONED_DIR.FullName -NewName $EXAMPLES_FOLDER_NAME
+                if (Test-Path $EXTRACTED_DIR) {
+                    Remove-Item -Path $EXTRACTED_DIR -Recurse -Force -ErrorAction SilentlyContinue
                 }
+                Expand-Archive -Path $TEMP_ZIP -DestinationPath $EXTRACTED_DIR -Force
 
                 # Remove the .gitignore file from the root of the extracted directory
                 $GITIGNORE_PATH = Join-Path $EXTRACTED_DIR ".gitignore"
