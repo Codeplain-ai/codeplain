@@ -10,7 +10,7 @@ pytest==9.1.1
 textual>=7.5.0
 networkx==3.6.1
 transitions==0.9.3
-sentry-sdk==2.63.0
+sentry-sdk==2.66.0
 
 
 # Development dependencies
