@@ -28,6 +28,19 @@ F_SETPIPE_SIZE = 1031  # Linux-only constant
 PIPE_SIZE_KB = 1024  # 1MB
 
 
+def effective_test_script_timeout(render_context) -> int:
+    """The timeout (seconds) the harness enforces on test script runs.
+
+    Sent to the agents as the `test_script_timeout_seconds` task param so the time
+    budget is an explicit, stated constraint — agents otherwise discover it from
+    timeout output and then bend spec-mandated values (timeouts, defaults, test
+    scope) to fit it, which the integrity reviewer must then reject.
+    """
+    if render_context.test_script_timeout is not None:
+        return render_context.test_script_timeout
+    return SCRIPT_EXECUTION_TIMEOUT
+
+
 def revert_changes_for_frid(render_context):
     if render_context.frid_context.frid is not None:
         previous_frid = plain_spec.get_previous_frid(render_context.plain_source_tree, render_context.frid_context.frid)

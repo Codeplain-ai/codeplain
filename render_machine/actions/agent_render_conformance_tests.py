@@ -6,10 +6,12 @@ import plain_spec
 import repo_map
 from memory_management import MemoryManager
 from plain2code_console import console
+from render_machine import render_utils
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
+    build_sandbox_contract,
     delete_file,
     edit_file,
     grep,
@@ -142,7 +144,12 @@ class AgentRenderConformanceTests(BaseAction):
     def _add_orientation_params(
         task_params: dict, render_context: RenderContext, conformance_tests_folder_name: str, specifications: str
     ) -> None:
-        """Seed the session with the codebase map and the module's implementation history."""
+        """Seed the session with orientation context shared by both render paths.
+
+        Codebase map, the module's implementation history, the harness time budget
+        (tests must be authored to fit it — never by bending spec-mandated values),
+        and the file-access sandbox contract.
+        """
         repo_map_text = repo_map.build_repo_map_param(
             render_context,
             conformance_tests_folder=conformance_tests_folder_name,
@@ -153,6 +160,8 @@ class AgentRenderConformanceTests(BaseAction):
         code_brief = repo_map.read_code_brief(render_context.build_folder)
         if code_brief:
             task_params["code_brief"] = code_brief
+        task_params["test_script_timeout_seconds"] = render_utils.effective_test_script_timeout(render_context)
+        task_params["sandbox_contract"] = build_sandbox_contract(render_context)
 
     def _render_acceptance_test(self, render_context: RenderContext):
         if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:

@@ -110,6 +110,7 @@ class StateMachineConfig:
             AgentFixConformanceTest.FIX_APPLIED: triggers.MARK_FIX_APPLIED,
             ReviewConformanceFixAction.APPROVED: triggers.MARK_FIX_APPROVED,
             ReviewConformanceFixAction.REJECTED: triggers.MARK_FIX_REJECTED,
+            ReviewConformanceFixAction.REJECTED_AND_RESET: triggers.MARK_FIX_APPLIED,
             FixConformanceTest.LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
             FixConformanceTest.REGENERATE_CONFORMANCE_TESTS_OUTCOME: triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
@@ -410,11 +411,21 @@ class StateMachineConfig:
                 "trigger": triggers.MARK_FIX_APPROVED,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTING_INITIALISED.value}",
             },
-            # Review REJECTED: changes are reverted (in the action), go back to fixing.
+            # Review REJECTED: the changes stay in the working tree (the fix agent
+            # corrects them using the reviewer's feedback), go back to fixing.
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}",
                 "trigger": triggers.MARK_FIX_REJECTED,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
+            },
+            # Review REJECTED repeatedly: the action reset the working tree to the
+            # last approved state, so route through environment preparation and a
+            # test run — the fresh fix session then starts from a real failing output
+            # instead of the stale passing one produced by the rejected fix.
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_READY_FOR_REVIEW.value}",
+                "trigger": triggers.MARK_FIX_APPLIED,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPLIED.value}",
             },
             # Tests passed. If the pass was produced by a fix awaiting review, route into
             # the reviewer first; otherwise continue to the next test as usual.

@@ -13,6 +13,10 @@ REFACTORED_CODE_COMMIT_MESSAGE = "[Codeplain] Refactored code after implementing
 CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE = (
     "[Codeplain] Fixed issues in the implementation code identified during conformance testing"
 )
+# Committed at the moment the integrity reviewer approves a conformance fix — the
+# approval advances the review anchor, so the approved changes are committed (to the
+# build repo and every conformance-test repo the fix touched) in the same event.
+APPROVED_CONFORMANCE_FIX_COMMIT_MESSAGE = "[Codeplain] Approved conformance fix (tests of functionality {} in {})"
 
 # Following messages are used as checkpoints in the git history
 # Changing them will break backwards compatibility so change them with care
