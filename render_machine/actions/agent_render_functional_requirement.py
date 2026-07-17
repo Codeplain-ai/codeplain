@@ -10,6 +10,7 @@ from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
+    build_sandbox_contract,
     delete_file,
     edit_file,
     grep,
@@ -59,6 +60,8 @@ class AgentRenderFunctionalRequirement(BaseAction):
             "module_name": render_context.module_name,
             "memory_folder": memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(memory_folder),
+            "test_script_timeout_seconds": render_utils.effective_test_script_timeout(render_context),
+            "sandbox_contract": build_sandbox_contract(render_context),
         }
         # Orientation seeds: codebase map + per-FRID implementation history. Built after
         # revert_changes_for_frid so the map reflects the baseline the agent will see.

@@ -206,6 +206,61 @@ def _get_allowed_read_files(render_context: RenderContext) -> list[str]:
     return [_resolve_file_path(s) for s in scripts if s]
 
 
+def build_sandbox_contract(render_context: RenderContext) -> str:
+    """Human-readable description of the agent's file-access sandbox.
+
+    Composed from the same allowlist functions the tools enforce, so the stated
+    contract cannot drift from the actual policy. Sent to the server as the
+    ``sandbox_contract`` task param and rendered into the agent's system prompt —
+    without it, agents discover these boundaries by burning turns on denied calls
+    (and misread a denied write to a defective harness script as a dead end
+    instead of something to report).
+    """
+    write_folders = _get_allowed_write_folders(render_context)
+    memory_manager = getattr(render_context, "memory_manager", None)
+    memory_folder = getattr(memory_manager, "memory_folder", None) if memory_manager else None
+    scripts = [
+        script
+        for script in [
+            render_context.conformance_tests_script,
+            render_context.prepare_environment_script,
+            render_context.unittests_script,
+        ]
+        if script
+    ]
+    modules_root = _get_modules_root(render_context)
+
+    lines = ["You can WRITE (create/edit/delete files) ONLY inside these folders:"]
+    lines.extend(f"- {folder}" for folder in write_folders)
+    lines.append("")
+    lines.append("You can READ:")
+    lines.append("- Everything inside the writable folders above.")
+    if memory_folder:
+        lines.append(f"- The memory folder: {memory_folder} (read-only; add notes only via the write_memory tool).")
+    if scripts:
+        lines.append("- The test/setup scripts (read-only harness files):")
+        lines.extend(f"  - {script}" for script in scripts)
+    lines.append("- Temporary files under /tmp and /var/folders (e.g. saved test output).")
+    lines.append("- Any file outside the modules root (project files, libraries, dependencies).")
+    lines.append(
+        f"- NOT other modules' folders under the modules root ({modules_root}): your build folder "
+        "already contains the merged code of the modules it builds on — read that copy instead."
+    )
+    lines.append("")
+    lines.append("Rules:")
+    lines.append(
+        "- The test/setup scripts and everything else outside your writable folders are read-only "
+        "for you — do not attempt to edit them or work around their defects destructively. If a "
+        "harness script itself is defective (e.g. it fails to clean its work folder between runs), "
+        "state the defect explicitly in your submission so the harness owner can fix it."
+    )
+    lines.append(
+        "- Do NOT run the full test suite via run_command — it runs automatically when you submit. "
+        "Run single targeted tests instead."
+    )
+    return "\n".join(lines)
+
+
 def _get_modules_root(render_context: RenderContext) -> str:
     """Return the directory that holds all per-module build folders.
 

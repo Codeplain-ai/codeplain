@@ -15,8 +15,18 @@ class CommitConformanceTestsChanges(BaseAction):
         self.conformance_tests_commit_message = conformance_tests_commit_message
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        # Approved conformance fixes are committed at approval time, so the build
+        # folder can be clean here even though the implementation DID change during
+        # conformance fixing. The marker commit must still be made (possibly empty)
+        # and the "implementation updated" outcome must still fire: ambiguity
+        # analysis diffs the implementation commit against this marker commit, a
+        # range that includes the approval commits in between.
+        implementation_changed_by_fixes = (
+            render_context.conformance_tests_running_context is not None
+            and render_context.conformance_tests_running_context.implementation_committed_on_fix_approval
+        )
         implementation_updated = False
-        if git_utils.is_dirty(render_context.build_folder):
+        if git_utils.is_dirty(render_context.build_folder) or implementation_changed_by_fixes:
             git_utils.add_all_files_and_commit(
                 render_context.build_folder,
                 self.implementation_code_commit_message,

@@ -4,19 +4,41 @@ from typing import Any
 
 import diff_utils
 import file_utils
+import git_utils
 from memory_management import AGENT_MEMORY_SUBFOLDER, GLOBAL_MEMORY_SUBFOLDER, MemoryManager
 from plain2code_console import console
 from plain2code_trace import preview, trace
+from render_machine import render_utils
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import grep, ls_files, read_file, report_progress
 from render_machine.render_context import RenderContext
 
+# A reviewer run that ends with status "failed" is an infrastructure failure (LLM
+# timeout, network error), not a verdict — it is retried this many times before the
+# loop is sent back to the fix agent with an explicit resubmit instruction. It must
+# never be interpreted as a rejection: a rejection carries consequences (counts
+# toward the reset threshold, records a ledger outcome) that a failed call has not
+# earned.
+MAX_REVIEW_RUN_ATTEMPTS = 3
+
+# A rejection does not revert the fix — the fix agent corrects its own changes with
+# the reviewer's feedback. But once this many consecutive reviews have rejected, the
+# un-reverted tree is anchoring the agent on the rejected approach rather than
+# preserving useful work: the tree is reset to the last approved state, the tests are
+# re-run to get a fresh failing output, and a fresh session takes over.
+MAX_CONSECUTIVE_REVIEW_REJECTIONS = 2
+
 
 class ReviewConformanceFixAction(BaseAction):
     APPROVED = "fix_approved"
     REJECTED = "fix_rejected"
+    # Repeated rejections: the working tree was reset to the last approved state, so
+    # the environment must be re-prepared and the tests re-run (they will fail again
+    # with the original issue, giving the fresh fix session an accurate failing
+    # output instead of the stale passing one produced by the rejected fix).
+    REJECTED_AND_RESET = "fix_rejected_and_reset"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         ctx = render_context.conformance_tests_running_context
@@ -29,6 +51,7 @@ class ReviewConformanceFixAction(BaseAction):
         specifications = review_context.get("specifications", "")
         acceptance_tests = review_context.get("acceptance_tests", "")
         conformance_test_folder = review_context.get("conformance_test_folder", "")
+        failing_test_specifications = review_context.get("failing_test_specifications", "")
         fix_summary = ctx.last_fix_summary if ctx else {}
 
         console.info("Reviewing conformance test fix...")
@@ -45,19 +68,7 @@ class ReviewConformanceFixAction(BaseAction):
                 render_context.finalize_accepted_conformance_fix()
             return self.APPROVED, {"review_rejection_feedback": ""}
 
-        current_files = {}
-        original_files = {}
-        for absolute_path, original_content in ctx.file_change_tracker.items():
-            relative_path = os.path.relpath(absolute_path)
-            if original_content is not None:
-                original_files[relative_path] = original_content
-            if os.path.exists(absolute_path):
-                with open(absolute_path, "r", encoding="utf-8") as f:
-                    current_files[relative_path] = f.read()
-            else:
-                current_files[relative_path] = ""
-
-        diff_text = diff_utils.get_code_diff(current_files, original_files)
+        diff_text = self._compute_cumulative_diff(ctx)
         if not diff_text:
             console.warning("No changes detected in fix. Approving by default.")
             ctx.reset_file_change_tracker()
@@ -98,7 +109,15 @@ class ReviewConformanceFixAction(BaseAction):
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_test_folder,
             "module_name": render_context.module_name,
+            # The reviewer judges the fix against the same context the fixer had: the
+            # failing test's own spec (a regression fix targets a different FRID than
+            # the one being implemented) and the harness time budget (so a fix that
+            # bends the spec to fit it is recognized — and a genuinely impossible
+            # budget is flagged rather than "fixed").
+            "test_script_timeout_seconds": render_utils.effective_test_script_timeout(render_context),
         }
+        if failing_test_specifications:
+            review_task_params["failing_test_specifications"] = failing_test_specifications
 
         # Memory produced by the fix session is reviewed alongside the fix: it feeds
         # every future session (global scope: every module), so destructive or noisy
@@ -111,24 +130,25 @@ class ReviewConformanceFixAction(BaseAction):
         if session_memory_notes:
             review_task_params["session_memory_notes"] = session_memory_notes
 
-        # Reviewer gets read-only tools
-        reviewer_tools = {
-            "report_progress": report_progress,
-            "think": report_progress,  # alias for older servers
-            "read_file": read_file,
-            "ls_files": ls_files,
-            "grep": grep,
-        }
-        reviewer_executor = ToolExecutor(available_tools=reviewer_tools)
+        response = self._run_reviewer_with_retries(render_context, review_task_params)
 
-        # Run the reviewer agent to completion (with lower turn limit for reviewers)
-        response = agent_runner.run(
-            "review_conformance_fix",
-            review_task_params,
-            render_context,
-            reviewer_executor,
-            max_turns=agent_runner.MAX_REVIEWER_TURNS,
-        )
+        if response.get("status") == "failed":
+            # The review never ran to a verdict. The fix stays in place (tests pass
+            # with it); route back to the fix agent with an explicit instruction to
+            # resubmit so the review can be attempted again. This is deliberately NOT
+            # counted as a rejection and must not trigger any revert.
+            self._mark_last_ledger_outcome(
+                ctx,
+                "integrity review could not run (infrastructure failure); the fix was not judged — resubmit it",
+            )
+            return self.REJECTED, {
+                "review_rejection_feedback": (
+                    "The integrity review could not be completed due to an infrastructure error "
+                    f"({preview(str(response.get('error', 'unknown error')))}). Your fix was NOT judged and has "
+                    "NOT been reverted — it is still in the working tree and the conformance tests pass with it. "
+                    "Re-submit the same fix via submit_fix so the review can run again."
+                ),
+            }
 
         verdict = self._extract_review_verdict(response)
         approved = verdict["approved"]
@@ -154,7 +174,14 @@ class ReviewConformanceFixAction(BaseAction):
 
         if approved:
             console.info("[green]Review APPROVED[/green]")
+            ctx.consecutive_review_rejections = 0
+            # Approval advances the review anchor: the approved changes are committed
+            # (build repo + every conformance-test repo the fix touched) in the same
+            # event the tracker is cleared, so the git state and the diff baseline
+            # move together and the next review starts from this approved state.
+            tracked_paths = list(ctx.file_change_tracker.keys())
             ctx.reset_file_change_tracker()
+            self._commit_approved_fix(render_context, tracked_paths)
             # The fix is confirmed (tests pass + review approved). Persist the durable
             # learning only if the reviewer also approved the learning itself — a good
             # fix can still carry a bad learning (e.g. one canonizing the workaround
@@ -176,14 +203,209 @@ class ReviewConformanceFixAction(BaseAction):
             return self.APPROVED, {"review_rejection_feedback": ""}
 
         console.warning(f"[yellow]Review REJECTED[/yellow]: {result_text}")
-        console.info("Reverting rejected changes...")
-        ctx.revert_tracked_changes()
-        result_text += "\nThe rejected changes have been reverted. Propose a new fix."
         if memory_feedback:
             result_text += f"\nMemory feedback from the reviewer: {memory_feedback}"
+
+        ctx.consecutive_review_rejections += 1
+        if ctx.consecutive_review_rejections >= MAX_CONSECUTIVE_REVIEW_REJECTIONS:
+            return self._reset_to_approved_state(render_context, ctx, result_text)
+
+        # The rejected changes are deliberately NOT reverted: the reviewer's rejections
+        # itemize what must go and what is sound, and the fix agent — which has the
+        # full context of its own changes — corrects them in place. Reverting here
+        # destroyed valid parts of fixes (and desynced the tree from environment state
+        # such as installed build artifacts). The tracker keeps accumulating, so the
+        # next review sees the cumulative diff since the last approved state and the
+        # flagged changes cannot slip past it unseen.
+        result_text += (
+            "\nYour changes have NOT been reverted — they are still in the working tree, and the conformance "
+            "tests currently pass with them. Address the reviewer's feedback directly: rework or remove the "
+            "parts the reviewer flagged (keep any parts the reviewer explicitly endorsed), then submit the "
+            "corrected fix via submit_fix."
+        )
         return self.REJECTED, {
             "review_rejection_feedback": result_text,
         }
+
+    @staticmethod
+    def _compute_cumulative_diff(ctx) -> dict:
+        """Compute the cumulative diff (last approved state -> working tree) per file.
+
+        Derived from the file change tracker, whose originals are the state at the
+        last approval (approvals are the only point the tracker is cleared), so the
+        reviewer always judges everything pending since the last blessed state —
+        including changes a previous review already rejected.
+        """
+        current_files = {}
+        original_files = {}
+        for absolute_path, original_content in ctx.file_change_tracker.items():
+            relative_path = os.path.relpath(absolute_path)
+            if original_content is not None:
+                original_files[relative_path] = original_content
+            if os.path.exists(absolute_path):
+                with open(absolute_path, "r", encoding="utf-8") as f:
+                    current_files[relative_path] = f.read()
+            else:
+                current_files[relative_path] = ""
+
+        return diff_utils.get_code_diff(current_files, original_files)
+
+    @staticmethod
+    def _run_reviewer_with_retries(render_context: RenderContext, review_task_params: dict) -> dict:
+        """Run the reviewer agent, retrying runs that end in an infrastructure failure.
+
+        A run with status "failed" (LLM timeout, network error) is not a verdict —
+        treating it as a rejection would penalize a fix the reviewer never judged
+        (and, before the no-revert change, destroyed passing fixes outright).
+        """
+        reviewer_tools = {
+            "report_progress": report_progress,
+            "think": report_progress,  # alias for older servers
+            "read_file": read_file,
+            "ls_files": ls_files,
+            "grep": grep,
+        }
+        reviewer_executor = ToolExecutor(available_tools=reviewer_tools)
+
+        response: dict = {}
+        for attempt in range(1, MAX_REVIEW_RUN_ATTEMPTS + 1):
+            response = agent_runner.run(
+                "review_conformance_fix",
+                review_task_params,
+                render_context,
+                reviewer_executor,
+                max_turns=agent_runner.MAX_REVIEWER_TURNS,
+            )
+            if response.get("status") != "failed":
+                break
+            console.warning(
+                f"Integrity review run failed (attempt {attempt}/{MAX_REVIEW_RUN_ATTEMPTS}): "
+                f"{response.get('error', 'unknown error')}"
+            )
+            trace("review", event="review-run-failed", attempt=attempt, error=preview(str(response.get("error", ""))))
+        return response
+
+    def _commit_approved_fix(self, render_context: RenderContext, tracked_paths: list) -> None:
+        """Commit an approved fix to every repository it touched, in one event.
+
+        The build folder and each per-module conformance-tests folder are separate git
+        repositories, and a single fix routinely spans both (an implementation change
+        plus the test that asserts on it) — during regression it can even touch
+        another module's conformance repo. Committing all affected repos here, at the
+        moment of approval, keeps the review anchor consistent: everything committed
+        is approved, everything uncommitted is pending review. Committing only some of
+        them would let later reviews mix blessed and unblessed work in one diff.
+        """
+        ctx = render_context.conformance_tests_running_context
+        commit_message = git_utils.APPROVED_CONFORMANCE_FIX_COMMIT_MESSAGE.format(
+            ctx.current_testing_frid, ctx.current_testing_module_name
+        )
+
+        candidate_repos = [os.path.abspath(render_context.build_folder)]
+        conformance_root = os.path.abspath(render_context.conformance_tests.conformance_tests_folder)
+        # Conformance repos are per module; derive the touched ones from the tracked
+        # paths, plus the current testing module's repo for side effects (e.g. files
+        # written by run_command) that were never routed through the tracked tools.
+        conformance_module_folders = {
+            os.path.abspath(
+                render_context.conformance_tests.get_module_conformance_tests_folder(ctx.current_testing_module_name)
+            )
+        }
+        for path in tracked_paths:
+            absolute_path = os.path.abspath(path)
+            if absolute_path.startswith(conformance_root + os.sep):
+                module_dir = os.path.relpath(absolute_path, conformance_root).split(os.sep)[0]
+                conformance_module_folders.add(os.path.join(conformance_root, module_dir))
+        candidate_repos.extend(sorted(conformance_module_folders))
+
+        committed_repos = []
+        for repo_path in candidate_repos:
+            try:
+                if not git_utils.is_dirty(repo_path):
+                    continue
+                git_utils.add_all_files_and_commit(
+                    repo_path,
+                    commit_message,
+                    render_context.module_name,
+                    render_context.frid_context.frid,
+                    render_context.run_state.render_id,
+                )
+                committed_repos.append(repo_path)
+            except Exception as e:
+                # A candidate that is not a git repository (or fails to commit) must
+                # not fail the approval — the tracker was already advanced, and the
+                # remaining repos should still be committed.
+                console.warning(f"Could not commit approved fix in '{repo_path}': {e}")
+
+        if os.path.abspath(render_context.build_folder) in committed_repos:
+            # Postprocessing consults this: with the build folder committed here it
+            # can be clean at FRID postprocessing even though the implementation DID
+            # change during conformance fixing, and the "implementation updated"
+            # outcome (which gates ambiguity analysis) must still fire.
+            ctx.implementation_committed_on_fix_approval = True
+        if committed_repos:
+            trace(
+                "review",
+                event="approved-fix-committed",
+                repos=[os.path.relpath(repo) for repo in committed_repos],
+            )
+
+    def _reset_to_approved_state(self, render_context: RenderContext, ctx, result_text: str):
+        """Reset the working tree to the last approved state after repeated rejections.
+
+        Consecutive rejections mean the current tree is anchoring the fix agent on the
+        rejected approach. The tracked changes are reverted (the tracker's originals
+        ARE the last approved state, since approvals clear it), the fix session is
+        rotated, and a harness-authored handoff carries the final rejection feedback —
+        the rotation means the feedback cannot be delivered as a session continuation.
+        The returned outcome routes back through environment preparation and a test
+        run, so the fresh session starts from a real failing output instead of the
+        stale passing one produced by the rejected fix.
+        """
+        console.warning(
+            f"{ctx.consecutive_review_rejections} consecutive review rejections — resetting the working tree "
+            "to the last approved state and starting a fresh fix session."
+        )
+        trace(
+            "review",
+            event="reset-to-approved-state",
+            consecutive_rejections=ctx.consecutive_review_rejections,
+            reverted_files=len(ctx.file_change_tracker),
+        )
+        self._mark_last_ledger_outcome(
+            ctx,
+            "rejected by the integrity reviewer (repeated rejections — the working tree was then reset "
+            f"to the last approved state): {preview(result_text)}",
+        )
+        ctx.revert_tracked_changes()
+        ctx.consecutive_review_rejections = 0
+        ctx.fix_handoffs.append(
+            "HARNESS NOTE (not agent-authored): consecutive fixes were rejected by the integrity reviewer, "
+            "so all changes since the last approved state have been reverted — the working tree is back to "
+            "the last approved state and the conformance tests fail again with the original issue (see the "
+            "fresh test output). The final rejection feedback was:\n"
+            f"{result_text}\n"
+            "Do not retry the rejected approaches (see the attempts ledger). Solve the failure with a fix "
+            "that satisfies the engineering integrity guidelines."
+        )
+        render_context._cleanup_fix_agent_session()
+        ctx.fix_agent_session_id = None
+        ctx.fix_agent_pending_tool_call_id = None
+        return self.REJECTED_AND_RESET, {"review_rejection_feedback": ""}
+
+    @staticmethod
+    def _mark_last_ledger_outcome(ctx, outcome: str) -> None:
+        """Record an outcome on the latest ledger entry directly from the review.
+
+        Used on paths where the outcome would otherwise be mislabeled by the fix
+        agent's generic payload-based bookkeeping (or never recorded at all, when the
+        rejection routes through a test re-run instead of straight back to fixing).
+        """
+        if not ctx or not ctx.fix_attempts_ledger:
+            return
+        last_attempt = ctx.fix_attempts_ledger[-1]
+        if not last_attempt.get("outcome"):
+            last_attempt["outcome"] = outcome
 
     @staticmethod
     def _extract_review_verdict(response: dict) -> dict:

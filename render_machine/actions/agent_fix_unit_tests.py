@@ -5,10 +5,12 @@ import file_utils
 import plain_spec
 import repo_map
 from memory_management import MemoryManager
+from render_machine import render_utils
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
+    build_sandbox_contract,
     delete_file,
     edit_file,
     grep,
@@ -57,6 +59,8 @@ class AgentFixUnitTests(BaseAction):
             "module_name": render_context.module_name,
             "memory_folder": render_context.memory_manager.memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
+            "test_script_timeout_seconds": render_utils.effective_test_script_timeout(render_context),
+            "sandbox_contract": build_sandbox_contract(render_context),
         }
         # Orientation seeds: codebase map (boosted by spec terms and the failing test
         # output, so implicated files keep their outlines when the map is over budget)

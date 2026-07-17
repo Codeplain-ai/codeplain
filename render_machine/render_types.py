@@ -91,11 +91,27 @@ class ConformanceTestsRunningContext:
         self.regenerating_conformance_tests: bool = False
 
         # Tracks original file contents before the fix agent first modifies them,
-        # accumulated across all fix attempts since the last review.
+        # accumulated across all fix attempts since the last APPROVED review.
         # Key: absolute file path, Value: original content (or None if file didn't exist).
-        # Used by ReviewConformanceFixAction to compute the cumulative fix diff and to
-        # revert changes when the reviewer rejects a fix. Cleared only by the reviewer.
+        # This is the review anchor: ReviewConformanceFixAction computes the cumulative
+        # diff (last approved state -> working tree) from it. A rejection does NOT
+        # revert or clear it — the rejected changes stay in the working tree and in the
+        # tracker, so the next review still sees them. Cleared only on approval (which
+        # also commits the changes) and by revert_tracked_changes when repeated
+        # rejections reset the tree back to the last approved state.
         self.file_change_tracker: dict[str, Optional[str]] = {}
+        # Number of review rejections since the last approval. Reaching
+        # MAX_CONSECUTIVE_REVIEW_REJECTIONS (see ReviewConformanceFixAction) resets the
+        # working tree to the last approved state and rotates the fix session — the
+        # un-reverted tree is by then feeding the agent's anchoring on the rejected
+        # approach rather than preserving useful work.
+        self.consecutive_review_rejections: int = 0
+        # True once an approved fix committed implementation (build folder) changes.
+        # CommitConformanceTestsChanges consults it: with approval-time commits the
+        # build folder may be clean at postprocessing even though the implementation
+        # DID change during conformance fixing, and the "implementation updated"
+        # outcome (which gates ambiguity analysis) must still fire.
+        self.implementation_committed_on_fix_approval: bool = False
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
@@ -189,19 +205,21 @@ class ConformanceTestsRunningContext:
         ] = summary
 
     def reset_file_change_tracker(self):
-        """Clear the file change tracker.
+        """Clear the file change tracker (advance the review anchor).
 
-        Reset at exactly two points, which together bracket a fix loop:
+        Reset at exactly two points, which together bracket a reviewed fix cycle:
           - AgentRenderConformanceTests, after the tests are rendered. This sets the
             baseline so the reviewer's diff captures only the fix loop's changes, not
             the test-rendering writes.
-          - ReviewConformanceFixAction, when a reviewed fix cycle ends (on approval;
-            rejection clears it via revert_tracked_changes instead).
+          - ReviewConformanceFixAction, when a fix is APPROVED (the approved changes
+            are committed in the same event, so the anchor and the git state advance
+            together).
 
-        It is NOT reset per fix attempt, so within one fix loop the tracker accumulates
-        the original-file snapshots across all attempts since the baseline — giving the
-        reviewer the cumulative diff against the rendered-tests baseline rather than
-        only the last attempt's changes.
+        It is NOT reset per fix attempt and NOT reset on rejection: a rejected fix
+        stays in the working tree, and the tracker keeps accumulating so every review
+        sees the cumulative diff since the last approved state — never only the latest
+        attempt's delta (which would let previously rejected changes slip past a later
+        review unseen).
         """
         self.file_change_tracker = {}
 
@@ -216,7 +234,13 @@ class ConformanceTestsRunningContext:
             self.file_change_tracker[absolute_path] = None
 
     def revert_tracked_changes(self):
-        """Revert all tracked files to their original state."""
+        """Revert all tracked files to their original (last approved) state.
+
+        Not part of the normal rejection path — a rejected fix stays in the working
+        tree for the fix agent to correct. Used only when repeated consecutive
+        rejections show the current tree is anchoring the agent on a rejected
+        approach, and when a loop is abandoned with unapproved changes.
+        """
         for absolute_path, original_content in self.file_change_tracker.items():
             if original_content is None:
                 # File didn't exist before — delete it

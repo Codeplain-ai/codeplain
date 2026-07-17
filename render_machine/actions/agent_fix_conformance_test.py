@@ -6,11 +6,12 @@ import repo_map
 from memory_management import MemoryManager
 from plain2code_console import console
 from plain2code_trace import preview, trace
-from render_machine import fix_signals
+from render_machine import fix_signals, render_utils
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
 from render_machine.agent.tool_executor import ToolExecutor
 from render_machine.agent.tools import (
+    build_sandbox_contract,
     delete_file,
     edit_file,
     get_session_changes,
@@ -88,18 +89,24 @@ class AgentFixConformanceTest(BaseAction):
         )
 
         # The file change tracker is owned exclusively by ReviewConformanceFixAction:
-        # it is cleared there once a fix cycle is reviewed (approved or reverted on
-        # rejection). The tracker must NOT be reset here, because a fix can loop back
-        # into fixing several times (e.g. when its changes still fail the tests) before
-        # the tests pass and a review actually runs. Resetting here would drop the
-        # original-file snapshots captured by earlier attempts, leaving the reviewer
-        # with only the last attempt's diff instead of the cumulative diff since the
-        # pre-fix baseline.
+        # it is cleared there when a fix is APPROVED (and committed), and reverted
+        # only when repeated rejections reset the tree to the last approved state. A
+        # plain rejection clears nothing — the rejected changes stay in the working
+        # tree for this agent to correct, and the tracker keeps accumulating so the
+        # next review sees the cumulative diff since the last approved state. The
+        # tracker must NOT be reset here, because a fix can loop back into fixing
+        # several times (failed tests, rejections) before a review approves; resetting
+        # would drop the original-file snapshots captured by earlier attempts.
         conformance_test_folder = self._get_conformance_test_folder(render_context)
 
         # Build context
         specifications = self._build_specifications_text(render_context)
         acceptance_tests = self._build_acceptance_tests_text(render_context)
+        # During regression the failing test belongs to a different FRID (often a
+        # different module) than the one being implemented — its own specification
+        # must be provided explicitly, or the agent fixes a test whose defining spec
+        # it has never seen.
+        failing_test_specifications = self._build_failing_test_specifications_text(render_context)
 
         # Diffs of what this render step just produced. The conformance tests were
         # passing before this functionality was implemented, so these diffs point the
@@ -159,6 +166,7 @@ class AgentFixConformanceTest(BaseAction):
                 linked_resource_paths=linked_resource_paths,
                 acceptance_tests=acceptance_tests,
                 conformance_test_folder=conformance_test_folder,
+                failing_test_specifications=failing_test_specifications,
             )
             self._add_optional_task_params(
                 task_params,
@@ -226,6 +234,7 @@ class AgentFixConformanceTest(BaseAction):
                         linked_resource_paths=linked_resource_paths,
                         acceptance_tests=acceptance_tests,
                         conformance_test_folder=conformance_test_folder,
+                        failing_test_specifications=failing_test_specifications,
                     )
                     self._add_optional_task_params(
                         task_params,
@@ -321,6 +330,7 @@ class AgentFixConformanceTest(BaseAction):
             "specifications": specifications,
             "acceptance_tests": acceptance_tests,
             "conformance_test_folder": conformance_test_folder,
+            "failing_test_specifications": failing_test_specifications,
         }
 
         return self.FIX_APPLIED, {
@@ -453,7 +463,13 @@ class AgentFixConformanceTest(BaseAction):
         if last_attempt.get("outcome"):
             return
         if review_rejection_feedback:
-            last_attempt["outcome"] = "rejected by the integrity reviewer"
+            # Carry the reviewer's reasons onto the ledger: fresh sessions receive the
+            # ledger (not the feedback payload), and "rejected" without the why is
+            # exactly what lets a successor re-attempt the same violation.
+            snippet = " ".join(review_rejection_feedback.split())
+            if len(snippet) > 600:
+                snippet = snippet[:600] + "…"
+            last_attempt["outcome"] = f"rejected by the integrity reviewer: {snippet}"
         elif prepare_environment_failed:
             last_attempt["outcome"] = "build/compile failed after the fix; the tests never ran"
         elif ctx.failure_signature_streak >= 1:
@@ -559,6 +575,7 @@ class AgentFixConformanceTest(BaseAction):
         linked_resource_paths: list[str],
         acceptance_tests: str,
         conformance_test_folder: str,
+        failing_test_specifications: str = "",
     ) -> dict:
         """Build the task params used to start a fresh fix-agent session.
 
@@ -583,7 +600,11 @@ class AgentFixConformanceTest(BaseAction):
             "memory_folder": render_context.memory_manager.memory_folder,
             "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
             "keep_session_alive": True,  # Mark this as a persistent session
+            "test_script_timeout_seconds": render_utils.effective_test_script_timeout(render_context),
+            "sandbox_contract": build_sandbox_contract(render_context),
         }
+        if failing_test_specifications:
+            task_params["failing_test_specifications"] = failing_test_specifications
 
         # Orientation seeds: codebase map (boosted by spec terms and the failing test
         # output, so the files implicated in the failure keep their outlines when the
@@ -718,6 +739,103 @@ class AgentFixConformanceTest(BaseAction):
             return ""
         return "\n".join(acceptance_tests)
 
+    def _build_failing_test_specifications_text(self, render_context: RenderContext) -> str:
+        """Build the failing test's own specification when it differs from the implementing FRID.
+
+        The main Specification section is centered on the FRID being implemented.
+        During regression the failing test verifies a different FRID — often one of
+        a required module, which appears there only as one-line functionality
+        summaries. Without this section the agent (and the reviewer) judge a test
+        whose defining spec they have never seen.
+        """
+        ctx = render_context.conformance_tests_running_context
+        if ctx is None or ctx.current_testing_frid is None:
+            return ""
+        if (
+            ctx.current_testing_module_name == render_context.module_name
+            and ctx.current_testing_frid == render_context.frid_context.frid
+        ):
+            # The failing test IS the implementing FRID's — the main Specification
+            # already centers on it.
+            return ""
+
+        parts = [
+            f"Failing test: module `{ctx.current_testing_module_name}`, "
+            f"functionality (FRID) {ctx.current_testing_frid}."
+        ]
+
+        if ctx.current_testing_module_name == render_context.module_name:
+            # Same module, earlier FRID: the module's definitions and requirements are
+            # already in the main Specification — add the failing functionality's text.
+            failing_fr_text = self._get_failing_functional_requirement_text(ctx)
+            if not failing_fr_text:
+                return ""
+            parts.append(f"### Functional requirement under test\n{failing_fr_text}")
+            return "\n\n".join(parts)
+
+        # Cross-module: pull the failing module's own spec sections from its plain
+        # source (available on the requires chain), falling back to the functional
+        # requirement text stored in its conformance_tests.json.
+        specifications = self._get_failing_module_specifications(render_context, ctx)
+        if specifications:
+            if specifications.get(plain_spec.DEFINITIONS):
+                parts.append(f"### Definitions\n{chr(10).join(specifications[plain_spec.DEFINITIONS])}")
+            if specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS):
+                parts.append(
+                    f"### Non-Functional Requirements\n"
+                    f"{chr(10).join(specifications[plain_spec.NON_FUNCTIONAL_REQUIREMENTS])}"
+                )
+            if specifications.get(plain_spec.TEST_REQUIREMENTS):
+                parts.append(f"### Test Requirements\n{chr(10).join(specifications[plain_spec.TEST_REQUIREMENTS])}")
+            functional_requirements = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS) or []
+            if functional_requirements:
+                parts.append(f"### Functional requirement under test\n{functional_requirements[-1]}")
+        else:
+            failing_fr_text = self._get_failing_functional_requirement_text(ctx)
+            if failing_fr_text:
+                parts.append(f"### Functional requirement under test\n{failing_fr_text}")
+
+        return "\n\n".join(parts) if len(parts) > 1 else ""
+
+    @staticmethod
+    def _get_failing_module_specifications(render_context: RenderContext, ctx) -> dict | None:
+        """Extract the failing module's spec sections for the failing FRID, if resolvable."""
+        plain_module = getattr(render_context, "plain_module", None)
+        candidates = []
+        if plain_module is not None:
+            candidates = plain_module.all_required_modules
+        elif render_context.required_modules:
+            candidates = render_context.required_modules
+        failing_module = next(
+            (module for module in candidates if module.module_name == ctx.current_testing_module_name), None
+        )
+        if failing_module is None:
+            return None
+        try:
+            specifications, _ = plain_spec.get_specifications_for_frid(
+                failing_module.plain_source, ctx.current_testing_frid
+            )
+            return specifications
+        except Exception as e:
+            console.warning(f"Could not extract the failing module's specifications for fixing context: {e}")
+            return None
+
+    @staticmethod
+    def _get_failing_functional_requirement_text(ctx) -> str:
+        """The failing FRID's functional requirement text, from the loaded test specs.
+
+        ``current_testing_frid_specifications`` is a spec dict for same-module tests
+        and the functional requirement string (from conformance_tests.json) for
+        cross-module tests.
+        """
+        specs = ctx.current_testing_frid_specifications
+        if isinstance(specs, dict):
+            functional_requirements = specs.get(plain_spec.FUNCTIONAL_REQUIREMENTS) or []
+            return functional_requirements[-1] if functional_requirements else ""
+        if isinstance(specs, str):
+            return specs
+        return ""
+
     def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
         """Get list of linked resource paths (not content) for the agent to read if needed."""
         linked_resources = render_context.frid_context.linked_resources
@@ -736,12 +854,29 @@ class AgentFixConformanceTest(BaseAction):
         """Build a message to continue the agent session with new test results and feedback."""
         parts = []
 
-        # Review feedback
+        # Review feedback. The review only runs after a fix makes the tests pass, so
+        # on this path the tests currently PASS with the (kept) changes — the failure
+        # sections below do not apply.
         if review_rejection_feedback:
             parts.append(
                 f"The reviewer examined your fix and evaluated it according to the engineering integrity guidelines. The reviewer rejected your fix with this reviewer feedback:\n\n{review_rejection_feedback}\n"
             )
-            parts.append("Please address the reviewer's concerns and try again.\n")
+            parts.append(
+                "Your changes were NOT reverted — they are still in the working tree, and the conformance "
+                "tests currently pass with them. Correct the changes in place: rework or remove the parts "
+                "the reviewer flagged, keep any parts the reviewer explicitly endorsed, and then submit the "
+                "corrected fix.\n"
+            )
+            parts.append("\nNext steps:\n")
+            parts.append("1. Thoroughly read the reviewer feedback above.\n")
+            parts.append(
+                "2. Re-read your cumulative changes (use get_session_changes) and identify which of them the "
+                "reviewer flagged.\n"
+            )
+            parts.append("3. Correct the flagged changes in place so the fix addresses the root cause legitimately.\n")
+            parts.append("4. Verify the corrected code by reading the edited files.\n")
+            parts.append("5. When you are finished, submit the corrected fix using the submit_fix tool.\n")
+            return "\n".join(parts)
 
         if prepare_environment_failed:
             # The build/compile step failed after the fix, so the conformance tests never
@@ -781,8 +916,6 @@ class AgentFixConformanceTest(BaseAction):
             parts.append(f"  - The environment preparation output file at: {prepare_environment_output_file}\n")
         if not prepare_environment_failed and test_output_file:
             parts.append(f"  - The test output file at: {test_output_file}\n")
-        if review_rejection_feedback:
-            parts.append("  - The reviewer feedback\n")
         parts.append(
             "2. Locate and read the relevant test code and the implementation code that is being tested. Make sure you understand the root cause of the failure.\n"
         )
