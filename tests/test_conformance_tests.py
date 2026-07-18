@@ -106,3 +106,77 @@ def test_get_module_suite_run_folder_required_module_without_copy(conformance_te
     )
 
     assert folder == os.path.join(conformance_tests_dir, "required_module")
+
+
+def test_fetch_all_existing_conformance_test_files_includes_shared_root_files(conformance_tests, conformance_tests_dir):
+    module_folder = os.path.join(conformance_tests_dir, MODULE_NAME)
+    _write_file(module_folder, os.path.join("some_functionality", "test_some.py"), "some test")
+    _write_file(module_folder, "shared_helpers.py", "shared helper")
+    _write_file(module_folder, CONFORMANCE_TESTS_DEFINITION_FILE_NAME, json.dumps({}))
+
+    files_content = conformance_tests.fetch_all_existing_conformance_test_files(MODULE_NAME)
+
+    assert files_content == {
+        os.path.join("some_functionality", "test_some.py"): "some test",
+        "shared_helpers.py": "shared helper",
+    }
+
+
+def test_find_response_file_violations_allows_own_subfolder_and_new_root_files(
+    conformance_tests, conformance_tests_dir
+):
+    module_folder = os.path.join(conformance_tests_dir, MODULE_NAME)
+    _write_file(module_folder, os.path.join("earlier_suite", "test_earlier.py"), "earlier")
+
+    violations = conformance_tests.find_response_file_violations(
+        MODULE_NAME,
+        "current_suite",
+        {
+            os.path.join("current_suite", "test_new.py"): "new test",
+            "shared_helpers.py": "brand new helper",
+            os.path.join("support", "util.py"): "new shared dir file",
+        },
+    )
+
+    assert violations == []
+
+
+def test_find_response_file_violations_rejects_other_suites_and_hidden_copies(conformance_tests, conformance_tests_dir):
+    module_folder = os.path.join(conformance_tests_dir, MODULE_NAME)
+    _write_file(module_folder, os.path.join("earlier_suite", "test_earlier.py"), "earlier")
+
+    violations = conformance_tests.find_response_file_violations(
+        MODULE_NAME,
+        "current_suite",
+        {
+            os.path.join("earlier_suite", "test_earlier.py"): "rewritten",
+            os.path.join(".required_module", "suite", "test_x.py"): "copied",
+            CONFORMANCE_TESTS_DEFINITION_FILE_NAME: "{}",
+        },
+    )
+
+    assert len(violations) == 3
+
+
+def test_find_response_file_violations_shared_root_file_insertion_only(conformance_tests, conformance_tests_dir):
+    module_folder = os.path.join(conformance_tests_dir, MODULE_NAME)
+    _write_file(module_folder, "shared_helpers.py", "line one\nline two\n")
+
+    extended = "line one\nnew line in between\nline two\nnew line at end\n"
+    assert (
+        conformance_tests.find_response_file_violations(MODULE_NAME, "current_suite", {"shared_helpers.py": extended})
+        == []
+    )
+
+    modified = "line one CHANGED\nline two\n"
+    violations = conformance_tests.find_response_file_violations(
+        MODULE_NAME, "current_suite", {"shared_helpers.py": modified}
+    )
+    assert len(violations) == 1
+    assert "adding lines" in violations[0]
+
+    truncated = "line one\n"
+    violations = conformance_tests.find_response_file_violations(
+        MODULE_NAME, "current_suite", {"shared_helpers.py": truncated}
+    )
+    assert len(violations) == 1

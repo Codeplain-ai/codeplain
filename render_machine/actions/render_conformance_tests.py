@@ -8,11 +8,12 @@ from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
-from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
+from render_machine.render_types import AcceptanceTestPhase, RenderError, TestExecutionPhase
 
 
 class RenderConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_test_rendered"
+    RESPONSE_VALIDATION_FAILED_OUTCOME = "conformance_test_response_validation_failed"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if self._should_render_conformance_tests(render_context):
@@ -123,33 +124,64 @@ class RenderConformanceTests(BaseAction):
             if not file_name.startswith(current_subfolder_prefix)
         }
 
-        response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
-            render_context.frid_context.frid,
-            render_context.conformance_tests_running_context.current_testing_frid,
-            render_context.plain_source_tree,
-            render_context.frid_context.linked_resources,
-            existing_files_content,
-            memory_files_content,
-            render_context.module_name,
-            render_context.get_required_modules_functionalities(),
-            conformance_tests_folder_name,
-            render_context.conformance_tests_running_context.get_conformance_tests_json(
-                render_context.conformance_tests_running_context.current_testing_module_name
-            ),
-            all_acceptance_tests,
-            existing_conformance_tests_files,
-            run_state=render_context.run_state,
+        current_subfolder_name = os.path.basename(conformance_tests_folder_name)
+        module_conformance_tests_folder = render_context.conformance_tests.get_module_conformance_tests_folder(
+            render_context.module_name
         )
+
+        for attempt in range(2):
+            response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
+                render_context.frid_context.frid,
+                render_context.conformance_tests_running_context.current_testing_frid,
+                render_context.plain_source_tree,
+                render_context.frid_context.linked_resources,
+                existing_files_content,
+                memory_files_content,
+                render_context.module_name,
+                render_context.get_required_modules_functionalities(),
+                conformance_tests_folder_name,
+                render_context.conformance_tests_running_context.get_conformance_tests_json(
+                    render_context.conformance_tests_running_context.current_testing_module_name
+                ),
+                all_acceptance_tests,
+                existing_conformance_tests_files,
+                run_state=render_context.run_state,
+            )
+
+            violations = render_context.conformance_tests.find_response_file_violations(
+                render_context.module_name,
+                current_subfolder_name,
+                response_files,
+            )
+
+            if not violations:
+                break
+
+            console.warning(
+                "Generated conformance test files violate the suite layout rules:\n  "
+                + "\n  ".join(violations)
+                + ("\nRetrying the generation." if attempt == 0 else "")
+            )
+        else:
+            return (
+                self.RESPONSE_VALIDATION_FAILED_OUTCOME,
+                RenderError.encode(
+                    message="Generated conformance test files repeatedly violated the suite layout rules "
+                    "(files outside the functionality's subfolder or invalid changes to shared setup files).",
+                    error_type="CONFORMANCE_TESTS_VALIDATION_ERROR",
+                    violations="\n".join(violations),
+                ).to_payload(),
+            )
 
         render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
             implementation_plan_summary
         )
 
-        file_utils.store_response_files(conformance_tests_folder_name, response_files, [])
+        file_utils.store_response_files(module_conformance_tests_folder, response_files, [])
 
         console.print_files(
             "Conformance test files generated:",
-            conformance_tests_folder_name,
+            module_conformance_tests_folder,
             response_files,
             style=console.OUTPUT_STYLE,
         )

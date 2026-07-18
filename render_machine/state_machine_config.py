@@ -85,6 +85,7 @@ class StateMachineConfig:
             FinishFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
             CreateDist.SUCCESSFUL_OUTCOME: triggers.FINISH_RENDER,
             RenderConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_READY,
+            RenderConformanceTests.RESPONSE_VALIDATION_FAILED_OUTCOME: triggers.HANDLE_ERROR,
             PrepareTestingEnvironment.SUCCESSFUL_OUTCOME: triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
             PrepareTestingEnvironment.FAILED_OUTCOME: triggers.HANDLE_ERROR,
             RunConformanceTests.SUCCESSFUL_OUTCOME: triggers.MOVE_TO_NEXT_CONFORMANCE_TEST,

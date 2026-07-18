@@ -335,6 +335,7 @@ class CodeplainAPI:
             "conformance_tests_json": conformance_tests_json,
             "all_acceptance_tests": all_acceptance_tests,
             "existing_conformance_tests_files": existing_conformance_tests_files,
+            "conformance_tests_paths_relative_to_module_root": True,
         }
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
