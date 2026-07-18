@@ -183,78 +183,6 @@ class RenderContext:
         self.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
         self.run_state.increment_unittest_batch_id()
 
-    def _get_first_frid_conformance_test_running_context(self, module: PlainModule | None):
-        conformance_tests_running_context = self.conformance_tests_running_context
-
-        if module is None:
-            conformance_tests_running_context.current_testing_module_name = self.module_name
-            if not conformance_tests_running_context.conformance_tests_json_has_module_populated(
-                conformance_tests_running_context.current_testing_module_name
-            ):
-                conformance_tests_running_context.set_conformance_tests_json(
-                    conformance_tests_running_context.current_testing_module_name,
-                    {},
-                )
-        else:
-            conformance_tests_running_context.current_testing_module_name = module.module_name
-            conformance_tests_running_context.set_conformance_tests_json(
-                conformance_tests_running_context.current_testing_module_name,
-                self.conformance_tests.get_conformance_tests_json(
-                    conformance_tests_running_context.current_testing_module_name
-                ),
-            )
-
-        if module is None:
-            conformance_tests_running_context.current_testing_frid = plain_spec.get_first_frid(self.plain_source_tree)
-        else:
-            conformance_tests_running_context.current_testing_frid = next(
-                iter(
-                    conformance_tests_running_context.get_conformance_tests_json(
-                        conformance_tests_running_context.current_testing_module_name
-                    )
-                )
-            )
-
-        return conformance_tests_running_context
-
-    def get_first_conformance_tests_running_context(self):
-        if self.required_modules is None or len(self.required_modules) == 0:
-            return self._get_first_frid_conformance_test_running_context(None)
-        else:
-            return self._get_first_frid_conformance_test_running_context(self.required_modules[0])
-
-    def get_next_conformance_tests_running_context(self):
-        conformance_tests_running_context = self.conformance_tests_running_context
-        if conformance_tests_running_context.current_testing_module_name == self.module_name:
-            conformance_tests_running_context.current_testing_frid = plain_spec.get_next_frid(
-                self.plain_source_tree,
-                self.conformance_tests_running_context.current_testing_frid,
-            )
-        else:
-            all_frids = list(
-                conformance_tests_running_context.get_conformance_tests_json(
-                    conformance_tests_running_context.current_testing_module_name
-                ).keys()
-            )
-            current_index = all_frids.index(conformance_tests_running_context.current_testing_frid)
-            if current_index + 1 < len(all_frids):
-                conformance_tests_running_context.current_testing_frid = all_frids[current_index + 1]
-            else:
-                next_module_index = -1
-                for i, required_module in enumerate(self.required_modules):
-                    if required_module.module_name == conformance_tests_running_context.current_testing_module_name:
-                        next_module_index = i + 1
-                        break
-
-                if next_module_index < len(self.required_modules):
-                    conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(
-                        self.required_modules[next_module_index]
-                    )
-                else:
-                    conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(None)
-
-        return conformance_tests_running_context
-
     def finish_unittests_processing(self):
         existing_files = file_utils.list_all_text_files(self.build_folder)
 
@@ -314,15 +242,6 @@ class RenderContext:
 
     # ========== Helper Methods for Conformance Test Execution ==========
 
-    def _should_run_current_frid_tests(self) -> bool:
-        """Check if we should run/continue testing the current FRID."""
-        ctx = self.conformance_tests_running_context
-        return (
-            ctx.execution_phase == TestExecutionPhase.TESTING_CURRENT_FRID
-            and ctx.current_testing_module_name == self.module_name
-            and ctx.current_testing_frid == ctx.frid_being_implemented
-        )
-
     def _has_more_acceptance_test_phases(self) -> bool:
         """Check if there are more acceptance test phases to run."""
         ctx = self.conformance_tests_running_context
@@ -345,15 +264,6 @@ class RenderContext:
 
         ctx.execution_phase = TestExecutionPhase.RUNNING_REGRESSION
         ctx.regression_module_index = None  # Will be advanced by _get_next_regression_module
-
-    def _get_next_test_to_run(self):
-        """Determine which test to run next based on current phase."""
-        ctx = self.conformance_tests_running_context
-
-        if ctx.current_testing_frid is None:
-            return self.get_first_conformance_tests_running_context()
-        else:
-            return self.get_next_conformance_tests_running_context()
 
     def _module_has_conformance_tests(self, module_name: str) -> bool:
         return len(self.conformance_tests.get_conformance_tests_json(module_name)) > 0
@@ -426,15 +336,6 @@ class RenderContext:
         evidence = failure_attribution.extract_frid_failure_evidence(conformance_tests_issue, folder_basename)
 
         return evidence + failure_attribution.format_other_frids_note(implicated_frids, target_frid)
-
-    def _has_reached_implementation_frid(self) -> bool:
-        """Check if regression has reached the FRID being implemented."""
-        ctx = self.conformance_tests_running_context
-        return (
-            ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
-            and ctx.current_testing_module_name == self.module_name
-            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
-        )
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
