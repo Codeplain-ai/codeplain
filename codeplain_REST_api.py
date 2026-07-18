@@ -511,26 +511,3 @@ class CodeplainAPI:
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
-
-    def summarize_finished_conformance_tests(
-        self,
-        frid,
-        plain_source_tree,
-        linked_resources,
-        conformance_test_files_content,
-        module_name: str,
-        required_modules,
-        run_state: RunState,
-    ):
-        endpoint_url = f"{self.api_url}/summarize_finished_conformance_tests"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-        payload = {
-            "frid": frid,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "conformance_test_files_content": conformance_test_files_content,
-            "module_name": module_name,
-            "required_modules": required_modules,
-        }
-
-        return self.post_request(endpoint_url, headers, payload, run_state)

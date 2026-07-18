@@ -24,7 +24,6 @@ from render_machine.actions.render_conformance_tests import RenderConformanceTes
 from render_machine.actions.render_functional_requirement import RenderFunctionalRequirement
 from render_machine.actions.run_conformance_tests import RunConformanceTests
 from render_machine.actions.run_unit_tests import RunUnitTests
-from render_machine.actions.summarize_conformance_tests import SummarizeConformanceTests
 from render_machine.render_context import RenderContext
 from render_machine.states import States
 
@@ -52,7 +51,6 @@ class StateMachineConfig:
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}": PrepareTestingEnvironment(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}": RunConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}": FixConformanceTest(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeConformanceTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitConformanceTestsChanges(
                 git_utils.CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
                 git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
@@ -97,7 +95,6 @@ class StateMachineConfig:
             FixConformanceTest.REGENERATE_CONFORMANCE_TESTS_OUTCOME: triggers.MARK_REGENERATION_OF_CONFORMANCE_TESTS,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED: triggers.PROCEED_FRID_PROCESSING,
-            SummarizeConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
             AnalyzeSpecificationAmbiguity.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
         }
 
@@ -121,9 +118,8 @@ class StateMachineConfig:
     def get_postprocessing_conformance_tests_states(self) -> Dict[str, Any]:
         return {
             "name": States.POSTPROCESSING_CONFORMANCE_TESTS.value,
-            "initial": States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value,
+            "initial": States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value,
             "children": [
-                States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value,
                 States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value,
                 States.CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value,
             ],
@@ -278,11 +274,6 @@ class StateMachineConfig:
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}",
                 "trigger": triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}",
-            },
-            {
-                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}",
-                "trigger": triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
-                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}",
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value}",

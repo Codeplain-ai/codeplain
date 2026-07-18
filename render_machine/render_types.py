@@ -136,11 +136,6 @@ class ConformanceTestsRunningContext:
             return None
         return acceptance_tests[self.acceptance_tests_completed - 1]
 
-    def set_conformance_tests_summary(self, summary: list[dict]):
-        self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
-            "test_summary"
-        ] = summary
-
 
 @dataclass
 class ScriptExecutionHistory:
