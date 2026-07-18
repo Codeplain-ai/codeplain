@@ -32,6 +32,12 @@ parent-directory/
 
 When working on features that span both repositories, coordinate changes carefully to maintain backward compatibility or plan coordinated deployments.
 
+**Manual testing both repos together** (assumes `plain2code_rest_api`'s local Postgres and dev API key/DB rows are already set up — see that repo's README):
+1. Start the local Postgres container (if not already running): `docker-compose -f docker-compose.dev.yml up -d` in `plain2code_rest_api`
+2. Start the local API server: `python src/app.py` in `plain2code_rest_api/src` (conda env `plain2code_server`) — serves on `http://127.0.0.1:5000`
+3. Point this client at it instead of production: add `--api http://127.0.0.1:5000` to any `plain2code.py` invocation
+4. `CODEPLAIN_API_KEY` stays the same value used against production — the seeded local DB row is keyed to the same key hash
+
 ## Development Setup
 
 ### Prerequisites
