@@ -131,3 +131,48 @@ def test_detect_layout_failure_not_triggered_by_test_failures():
 def test_detect_layout_failure_not_triggered_when_tests_ran_despite_signature():
     output = "Ran 3 tests in 0.1s\nAssertionError: Start directory is not importable was printed by the app"
     assert detect_layout_failure(output) is False
+
+
+class _FakeRunningContext:
+    def __init__(self, module_name, frid, conformance_tests_json):
+        self.current_testing_module_name = module_name
+        self.current_testing_frid = frid
+        self._json = conformance_tests_json
+
+    def get_conformance_tests_json(self, module_name):
+        return self._json
+
+
+def _make_fake_render_context(running_context):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        conformance_tests_running_context=running_context,
+        _setup_test_specifications=lambda: None,
+    )
+
+
+def test_route_conformance_failure_repoints_context_and_scopes_evidence():
+    from render_machine.render_context import RenderContext
+
+    running_context = _FakeRunningContext("greeter", "2", CONFORMANCE_TESTS_JSON)
+    fake_render_context = _make_fake_render_context(running_context)
+
+    evidence = RenderContext.route_conformance_failure_to_frid(fake_render_context, TWO_SUITE_FAILURE_OUTPUT)
+
+    assert running_context.current_testing_frid == "1"
+    assert "greeting missing" in evidence
+    assert "shout missing" not in evidence
+    assert "also failed in this run: 2" in evidence
+
+
+def test_route_conformance_failure_keeps_context_when_nothing_matches():
+    from render_machine.render_context import RenderContext
+
+    running_context = _FakeRunningContext("greeter", "2", CONFORMANCE_TESTS_JSON)
+    fake_render_context = _make_fake_render_context(running_context)
+
+    evidence = RenderContext.route_conformance_failure_to_frid(fake_render_context, "unattributable failure")
+
+    assert running_context.current_testing_frid == "2"
+    assert evidence == "unattributable failure"

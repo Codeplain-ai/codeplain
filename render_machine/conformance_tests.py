@@ -144,6 +144,34 @@ class ConformanceTests:
             style=console.OUTPUT_STYLE,
         )
 
+    def get_module_suite_run_folder(
+        self,
+        module_name: str,
+        required_modules: list[PlainModule],
+        current_testing_module_name: str,
+    ) -> str:
+        """Resolve the folder to pass to the conformance test script for a whole-module run.
+
+        For the module being rendered this is its own conformance tests folder. For a
+        required module it is the most specific existing copy of that module's tests
+        (mirroring get_source_conformance_test_folder_name at module granularity), falling
+        back to the required module's own folder when no copy exists yet.
+        """
+        if current_testing_module_name == module_name:
+            return self.get_module_conformance_tests_folder(module_name)
+
+        modules_list = [module_name] + [m.module_name for m in reversed(required_modules)]
+
+        for copy_from_module in modules_list:
+            if copy_from_module == current_testing_module_name:
+                break
+
+            candidate = self.get_module_conformance_tests_folder(copy_from_module + "/." + current_testing_module_name)
+            if os.path.exists(candidate):
+                return candidate
+
+        return self.get_module_conformance_tests_folder(current_testing_module_name)
+
     def fetch_all_existing_conformance_test_files(self, module_name: str) -> dict[str, str]:
         """Fetch the content of all existing conformance test files of the module.
 

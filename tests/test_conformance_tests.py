@@ -76,3 +76,33 @@ def test_fetch_all_existing_conformance_test_files_skips_binary_files(conformanc
     files_content = conformance_tests.fetch_all_existing_conformance_test_files(MODULE_NAME)
 
     assert files_content == {os.path.join("some_functionality", "test_some.py"): "some test"}
+
+
+class _FakeModule:
+    def __init__(self, module_name):
+        self.module_name = module_name
+
+
+def test_get_module_suite_run_folder_own_module(conformance_tests, conformance_tests_dir):
+    folder = conformance_tests.get_module_suite_run_folder(MODULE_NAME, [], MODULE_NAME)
+
+    assert folder == os.path.join(conformance_tests_dir, MODULE_NAME)
+
+
+def test_get_module_suite_run_folder_required_module_with_copy(conformance_tests, conformance_tests_dir):
+    copy_folder = os.path.join(conformance_tests_dir, MODULE_NAME, ".required_module")
+    _write_file(copy_folder, os.path.join("some_frid", "test_x.py"), "copied test")
+
+    folder = conformance_tests.get_module_suite_run_folder(
+        MODULE_NAME, [_FakeModule("required_module")], "required_module"
+    )
+
+    assert folder == copy_folder
+
+
+def test_get_module_suite_run_folder_required_module_without_copy(conformance_tests, conformance_tests_dir):
+    folder = conformance_tests.get_module_suite_run_folder(
+        MODULE_NAME, [_FakeModule("required_module")], "required_module"
+    )
+
+    assert folder == os.path.join(conformance_tests_dir, "required_module")
