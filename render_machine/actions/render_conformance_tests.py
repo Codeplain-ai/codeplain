@@ -111,6 +111,18 @@ class RenderConformanceTests(BaseAction):
 
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
 
+        # Existing conformance tests are sent as context so new tests don't duplicate their
+        # coverage. The current functionality's own subfolder is excluded - when re-rendering,
+        # its tests are the ones being replaced, not previous tests to deduplicate against.
+        current_subfolder_prefix = os.path.basename(conformance_tests_folder_name) + os.sep
+        existing_conformance_tests_files = {
+            file_name: content
+            for file_name, content in render_context.conformance_tests.fetch_all_existing_conformance_test_files(
+                render_context.module_name
+            ).items()
+            if not file_name.startswith(current_subfolder_prefix)
+        }
+
         response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
@@ -125,6 +137,7 @@ class RenderConformanceTests(BaseAction):
                 render_context.conformance_tests_running_context.current_testing_module_name
             ),
             all_acceptance_tests,
+            existing_conformance_tests_files,
             run_state=render_context.run_state,
         )
 
