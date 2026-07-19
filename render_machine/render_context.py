@@ -1,3 +1,4 @@
+import os.path
 import threading
 from copy import deepcopy
 from typing import Callable, Optional
@@ -11,7 +12,7 @@ from plain2code_console import console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
 from plain_modules import PlainModule
-from render_machine import triggers
+from render_machine import failure_attribution, triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
 from render_machine.render_types import (
     AcceptanceTestPhase,
@@ -182,78 +183,6 @@ class RenderContext:
         self.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
         self.run_state.increment_unittest_batch_id()
 
-    def _get_first_frid_conformance_test_running_context(self, module: PlainModule | None):
-        conformance_tests_running_context = self.conformance_tests_running_context
-
-        if module is None:
-            conformance_tests_running_context.current_testing_module_name = self.module_name
-            if not conformance_tests_running_context.conformance_tests_json_has_module_populated(
-                conformance_tests_running_context.current_testing_module_name
-            ):
-                conformance_tests_running_context.set_conformance_tests_json(
-                    conformance_tests_running_context.current_testing_module_name,
-                    {},
-                )
-        else:
-            conformance_tests_running_context.current_testing_module_name = module.module_name
-            conformance_tests_running_context.set_conformance_tests_json(
-                conformance_tests_running_context.current_testing_module_name,
-                self.conformance_tests.get_conformance_tests_json(
-                    conformance_tests_running_context.current_testing_module_name
-                ),
-            )
-
-        if module is None:
-            conformance_tests_running_context.current_testing_frid = plain_spec.get_first_frid(self.plain_source_tree)
-        else:
-            conformance_tests_running_context.current_testing_frid = next(
-                iter(
-                    conformance_tests_running_context.get_conformance_tests_json(
-                        conformance_tests_running_context.current_testing_module_name
-                    )
-                )
-            )
-
-        return conformance_tests_running_context
-
-    def get_first_conformance_tests_running_context(self):
-        if self.required_modules is None or len(self.required_modules) == 0:
-            return self._get_first_frid_conformance_test_running_context(None)
-        else:
-            return self._get_first_frid_conformance_test_running_context(self.required_modules[0])
-
-    def get_next_conformance_tests_running_context(self):
-        conformance_tests_running_context = self.conformance_tests_running_context
-        if conformance_tests_running_context.current_testing_module_name == self.module_name:
-            conformance_tests_running_context.current_testing_frid = plain_spec.get_next_frid(
-                self.plain_source_tree,
-                self.conformance_tests_running_context.current_testing_frid,
-            )
-        else:
-            all_frids = list(
-                conformance_tests_running_context.get_conformance_tests_json(
-                    conformance_tests_running_context.current_testing_module_name
-                ).keys()
-            )
-            current_index = all_frids.index(conformance_tests_running_context.current_testing_frid)
-            if current_index + 1 < len(all_frids):
-                conformance_tests_running_context.current_testing_frid = all_frids[current_index + 1]
-            else:
-                next_module_index = -1
-                for i, required_module in enumerate(self.required_modules):
-                    if required_module.module_name == conformance_tests_running_context.current_testing_module_name:
-                        next_module_index = i + 1
-                        break
-
-                if next_module_index < len(self.required_modules):
-                    conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(
-                        self.required_modules[next_module_index]
-                    )
-                else:
-                    conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(None)
-
-        return conformance_tests_running_context
-
     def finish_unittests_processing(self):
         existing_files = file_utils.list_all_text_files(self.build_folder)
 
@@ -313,15 +242,6 @@ class RenderContext:
 
     # ========== Helper Methods for Conformance Test Execution ==========
 
-    def _should_run_current_frid_tests(self) -> bool:
-        """Check if we should run/continue testing the current FRID."""
-        ctx = self.conformance_tests_running_context
-        return (
-            ctx.execution_phase == TestExecutionPhase.TESTING_CURRENT_FRID
-            and ctx.current_testing_module_name == self.module_name
-            and ctx.current_testing_frid == ctx.frid_being_implemented
-        )
-
     def _has_more_acceptance_test_phases(self) -> bool:
         """Check if there are more acceptance test phases to run."""
         ctx = self.conformance_tests_running_context
@@ -343,25 +263,79 @@ class RenderContext:
             ctx.code_changed_during_regression = False
 
         ctx.execution_phase = TestExecutionPhase.RUNNING_REGRESSION
-        ctx.current_testing_frid = None  # Will be set by get_first_conformance_tests_running_context
+        ctx.regression_module_index = None  # Will be advanced by _get_next_regression_module
 
-    def _get_next_test_to_run(self):
-        """Determine which test to run next based on current phase."""
+    def _module_has_conformance_tests(self, module_name: str) -> bool:
+        return len(self.conformance_tests.get_conformance_tests_json(module_name)) > 0
+
+    def _get_next_regression_module(self) -> Optional[str]:
+        """Advance to the next module whose whole suite should run during regression.
+
+        The regression sequence is every required module (in requires order). When code
+        changed while fixing a conformance test, the module being rendered is appended so
+        its suite gets re-verified against the changed code.
+        """
         ctx = self.conformance_tests_running_context
 
-        if ctx.current_testing_frid is None:
-            return self.get_first_conformance_tests_running_context()
+        module_names = [module.module_name for module in (self.required_modules or [])]
+        if ctx.code_changed_during_regression:
+            module_names = module_names + [self.module_name]
+
+        next_index = 0 if ctx.regression_module_index is None else ctx.regression_module_index + 1
+        while next_index < len(module_names):
+            module_name = module_names[next_index]
+            if module_name == self.module_name or self._module_has_conformance_tests(module_name):
+                ctx.regression_module_index = next_index
+                return module_name
+            next_index += 1
+
+        return None
+
+    def _switch_to_module_suite(self, module_name: str):
+        """Point the running context at a module so its whole suite is the next run."""
+        ctx = self.conformance_tests_running_context
+
+        if module_name == self.module_name:
+            ctx.current_testing_module_name = self.module_name
+            ctx.current_testing_frid = ctx.frid_being_implemented
         else:
-            return self.get_next_conformance_tests_running_context()
+            if not ctx.conformance_tests_json_has_module_populated(module_name):
+                ctx.set_conformance_tests_json(
+                    module_name, self.conformance_tests.get_conformance_tests_json(module_name)
+                )
+            ctx.current_testing_module_name = module_name
+            ctx.current_testing_frid = next(iter(ctx.get_conformance_tests_json(module_name)))
 
-    def _has_reached_implementation_frid(self) -> bool:
-        """Check if regression has reached the FRID being implemented."""
+        self._setup_test_specifications()
+
+    def route_conformance_failure_to_frid(self, conformance_tests_issue: str) -> str:
+        """Attribute a failed whole-suite run to a functionality and scope the evidence to it.
+
+        Points the running context at the earliest implicated FRID (the fix loop, memory
+        creation, and conflict detection all key off current_testing_frid) and returns the
+        failure evidence for that FRID: its own failure blocks plus a summary note about
+        other implicated FRIDs. Returns the issue unchanged when no FRID can be identified.
+        """
         ctx = self.conformance_tests_running_context
-        return (
-            ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
-            and ctx.current_testing_module_name == self.module_name
-            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
-        )
+        module_json = ctx.get_conformance_tests_json(ctx.current_testing_module_name)
+
+        implicated_frids = failure_attribution.attribute_failures(conformance_tests_issue, module_json)
+        if not implicated_frids:
+            return conformance_tests_issue
+
+        target_frid = implicated_frids[0]
+        if target_frid != ctx.current_testing_frid:
+            console.info(
+                f"Conformance test failure attributed to functionality {target_frid} "
+                f"in module {ctx.current_testing_module_name}."
+            )
+            ctx.current_testing_frid = target_frid
+            self._setup_test_specifications()
+
+        folder_basename = os.path.basename(module_json[target_frid]["folder_name"])
+        evidence = failure_attribution.extract_frid_failure_evidence(conformance_tests_issue, folder_basename)
+
+        return evidence + failure_attribution.format_other_frids_note(implicated_frids, target_frid)
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
@@ -469,32 +443,23 @@ class RenderContext:
         raise RuntimeError(f"Unexpected acceptance test phase: {ctx.acceptance_test_phase}")
 
     def _handle_regression_testing(self):
-        """Handle regression testing of all earlier FRIDs."""
+        """Handle regression testing: one whole-suite run per module.
 
-        # Get next test to run
-        self.conformance_tests_running_context = self._get_next_test_to_run()
-
-        # Get reference to the updated context
+        The module's own suite already ran in full during the current-FRID phase, so
+        regression only needs the required modules' suites (plus a re-run of the own
+        module's suite when code changed while fixing a conformance test).
+        """
         ctx = self.conformance_tests_running_context
 
-        # Set up specs and run test
-        self._setup_test_specifications()
+        next_module = self._get_next_regression_module()
 
-        if ctx.current_conformance_tests_exist():
-            # Check if this is the implementation FRID (last test to run)
-            if self._has_reached_implementation_frid():
-                # Reached implementation FRID - only re-run it if code changed during regression
-                if ctx.code_changed_during_regression:
-                    # Code changed - run the implementation FRID again to verify no regression
-                    # After it passes, mark as completed on next iteration
-                    ctx.execution_phase = TestExecutionPhase.COMPLETED
-                else:
-                    # No code changes - skip re-running implementation FRID, mark as completed immediately
-                    ctx.execution_phase = TestExecutionPhase.COMPLETED
-                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
-                    return
+        if next_module is None:
+            ctx.execution_phase = TestExecutionPhase.COMPLETED
+            self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+            return
 
-            self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+        self._switch_to_module_suite(next_module)
+        self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
     # ========== Main Conformance Test Orchestration ==========
 
@@ -534,7 +499,17 @@ class RenderContext:
             return
 
         # ========== STEP 3: Handle Current FRID Testing ==========
-        if self._should_run_current_frid_tests():
+        if ctx.execution_phase == TestExecutionPhase.TESTING_CURRENT_FRID:
+            # A failed whole-suite run may have re-pointed current_testing_frid at the
+            # implicated FRID for the fix loop; restore the FRID being implemented before
+            # continuing the current-FRID phases.
+            if (
+                ctx.current_testing_module_name != self.module_name
+                or ctx.current_testing_frid != ctx.frid_being_implemented
+            ):
+                ctx.current_testing_module_name = self.module_name
+                ctx.current_testing_frid = ctx.frid_being_implemented
+                self._setup_test_specifications()
             self._handle_current_frid_testing()
             return
 

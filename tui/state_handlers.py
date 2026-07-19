@@ -240,13 +240,6 @@ class ConformanceTestsHandler(StateHandler):
                 update_progress_item_substates(
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(fixing_text)]
                 )
-        else:
-            if segments[3] == States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value:
-                update_progress_item_substates(
-                    self.tui,
-                    TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
-                    [Substate("Summarizing conformance tests")],
-                )
 
 
 class ScriptOutputsHandler(StateHandler):

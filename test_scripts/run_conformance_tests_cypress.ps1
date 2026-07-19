@@ -256,80 +256,143 @@ try {
     # Move back to the original directory
     Set-Location $current_dir
 
-    # Define the path to the conformance tests subfolder
-    $script:NODE_CONFORMANCE_TESTS_SUBFOLDER = Join-Path ([System.IO.Path]::GetTempPath()) "node_$(Split-Path $ConformanceTestsFolder -Leaf)"
-
-    if ($env:VERBOSE -eq "1") {
-        Write-Host "Preparing conformance tests Node subfolder: $script:NODE_CONFORMANCE_TESTS_SUBFOLDER"
-    }
-
-    # Check if the conformance tests node subfolder exists
-    if (Test-Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER) {
-        # Delete all files and folders except "node_modules", "plain_modules", and "package-lock.json"
-        Get-ChildItem -Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER -Force |
-            Where-Object {
-                $_.Name -ne "node_modules" -and
-                $_.Name -ne "plain_modules" -and
-                $_.Name -ne "package-lock.json"
-            } | Remove-Item -Recurse -Force
-
-        if ($env:VERBOSE -eq "1") {
-            Write-Host "Cleanup completed, keeping 'node_modules' and 'package-lock.json'."
-        }
-    } else {
-        if ($env:VERBOSE -eq "1") {
-            Write-Host "Subfolder does not exist. Creating it..."
-        }
-
-        New-Item -ItemType Directory -Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER -Force | Out-Null
-    }
-
-    Copy-Item -Path "$ConformanceTestsFolder/*" -Destination $script:NODE_CONFORMANCE_TESTS_SUBFOLDER -Recurse -Force
-
-    # Move to the subfolder with Cypress tests
-    if (-not (Test-Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER)) {
-        Write-Host "Error: conformance tests Node folder '$script:NODE_CONFORMANCE_TESTS_SUBFOLDER' does not exist."
+    if (-not (Test-Path $ConformanceTestsFolder)) {
+        Write-Host "Error: Conformance tests folder '$ConformanceTestsFolder' does not exist."
         exit $UNRECOVERABLE_ERROR_EXIT_CODE
     }
 
-    Push-Location $script:NODE_CONFORMANCE_TESTS_SUBFOLDER
+    # Define the path to the conformance tests subfolder
+    $script:NODE_CONFORMANCE_TESTS_SUBFOLDER = Join-Path ([System.IO.Path]::GetTempPath()) "node_$(Split-Path $ConformanceTestsFolder -Leaf)"
 
-    # Temporarily allow stderr output without throwing (npm may write warnings to stderr)
-    # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
-    $ErrorActionPreference = 'Continue'
-    $npmInstallOutput = npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
-    $ErrorActionPreference = 'Stop'
-    $npmInstallOutput -split "`n" | Where-Object { $_ -notmatch $NPM_INSTALL_OUTPUT_FILTER } | ForEach-Object {
-        if ($_.Trim()) { Write-Host $_ }
-    }
+    # Stage a single conformance test suite into the scratch subfolder and run
+    # it. Returns the cypress run exit code.
+    function Invoke-CypressSuite {
+        param([string]$SuiteFolder)
 
-    if ($env:VERBOSE -eq "1") {
-        Write-Host "Running Cypress conformance tests..."
-    }
-
-    $ErrorActionPreference = 'Continue'
-    $cypress_info_output = npx cypress info 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
-    $ErrorActionPreference = 'Stop'
-    $CYPRESS_BROWSER_FLAG = ""
-    if ($cypress_info_output -match "(?i)chrome") {
-        $CYPRESS_BROWSER_FLAG = "--browser=chrome"
-    }
-    Write-Host "CYPRESS_BROWSER_FLAG: $(if ($CYPRESS_BROWSER_FLAG) { $CYPRESS_BROWSER_FLAG } else { 'none' })"
-
-    $env:BROWSERSLIST_IGNORE_OLD_DATA = "1"
-    if ($CYPRESS_BROWSER_FLAG) {
-        npx cypress run $CYPRESS_BROWSER_FLAG --config video=false 2>$null
-    } else {
-        npx cypress run --config video=false 2>$null
-    }
-    $cypress_run_result = $LASTEXITCODE
-
-    if ($cypress_run_result -ne 0) {
         if ($env:VERBOSE -eq "1") {
-            Write-Host "Error: Cypress conformance tests have failed."
+            Write-Host "Preparing conformance tests Node subfolder: $script:NODE_CONFORMANCE_TESTS_SUBFOLDER"
         }
+
+        # Check if the conformance tests node subfolder exists
+        if (Test-Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER) {
+            # Delete all files and folders except "node_modules", "plain_modules", and "package-lock.json"
+            Get-ChildItem -Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER -Force |
+                Where-Object {
+                    $_.Name -ne "node_modules" -and
+                    $_.Name -ne "plain_modules" -and
+                    $_.Name -ne "package-lock.json"
+                } | Remove-Item -Recurse -Force
+
+            if ($env:VERBOSE -eq "1") {
+                Write-Host "Cleanup completed, keeping 'node_modules' and 'package-lock.json'."
+            }
+        } else {
+            if ($env:VERBOSE -eq "1") {
+                Write-Host "Subfolder does not exist. Creating it..."
+            }
+
+            New-Item -ItemType Directory -Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER -Force | Out-Null
+        }
+
+        Copy-Item -Path "$SuiteFolder/*" -Destination $script:NODE_CONFORMANCE_TESTS_SUBFOLDER -Recurse -Force
+
+        # Move to the subfolder with Cypress tests
+        if (-not (Test-Path $script:NODE_CONFORMANCE_TESTS_SUBFOLDER)) {
+            Write-Host "Error: conformance tests Node folder '$script:NODE_CONFORMANCE_TESTS_SUBFOLDER' does not exist."
+            exit $UNRECOVERABLE_ERROR_EXIT_CODE
+        }
+
+        Push-Location $script:NODE_CONFORMANCE_TESTS_SUBFOLDER
+
+        try {
+            # Temporarily allow stderr output without throwing (npm may write warnings to stderr)
+            # ForEach-Object converts ErrorRecord objects (from stderr) to plain strings to avoid verbose error formatting
+            $script:ErrorActionPreference = 'Continue'
+            $npmInstallOutput = npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
+            $script:ErrorActionPreference = 'Stop'
+            $npmInstallOutput -split "`n" | Where-Object { $_ -notmatch $NPM_INSTALL_OUTPUT_FILTER } | ForEach-Object {
+                if ($_.Trim()) { Write-Host $_ }
+            }
+
+            if ($env:VERBOSE -eq "1") {
+                Write-Host "Running Cypress conformance tests..."
+            }
+
+            $script:ErrorActionPreference = 'Continue'
+            $cypress_info_output = npx cypress info 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ } } | Out-String
+            $script:ErrorActionPreference = 'Stop'
+            $CYPRESS_BROWSER_FLAG = ""
+            if ($cypress_info_output -match "(?i)chrome") {
+                $CYPRESS_BROWSER_FLAG = "--browser=chrome"
+            }
+            Write-Host "CYPRESS_BROWSER_FLAG: $(if ($CYPRESS_BROWSER_FLAG) { $CYPRESS_BROWSER_FLAG } else { 'none' })"
+
+            $env:BROWSERSLIST_IGNORE_OLD_DATA = "1"
+            if ($CYPRESS_BROWSER_FLAG) {
+                npx cypress run $CYPRESS_BROWSER_FLAG --config video=false 2>$null
+            } else {
+                npx cypress run --config video=false 2>$null
+            }
+            return $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
+    }
+
+    function Test-HasCypressConfig {
+        param([string]$Folder)
+        return [bool](Get-ChildItem -Path $Folder -Filter "cypress.config.*" -File -ErrorAction SilentlyContinue)
+    }
+
+    if (Test-HasCypressConfig $ConformanceTestsFolder) {
+        # Single conformance test suite ($ConformanceTestsFolder is the suite folder itself).
+        $cypress_run_result = Invoke-CypressSuite $ConformanceTestsFolder
+
+        if ($cypress_run_result -ne 0) {
+            if ($env:VERBOSE -eq "1") {
+                Write-Host "Error: Cypress conformance tests have failed."
+            }
+            exit 1
+        }
+
+        exit 0
+    }
+
+    # $ConformanceTestsFolder is a folder of conformance test suites: run every
+    # non-hidden subfolder that contains a cypress config file.
+    $suites_run = 0
+    $aggregated_exit_code = 0
+
+    $suite_folders = Get-ChildItem -Path $ConformanceTestsFolder -Directory |
+        Where-Object { -not $_.Name.StartsWith(".") } |
+        Sort-Object Name
+
+    foreach ($suite in $suite_folders) {
+        if (-not (Test-HasCypressConfig $suite.FullName)) {
+            continue
+        }
+
+        Write-Host "=== conformance suite: $($suite.Name) ==="
+
+        $cypress_run_result = Invoke-CypressSuite $suite.FullName
+        $suites_run += 1
+
+        # Keep running the remaining suites so the full set of failures is
+        # reported, but exit non-zero if any suite failed.
+        if ($cypress_run_result -ne 0) {
+            if ($env:VERBOSE -eq "1") {
+                Write-Host "Error: Cypress conformance tests have failed."
+            }
+            $aggregated_exit_code = 1
+        }
+    }
+
+    if ($suites_run -eq 0) {
+        Write-Host "`nError: No conformance test suites discovered."
         exit 1
     }
+
+    exit $aggregated_exit_code
 } finally {
     Cleanup
 }

@@ -209,51 +209,122 @@ printf "### Step 2: Running Cypress conformance tests $2...\n"
 # Move back to the original directory
 cd $current_dir
 
-# Define the path to the conformance tests subfolder
-NODE_CONFORMANCE_TESTS_SUBFOLDER="/tmp/node_$(basename "$2")"
+# Resolve the conformance tests folder to an absolute path
+CONFORMANCE_TESTS_FOLDER=$(cd "$2" 2>/dev/null && pwd)
 
-if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
-  printf "Preparing conformance tests Node subfolder: $NODE_CONFORMANCE_TESTS_SUBFOLDER\n"
-fi
-
-# Check if the conformance tests node subfolder exists
-if [ -d "$NODE_CONFORMANCE_TESTS_SUBFOLDER" ]; then
-  # Find and delete all files and folders except "node_modules", "plain_modules", and "package-lock.json"
-  find "$NODE_CONFORMANCE_TESTS_SUBFOLDER" -mindepth 1 ! -path "$NODE_CONFORMANCE_TESTS_SUBFOLDER/node_modules*" ! -path "$NODE_CONFORMANCE_TESTS_SUBFOLDER/plain_modules*" ! -name "package-lock.json" -exec rm -rf {} +
-
-  if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
-    printf "Cleanup completed, keeping 'node_modules' and 'package-lock.json'.\n"
-  fi
-else
-  if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
-    printf "Subfolder does not exist. Creating it...\n"
-  fi
-
-  mkdir -p $NODE_CONFORMANCE_TESTS_SUBFOLDER
-fi
-
-cp -R $2/* $NODE_CONFORMANCE_TESTS_SUBFOLDER
-
-# Move to the subfolder with Cypress tests
-cd "$NODE_CONFORMANCE_TESTS_SUBFOLDER" 2>/dev/null
-
-if [ $? -ne 0 ]; then
-  printf "Error: conformance tests Node folder '$NODE_CONFORMANCE_TESTS_SUBFOLDER' does not exist.\n"
+if [ -z "$CONFORMANCE_TESTS_FOLDER" ]; then
+  printf "Error: Conformance tests folder '$2' does not exist.\n"
   exit $UNRECOVERABLE_ERROR_EXIT_CODE
 fi
 
-npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error | grep -Ev "$NPM_INSTALL_OUTPUT_FILTER"
+# Define the path to the conformance tests subfolder
+NODE_CONFORMANCE_TESTS_SUBFOLDER="/tmp/node_$(basename "$2")"
 
-if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
-  printf "Running Cypress conformance tests...\n"
+# Stage a single conformance test suite into the scratch subfolder and run it.
+# Returns the cypress run exit code (or exits the script on environment errors).
+stage_and_run_suite() {
+  suite_folder="$1"
+
+  if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+    printf "Preparing conformance tests Node subfolder: $NODE_CONFORMANCE_TESTS_SUBFOLDER\n"
+  fi
+
+  # Check if the conformance tests node subfolder exists
+  if [ -d "$NODE_CONFORMANCE_TESTS_SUBFOLDER" ]; then
+    # Find and delete all files and folders except "node_modules", "plain_modules", and "package-lock.json"
+    find "$NODE_CONFORMANCE_TESTS_SUBFOLDER" -mindepth 1 ! -path "$NODE_CONFORMANCE_TESTS_SUBFOLDER/node_modules*" ! -path "$NODE_CONFORMANCE_TESTS_SUBFOLDER/plain_modules*" ! -name "package-lock.json" -exec rm -rf {} +
+
+    if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+      printf "Cleanup completed, keeping 'node_modules' and 'package-lock.json'.\n"
+    fi
+  else
+    if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+      printf "Subfolder does not exist. Creating it...\n"
+    fi
+
+    mkdir -p $NODE_CONFORMANCE_TESTS_SUBFOLDER
+  fi
+
+  cp -R "$suite_folder"/* $NODE_CONFORMANCE_TESTS_SUBFOLDER
+
+  # Move to the subfolder with Cypress tests
+  cd "$NODE_CONFORMANCE_TESTS_SUBFOLDER" 2>/dev/null
+
+  if [ $? -ne 0 ]; then
+    printf "Error: conformance tests Node folder '$NODE_CONFORMANCE_TESTS_SUBFOLDER' does not exist.\n"
+    exit $UNRECOVERABLE_ERROR_EXIT_CODE
+  fi
+
+  npm install cypress --save-dev --prefer-offline --no-audit --no-fund --loglevel error | grep -Ev "$NPM_INSTALL_OUTPUT_FILTER"
+
+  if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+    printf "Running Cypress conformance tests...\n"
+  fi
+
+  BROWSERSLIST_IGNORE_OLD_DATA=1 npx cypress run --browser=chrome --config video=false 2>/dev/null
+  cypress_run_result=$?
+
+  # Move back to the original directory before the next suite
+  cd $current_dir
+
+  return $cypress_run_result
+}
+
+has_cypress_config() {
+  ls "$1"/cypress.config.* >/dev/null 2>&1
+}
+
+if has_cypress_config "$CONFORMANCE_TESTS_FOLDER"; then
+  # Single conformance test suite ("$2" is the suite folder itself).
+  stage_and_run_suite "$CONFORMANCE_TESTS_FOLDER"
+  cypress_run_result=$?
+
+  if [ $cypress_run_result -ne 0 ]; then
+    if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+      printf "Error: Cypress conformance tests have failed.\n"
+    fi
+    exit 1
+  fi
+
+  exit 0
 fi
 
-BROWSERSLIST_IGNORE_OLD_DATA=1 npx cypress run --browser=chrome --config video=false 2>/dev/null
-cypress_run_result=$?
+# "$2" is a folder of conformance test suites: run every non-hidden subfolder
+# that contains a cypress config file.
+suites_run=0
+aggregated_exit_code=0
 
-if [ $cypress_run_result -ne 0 ]; then
-  if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
-    printf "Error: Cypress conformance tests have failed.\n"
+for suite_folder in "$CONFORMANCE_TESTS_FOLDER"/*/; do
+  suite_name=$(basename "$suite_folder")
+
+  case "$suite_name" in
+    .*) continue ;;
+  esac
+
+  if ! has_cypress_config "${suite_folder%/}"; then
+    continue
   fi
+
+  printf "=== conformance suite: %s ===\n" "$suite_name"
+
+  stage_and_run_suite "${suite_folder%/}"
+  cypress_run_result=$?
+
+  suites_run=$((suites_run + 1))
+
+  # Keep running the remaining suites so the full set of failures is reported,
+  # but exit non-zero if any suite failed.
+  if [ $cypress_run_result -ne 0 ]; then
+    if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+      printf "Error: Cypress conformance tests have failed.\n"
+    fi
+    aggregated_exit_code=1
+  fi
+done
+
+if [ $suites_run -eq 0 ]; then
+  printf "\nError: No conformance test suites discovered.\n"
   exit 1
 fi
+
+exit $aggregated_exit_code
