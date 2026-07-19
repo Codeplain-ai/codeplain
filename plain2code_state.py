@@ -48,7 +48,23 @@ class RunState:
         self.rendered_functionalities += 1
 
     def add_to_render_time(self):
-        self.render_time_accumulated += int(time.monotonic() - self.last_render_start_timestamp)
+        now = time.monotonic()
+        self.render_time_accumulated += int(now - self.last_render_start_timestamp)
+        # Reset the segment start so get_live_render_time() does not re-count the
+        # span that was just banked (e.g. after a render completes).
+        self.last_render_start_timestamp = now
+
+    def get_live_render_time(self) -> int:
+        """Render time so far in whole seconds, including the in-progress segment.
+
+        This is the single source of truth for elapsed render time, shared by the
+        log timestamps, the TUI usage line, and the post-render summary. Pause time
+        is excluded because ``add_to_render_time`` banks the elapsed span at the
+        start of a pause and ``set_last_render_start_timestamp`` restarts the
+        segment on resume. The value is only transiently inflated while the code
+        sits inside the pause loop itself, which no consumer samples.
+        """
+        return self.render_time_accumulated + int(time.monotonic() - self.last_render_start_timestamp)
 
     def set_last_render_start_timestamp(self):
         self.last_render_start_timestamp = time.monotonic()
