@@ -7,6 +7,8 @@ from textual.message import Message
 from textual.timer import Timer
 from textual.widgets import Button, Static
 
+from plain2code_utils import format_duration_hms
+
 from .models import Substate
 from .spinner import Spinner
 
@@ -138,6 +140,7 @@ class ScriptOutputType(str, Enum):
 
 class TUIComponents(str, Enum):
     RENDER_STATUS_WIDGET = "render-status-widget"
+    RENDER_USAGE_WIDGET = "render-usage-widget"
 
     # FRID Progress widgets
     FRID_PROGRESS = "frid-progress"
@@ -196,15 +199,7 @@ class SubstateLine(Horizontal):
         self._refresh_timer()
 
     def _format_timer(self) -> str:
-        elapsed = int(self._seconds_elapsed)
-        if elapsed < 60:
-            return f"{elapsed}s"
-        minutes = elapsed // 60
-        seconds = elapsed % 60
-        if minutes < 60:
-            return f"{minutes}m {seconds}s"
-        hours = minutes // 60
-        return f"{hours}h {minutes % 60}m"
+        return format_duration_hms(self._seconds_elapsed)
 
     def _format_line(self) -> str:
         timer = self._format_timer()

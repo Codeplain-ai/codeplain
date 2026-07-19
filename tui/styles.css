@@ -53,6 +53,10 @@ We might need those at some point, so just commenting them out for now.
   color: #ff6b6b;
 }
 
+#render-usage-widget {
+  height: auto;
+}
+
 #frid-progress {
   margin: 0;
   height: auto;

@@ -286,6 +286,7 @@ def render(  # noqa: C901
         render_thread = threading.Thread(target=run_render, daemon=True)
         app = Plain2CodeTUI(
             event_bus=event_bus,
+            run_state=run_state,
             on_ready=render_thread.start,
             render_id=run_state.render_id,
             unittests_script=args.unittests_script,

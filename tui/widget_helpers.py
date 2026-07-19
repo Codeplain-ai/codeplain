@@ -5,6 +5,8 @@ from datetime import datetime
 from textual.css.query import NoMatches
 from textual.widgets import Static
 
+from usage_summary import format_usage_summary
+
 from .components import FRIDProgress, ProgressItem, RenderingInfoBox, StructuredLogView, SubstateLine, TUIComponents
 from .models import Substate
 
@@ -87,7 +89,10 @@ def display_success_message(tui, rendered_code_path: str):
         rendered_code_path: The path to the rendered code
     """
 
-    message = f"[#79FC96]✓ Rendering finished![/#79FC96] [#888888](press enter to exit)[/#888888]\n[#888888]Generated code: {rendered_code_path}[/#888888] "
+    message = (
+        f"[#79FC96]✓ rendering completed![/#79FC96] [#888888](press enter to exit)[/#888888]\n"
+        f"[#888888]generated code folder: {rendered_code_path}[/#888888] "
+    )
 
     widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
     widget.update(message)
@@ -116,6 +121,20 @@ def display_error_message(tui, error_message: str):
     widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
     widget.add_class("error")
     widget.update(error_message)
+
+
+def display_usage_summary(tui, functionalities: int, render_time_seconds: float) -> None:
+    """Update the credit-usage line beneath the render-status widget.
+
+    Shows how many functionalities were rendered, the credits they consumed
+    (one per functionality), and the render time so far. Fails silently if the
+    widget is not mounted (e.g. during teardown).
+    """
+    try:
+        widget: Static = tui.query_one(f"#{TUIComponents.RENDER_USAGE_WIDGET.value}", Static)
+        widget.update(format_usage_summary(functionalities, render_time_seconds))
+    except NoMatches:
+        pass
 
 
 def update_progress_item_substates(tui, widget_id: str, substates: list[Substate]) -> None:

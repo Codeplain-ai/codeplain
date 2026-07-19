@@ -1,5 +1,4 @@
 import logging
-import time
 
 from event_bus import EventBus
 from plain2code_events import LogMessageEmitted
@@ -42,9 +41,7 @@ class ElapsedTimeFormatter(logging.Formatter):
     def format(self, record):
         # Calculate elapsed time the same way as LoggingHandler does for the TUI
         try:
-            offset_seconds = self.run_state.render_time_accumulated + int(
-                time.monotonic() - self.run_state.last_render_start_timestamp
-            )
+            offset_seconds = self.run_state.get_live_render_time()
         except Exception:
             # If RunState is not available or there's any error, default to 00:00:00
             offset_seconds = 0
@@ -74,9 +71,7 @@ class LoggingHandler(logging.Handler):
 
     def emit(self, record):
         try:
-            offset_seconds = self.run_state.render_time_accumulated + int(
-                time.monotonic() - self.run_state.last_render_start_timestamp
-            )
+            offset_seconds = self.run_state.get_live_render_time()
 
             hours = offset_seconds // 3600
             minutes = (offset_seconds % 3600) // 60

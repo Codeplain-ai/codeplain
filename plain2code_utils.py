@@ -16,19 +16,23 @@ def find_large_base64_blob(text: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
-def format_duration_hms(total_seconds: int) -> str:
-    """Format a duration in seconds as hours, minutes, and seconds (e.g. ``1h 2m 3.45s``, ``45.67s``)."""
-    if total_seconds < 0:
-        total_seconds = 0
-    h = int(total_seconds // 3600)
-    m = int((total_seconds % 3600) // 60)
-    s = total_seconds % 60
-    if h:
-        return f"{h}h {m}m {s}s"
-    if m:
-        return f"{m}m {s}s"
-    text = f"{s}".rstrip("0").rstrip(".")
-    return f"{text}s" if text else "0s"
+def format_duration_hms(total_seconds: float) -> str:
+    """Format a whole-second duration compactly (e.g. ``10s``, ``5m 49s``, ``1h 2m``).
+
+    Fractional seconds are truncated. Durations under a minute render as ``{s}s``,
+    under an hour as ``{m}m {s}s``, and beyond as ``{h}h {m}m``.
+    """
+    elapsed = int(total_seconds)
+    if elapsed < 0:
+        elapsed = 0
+    if elapsed < 60:
+        return f"{elapsed}s"
+    minutes = elapsed // 60
+    seconds = elapsed % 60
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+    hours = minutes // 60
+    return f"{hours}h {minutes % 60}m"
 
 
 AMBIGUITY_CAUSES = {

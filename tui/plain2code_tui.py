@@ -19,8 +19,16 @@ from plain2code_events import (
     RenderPaused,
     RenderStateUpdated,
 )
+from plain2code_state import RunState
 from render_machine.states import States
-from tui.widget_helpers import display_module_name, log_to_widget, stop_progress_timer, transition_frid_progress
+from tui.widget_helpers import (
+    display_module_name,
+    display_usage_summary,
+    log_to_widget,
+    stop_progress_timer,
+    transition_frid_progress,
+)
+from usage_summary import format_usage_summary
 
 from .components import (
     CustomFooter,
@@ -60,9 +68,12 @@ class Plain2CodeTUI(App):
         ("ctrl+l", "toggle_logs", "Toggle Logs"),
     ]
 
+    USAGE_REFRESH_INTERVAL_SECONDS = 1.0
+
     def __init__(
         self,
         event_bus: EventBus,
+        run_state: RunState,
         on_ready: Callable[[], None],
         render_id: str,
         unittests_script: str,
@@ -77,6 +88,12 @@ class Plain2CodeTUI(App):
         super().__init__(**kwargs)
         self.dark = True  # Set dark mode as default
         self.event_bus = event_bus
+        self.run_state = run_state
+        # Live credit-usage line. The elapsed render time is read from the shared
+        # run_state.get_live_render_time(); the TUI only owns the refresh cadence and
+        # freezes it while paused so the line is never sampled inside the pause loop.
+        self._usage_timer = None
+        self._usage_paused = False
         self._on_ready = on_ready
         self.render_id = render_id
         self.unittests_script: Optional[str] = unittests_script
@@ -124,6 +141,9 @@ class Plain2CodeTUI(App):
         self.event_bus.subscribe(LogMessageEmitted, self.on_log_message_emitted)
         self.event_bus.subscribe(RenderPaused, self.on_render_paused)
 
+        # Live credit-usage line: refresh functionalities / used credits / render time each second.
+        self._usage_timer = self.set_interval(self.USAGE_REFRESH_INTERVAL_SECONDS, self._refresh_usage_summary)
+
         if self.default_log_level != "INFO":
             try:
                 log_widget = self.query_one(f"#{TUIComponents.LOG_WIDGET.value}", StructuredLogView)
@@ -167,11 +187,49 @@ class Plain2CodeTUI(App):
                         "[#FFFFFF]Rendering in progress...[/#FFFFFF]",
                         id=TUIComponents.RENDER_STATUS_WIDGET.value,
                     )
+                    yield Static(
+                        format_usage_summary(0, 0),
+                        id=TUIComponents.RENDER_USAGE_WIDGET.value,
+                    )
             with Vertical(id=TUIComponents.LOG_VIEW.value):
                 yield LogLevelFilter(id=TUIComponents.LOG_FILTER.value)
                 yield Static("", classes="filter-spacer")
                 yield StructuredLogView(id=TUIComponents.LOG_WIDGET.value)
         yield CustomFooter(render_id=self.render_id)
+
+    def _refresh_usage_summary(self) -> None:
+        """Refresh the live credit-usage line while the render is in progress.
+
+        Runs on the main (event-loop) thread via the interval timer. While paused
+        the line is left untouched so it is never sampled inside the pause loop.
+        Once the render has finished it stops the timer from here — cancelling it
+        from the background render thread that publishes completion is not safe.
+        """
+        if self._render_finished:
+            if self._usage_timer is not None:
+                self._usage_timer.stop()
+                self._usage_timer = None
+            return
+        if self._usage_paused:
+            return
+        display_usage_summary(self, self.run_state.rendered_functionalities, self.run_state.get_live_render_time())
+
+    def _finalize_usage_summary(self) -> None:
+        """Freeze the usage line at its final totals once the render ends.
+
+        Called from the completion/failure handlers (background render thread). The
+        render machine does not always finalize its accumulated render time before a
+        failure propagates, so the live value is captured onto the run state here.
+        That keeps the in-TUI line and the post-exit console summary in agreement on
+        every terminal path. The live timer stops on its own next tick; the
+        ``_render_finished`` guard blocks any overwrite.
+        """
+        self.run_state.render_time_accumulated = self.run_state.get_live_render_time()
+        display_usage_summary(
+            self,
+            self.run_state.rendered_functionalities,
+            self.run_state.render_time_accumulated,
+        )
 
     def action_toggle_logs(self) -> None:
         """Toggle between dashboard and log view."""
@@ -254,12 +312,16 @@ class Plain2CodeTUI(App):
         footer = self.screen.query_one(CustomFooter)
         footer.update_footer_state("paused")
         transition_frid_progress(self, ProgressItem.PAUSING, ProgressItem.PAUSED)
-        pass
+        # Stop refreshing the usage line so its render time is never sampled while
+        # the render machine sits in the pause loop; run_state already excludes the
+        # paused span once rendering resumes.
+        self._usage_paused = True
 
     def on_render_completed(self, event: RenderCompleted):
         """Handle successful render completion."""
         self._render_success_handler.handle(event.rendered_code_path)
         self._render_finished = True
+        self._finalize_usage_summary()
         try:
             footer = self.screen.query_one(CustomFooter)
             footer.update_footer_state("finished")
@@ -270,6 +332,7 @@ class Plain2CodeTUI(App):
         """Handle render failure."""
         self._render_error_handler.handle(event.error_message)
         self._render_finished = True
+        self._finalize_usage_summary()
         try:
             footer = self.screen.query_one(CustomFooter)
             footer.update_footer_state("finished")
@@ -297,6 +360,7 @@ class Plain2CodeTUI(App):
                 footer = self.screen.query_one(CustomFooter)
                 footer.update_footer_state("rendering")
                 self.enter_pause_event.clear()
+                self._usage_paused = False
             else:
                 transition_frid_progress(self, ProgressItem.PROCESSING, ProgressItem.PAUSING)
                 footer = self.screen.query_one(CustomFooter)
@@ -316,4 +380,8 @@ class Plain2CodeTUI(App):
         """
         if not self._render_finished and self._on_cancel:
             self._on_cancel()
+            # The render thread is abandoned on cancel and never finalizes the
+            # accumulated render time, so capture the live value now for the
+            # post-exit summary (otherwise it would report 0).
+            self.run_state.render_time_accumulated = self.run_state.get_live_render_time()
         self.exit()
