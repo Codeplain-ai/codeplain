@@ -1,7 +1,7 @@
 from typing import Any
 
 import file_utils
-from plain2code_console import console
+from plain2code_console import SUCCESS_COLOR, console
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
 
@@ -21,6 +21,6 @@ class CreateDist(BaseAction):
                 render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
                 render_context.conformance_tests_dest,
             )
-        console.info(f"[#79FC96]Render of module {render_context.module_name} completed successfully.[/#79FC96]")
+        console.info(f"✓ Render of module {render_context.module_name} completed successfully.", color=SUCCESS_COLOR)
 
         return self.SUCCESSFUL_OUTCOME, None

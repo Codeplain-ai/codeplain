@@ -11,6 +11,12 @@ CHARACTERS_TO_TOKENS_RULE_OF_THUMB_RATIO = 4
 
 logger = logging.getLogger(plain2code_logger.LOGGER_NAME)
 
+# Colors for log messages, applied by the terminal and the TUI via the "color"
+# parameter of the console methods. The file log always receives plain text.
+RETRY_COLOR = "#FFB454"  # Amber
+SUCCESS_COLOR = "#79FC96"  # Green
+MUTED_COLOR = "#888888"  # Grey
+
 
 class Plain2CodeConsole(Console):
     INFO_STYLE = Style()
@@ -33,30 +39,37 @@ class Plain2CodeConsole(Console):
             logger.debug(f"Exception: {e}")
             self.llm_encoding = None
 
-    def info(self, *args, **kwargs):
-        logger.info(" ".join(map(str, args)))
-        super().print(*args, **kwargs, style=self.INFO_STYLE)
+    def info(self, *args, color=None, **kwargs):
+        self._log_and_print(logging.INFO, self.INFO_STYLE, args, color, kwargs)
 
-    def warning(self, *args, **kwargs):
-        logger.warning(" ".join(map(str, args)))
-        super().print(*args, **kwargs, style=self.WARNING_STYLE)
+    def warning(self, *args, color=None, **kwargs):
+        self._log_and_print(logging.WARNING, self.WARNING_STYLE, args, color, kwargs)
 
-    def error(self, *args, **kwargs):
-        logger.error(" ".join(map(str, args)))
-        super().print(*args, **kwargs, style=self.ERROR_STYLE)
+    def error(self, *args, color=None, **kwargs):
+        self._log_and_print(logging.ERROR, self.ERROR_STYLE, args, color, kwargs)
 
-    def input(self, *args, **kwargs):
+    def input(self, *args, color=None, **kwargs):
         # We also log input as info so it shows in the toggled view
-        logger.info(" ".join(map(str, args)))
-        super().print(*args, **kwargs, style=self.INPUT_STYLE)
+        self._log_and_print(logging.INFO, self.INPUT_STYLE, args, color, kwargs)
 
-    def output(self, *args, **kwargs):
-        logger.info(" ".join(map(str, args)))
-        super().print(*args, **kwargs, style=self.OUTPUT_STYLE)
+    def output(self, *args, color=None, **kwargs):
+        self._log_and_print(logging.INFO, self.OUTPUT_STYLE, args, color, kwargs)
 
-    def debug(self, *args, **kwargs):
-        logger.debug(" ".join(map(str, args)))
-        super().print(*args, **kwargs, style=self.DEBUG_STYLE)
+    def debug(self, *args, color=None, **kwargs):
+        self._log_and_print(logging.DEBUG, self.DEBUG_STYLE, args, color, kwargs)
+
+    def _log_and_print(self, level, base_style, args, color, kwargs):
+        """Log the plain message text, then print it styled to the terminal.
+
+        The optional color is applied by the terminal (via style) and forwarded to
+        the TUI as the "log_color" record attribute; the file log stays plain text.
+        """
+        logger.log(level, " ".join(map(str, args)), extra={"log_color": color})
+        style = base_style + Style(color=color) if color else base_style
+        # Log messages must render exactly as logged: don't interpret square brackets
+        # in interpolated content (error texts, file names) as Rich markup.
+        kwargs.setdefault("markup", False)
+        super().print(*args, **kwargs, style=style)
 
     def print_list(self, items, style=None):
         for item in items:
@@ -130,9 +143,7 @@ class Plain2CodeConsole(Console):
         for resource_name in resources_list:
             if resource_name["target"] in linked_resources:
                 file_tokens = self._count_tokens(linked_resources[resource_name["target"]])
-                self.debug(
-                    f"- {resource_name['text']} [#4169E1]({resource_name['target']}, {file_tokens} tokens)[/#4169E1]"
-                )
+                self.debug(f"- {resource_name['text']} ({resource_name['target']}, {file_tokens} tokens)")
 
         self.input()
 

@@ -208,6 +208,7 @@ class Plain2CodeTUI(App):
                 event.level,
                 event.message,
                 event.timestamp,
+                event.log_color,
             )
         except Exception as e:
             log_to_widget(

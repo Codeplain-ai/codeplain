@@ -14,7 +14,7 @@ if sys.platform == "linux":
 import file_utils
 import git_utils
 import plain_spec
-from plain2code_console import console
+from plain2code_console import MUTED_COLOR, RETRY_COLOR, SUCCESS_COLOR, console
 from plain2code_exceptions import RenderCancelledError
 
 SCRIPT_EXECUTION_TIMEOUT = 120
@@ -178,24 +178,30 @@ def execute_script(  # noqa: C901
                 temp_file.write(f"{script_type} script {script} successfully passed.\n")
             temp_file.write(f"{script_type} script execution time: {elapsed_time:.2f} seconds.\n")
 
-        console.debug(f"[#888888]{script_type} script output stored in: {temp_file_path.strip()}[/#888888]")
+        console.debug(f"{script_type} script output stored in: {temp_file_path.strip()}", color=MUTED_COLOR)
 
         if proc.returncode != 0:
             if frid is not None:
-                console.debug(
-                    f"The {script_type} script for functionality ID {frid} of module {module} has failed. Initiating the patching mode to automatically correct the discrepancies."
+                console.info(
+                    f"↻ The {script_type} script for functionality ID {frid} of module {module} has failed. "
+                    f"Initiating the patching mode to automatically correct the discrepancies.",
+                    color=RETRY_COLOR,
                 )
             else:
-                console.debug(
-                    f"The {script_type} script has failed. Initiating the patching mode to automatically correct the discrepancies."
+                console.info(
+                    f"↻ The {script_type} script has failed. "
+                    f"Initiating the patching mode to automatically correct the discrepancies.",
+                    color=RETRY_COLOR,
                 )
         else:
             if frid is not None:
                 console.info(
-                    f"[#79FC96]The {script_type} script for functionality ID {frid} of module {module} has passed successfully.[/#79FC96]"
+                    f"✓ The {script_type} script for functionality ID {frid} of module {module} "
+                    f"has passed successfully.",
+                    color=SUCCESS_COLOR,
                 )
             else:
-                console.info(f"[#79FC96]All {script_type} scripts have passed successfully.[/#79FC96]")
+                console.info(f"✓ All {script_type} scripts have passed successfully.", color=SUCCESS_COLOR)
 
         return proc.returncode, sanitized_script_output, temp_file_path
 

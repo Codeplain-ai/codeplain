@@ -44,6 +44,7 @@ class LogMessageEmitted(BaseEvent):
     level: str  # e.g., "INFO", "DEBUG", "ERROR"
     message: str  # The actual log message
     timestamp: str  # Formatted timestamp
+    log_color: Optional[str] = None  # Color for the message (e.g. "#FFB454"); the file log stays plain text
 
 
 @dataclass
