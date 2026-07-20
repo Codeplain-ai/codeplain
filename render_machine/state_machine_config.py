@@ -101,7 +101,8 @@ class StateMachineConfig:
             RenderConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_READY,
             AgentRenderConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_READY,
             PrepareTestingEnvironment.SUCCESSFUL_OUTCOME: triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
-            PrepareTestingEnvironment.FAILED_OUTCOME: triggers.HANDLE_ERROR,
+            PrepareTestingEnvironment.FAILED_OUTCOME: triggers.MARK_TESTING_ENVIRONMENT_FAILED,
+            PrepareTestingEnvironment.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
             RunConformanceTests.SUCCESSFUL_OUTCOME: triggers.MOVE_TO_NEXT_CONFORMANCE_TEST,
             RunConformanceTests.FAILED_OUTCOME: triggers.MARK_CONFORMANCE_TESTS_FAILED,
             RunConformanceTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
@@ -399,9 +400,19 @@ class StateMachineConfig:
                 "trigger": triggers.MARK_TESTING_ENVIRONMENT_PREPARED,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_ENV_PREPARED.value}",
             },
+            # A failed environment preparation (typically a build/compile error) is
+            # treated like a failing conformance test: route into the fix loop with
+            # the preparation output instead of failing the render. Covers both the
+            # first preparation after the tests are generated and the re-preparation
+            # after a fix is applied.
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_GENERATED.value}",
+                "trigger": triggers.MARK_TESTING_ENVIRONMENT_FAILED,
+                "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
+            },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_FIX_APPLIED.value}",
-                "trigger": triggers.HANDLE_ERROR,
+                "trigger": triggers.MARK_TESTING_ENVIRONMENT_FAILED,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.CONFORMANCE_TEST_FAILED.value}",
             },
             # Review APPROVED: tests already pass, so continue the test orchestration

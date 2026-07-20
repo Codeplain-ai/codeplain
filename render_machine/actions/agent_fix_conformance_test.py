@@ -49,13 +49,14 @@ class AgentFixConformanceTest(BaseAction):
         review_rejection_feedback = (
             previous_action_payload.get("review_rejection_feedback", "") if previous_action_payload else ""
         )
-        # Detect whether we re-entered fixing because the environment preparation
-        # (build/compile) step failed after the previous fix. PrepareTestingEnvironment
-        # returns an ENVIRONMENT_ERROR payload, and the state machine routes that back
-        # here (CONFORMANCE_FIX_APPLIED --HANDLE_ERROR--> CONFORMANCE_TEST_FAILED) without
-        # running the conformance tests. When that happens the latest conformance test
-        # output is stale (the tests never ran), so the agent must be pointed at the
-        # environment preparation output instead.
+        # Detect whether we entered fixing because the environment preparation
+        # (build/compile) step failed — either the first preparation after the tests
+        # were generated or the re-preparation after a previous fix.
+        # PrepareTestingEnvironment returns an ENVIRONMENT_ERROR payload, and the
+        # state machine routes that here (MARK_TESTING_ENVIRONMENT_FAILED -->
+        # CONFORMANCE_TEST_FAILED) without running the conformance tests. When that
+        # happens the latest conformance test output is stale (the tests never ran),
+        # so the agent must be pointed at the environment preparation output instead.
         error = previous_action_payload.get("error") if previous_action_payload else None
         prepare_environment_failed = bool(error and error.get("type") == "ENVIRONMENT_ERROR")
 
@@ -388,7 +389,7 @@ class AgentFixConformanceTest(BaseAction):
             "completely unchanged. Your current hypothesis class is exhausted — do NOT refine it further. "
             "You MUST change strategy: (1) verify your edits reach the executed code (dead-edit axiom), "
             "(2) re-read the failure output from scratch without your prior assumptions, and (3) pick a "
-            "different component or layer to investigate. State your new hypothesis via report_progress "
+            "different component or layer to investigate. State your new hypothesis explicitly "
             "before editing anything."
         )
 
