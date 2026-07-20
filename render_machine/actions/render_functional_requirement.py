@@ -3,7 +3,7 @@ from typing import Any
 import file_utils
 import render_machine.render_utils as render_utils
 from memory_management import MemoryManager
-from plain2code_console import console
+from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import FunctionalRequirementTooComplex
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -28,8 +28,9 @@ class RenderFunctionalRequirement(BaseAction):
 
         if render_context.frid_context.functional_requirement_render_attempts > 1:
             console.info(
-                f"Unittests could not be fixed after rendering the functionality. "
-                f"Restarting rendering functionality {render_context.frid_context.frid} from scratch."
+                f"↻ Unittests could not be fixed after rendering the functionality. "
+                f"Restarting rendering functionality {render_context.frid_context.frid} from scratch.",
+                color=RETRY_COLOR,
             )
 
         render_utils.revert_changes_for_frid(render_context)

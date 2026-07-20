@@ -4,7 +4,7 @@ import diff_utils
 import file_utils
 import plain_spec
 from memory_management import MemoryManager
-from plain2code_console import console
+from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -144,7 +144,9 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.conflicting_module_name = current_testing_module_name
             render_context.conformance_tests_running_context.conflicting_frid = current_testing_frid
             console.info(
-                f"Potential conflicting functionalities detected while fixing conformance tests for functionality {current_testing_frid} in module {current_testing_module_name}."
+                f"↻ Potential conflicting functionalities detected while fixing conformance tests "
+                f"for functionality {current_testing_frid} in module {current_testing_module_name}.",
+                color=RETRY_COLOR,
             )
 
         if issue_reason_code == self.ISSUE_REASON_CODE_CONFORMANCE_TESTS:

@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Literal, Optional
 
+from rich.markup import escape
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.timer import Timer
@@ -502,12 +503,23 @@ class FRIDProgress(Vertical):
 class LogEntry(Vertical):
     """A single log entry that can be expanded to show details."""
 
-    def __init__(self, logger_name: str, level: str, message: str, timestamp: str = "", **kwargs):
+    SUCCESS_KEYWORDS = ["completed", "success", "successfully", "passed", "done", "✓"]
+
+    def __init__(
+        self,
+        logger_name: str,
+        level: str,
+        message: str,
+        timestamp: str = "",
+        log_color: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.logger_name = logger_name
         self.level = level
         self.message = message
         self.timestamp = timestamp
+        self.log_color = log_color
         self.is_expanded = False
         self.classes = f"log-entry log-{level.lower()}"
 
@@ -521,11 +533,13 @@ class LogEntry(Vertical):
             time_prefix = f"[#888888][{time_part}][/#888888] " if time_part else ""
             indent_spaces = len(f"[{time_part}] ") if time_part else 0
 
-            message_body = self.message
-            if any(
-                keyword in self.message.lower()
-                for keyword in ["completed", "success", "successfully", "passed", "done", "✓"]
-            ):
+            # Log messages are plain text; escape them so square brackets in
+            # interpolated content (error texts, file names) don't parse as markup.
+            message_body = escape(self.message)
+            if self.log_color:
+                message_body = f"[{self.log_color}]{message_body}[/{self.log_color}]"
+            elif any(keyword in self.message.lower() for keyword in self.SUCCESS_KEYWORDS):
+                # Fallback for messages emitted without an explicit color.
                 message_body = f"[green]✓[/green] {message_body}"
 
             if indent_spaces and "\n" in message_body:
@@ -585,19 +599,19 @@ class StructuredLogView(VerticalScroll):
         min_priority = self.LOG_LEVELS.get(self.min_level, 0)
         return log_priority >= min_priority
 
-    async def add_log(self, logger_name: str, level: str, message: str, timestamp: str = ""):
+    async def add_log(
+        self, logger_name: str, level: str, message: str, timestamp: str = "", log_color: Optional[str] = None
+    ):
         """Add a new log entry."""
         # Check if this is a success message that should have spacing before it
-        is_success_message = any(
-            keyword in message.lower() for keyword in ["completed", "success", "successfully", "passed", "done", "✓"]
-        )
+        is_success_message = any(keyword in message.lower() for keyword in LogEntry.SUCCESS_KEYWORDS)
 
         # Add empty line before success messages
         if is_success_message:
             spacer = Static("", classes="log-spacer")
             await self.mount(spacer)
 
-        entry = LogEntry(logger_name, level, message, timestamp)
+        entry = LogEntry(logger_name, level, message, timestamp, log_color=log_color)
 
         # Only show if level is >= minimum level
         if not self._should_show_log(level):

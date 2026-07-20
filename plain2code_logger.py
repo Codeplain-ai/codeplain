@@ -88,6 +88,7 @@ class LoggingHandler(logging.Handler):
                 level=record.levelname,
                 message=record.getMessage(),
                 timestamp=timestamp,
+                log_color=getattr(record, "log_color", None),
             )
             self.event_bus.publish(event)
         except RuntimeError:

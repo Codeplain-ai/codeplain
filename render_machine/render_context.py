@@ -7,7 +7,7 @@ import git_utils
 import plain_spec
 from codeplain_REST_api import CodeplainAPI
 from event_bus import EventBus
-from plain2code_console import console
+from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
 from plain_modules import PlainModule
@@ -283,9 +283,11 @@ class RenderContext:
             self.dispatch_error(error_msg)
         else:
             console.info(
-                f"Failed to adjust the unit tests after implementation code was updated while fixing the conformance tests for functionality {self.frid_context.frid}."
+                f"↻ Failed to adjust the unit tests after implementation code was updated while fixing the "
+                f"conformance tests for functionality {self.frid_context.frid}. "
+                f"Restarting rendering the functionality {self.frid_context.frid} from scratch.",
+                color=RETRY_COLOR,
             )
-            console.info(f"Restarting rendering the functionality {self.frid_context.frid} from scratch.")
             self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
 
     def _on_unit_test_limit_exceeded_in_refactoring(self):

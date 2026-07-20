@@ -5,6 +5,7 @@ import requests
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
 import plain2code_exceptions
+from plain2code_console import RETRY_COLOR
 from plain2code_state import RunState
 
 MAX_RETRIES = 4
@@ -67,8 +68,11 @@ class CodeplainAPI:
         connection_error_type = "Network error" if is_connection_error else "Error"
         if attempt < num_retries:
             if not silent:
-                self.console.debug(f"{connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}")
-                self.console.debug(f"Retrying in {retry_delay} seconds...")
+                self.console.debug(
+                    f"↻ {connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}. "
+                    f"Retrying in {retry_delay} seconds...",
+                    color=RETRY_COLOR,
+                )
             time.sleep(retry_delay)
             # Exponential backoff
             return retry_delay * 2
