@@ -182,12 +182,12 @@ def execute_script(  # noqa: C901
 
         if proc.returncode != 0:
             if frid is not None:
-                console.debug(
-                    f"The {script_type} script for functionality ID {frid} of module {module} has failed. Initiating the patching mode to automatically correct the discrepancies."
+                console.info(
+                    f"[#FFB454]↻ The {script_type} script for functionality ID {frid} of module {module} has failed. Initiating the patching mode to automatically correct the discrepancies.[/#FFB454]"
                 )
             else:
-                console.debug(
-                    f"The {script_type} script has failed. Initiating the patching mode to automatically correct the discrepancies."
+                console.info(
+                    f"[#FFB454]↻ The {script_type} script has failed. Initiating the patching mode to automatically correct the discrepancies.[/#FFB454]"
                 )
         else:
             if frid is not None:

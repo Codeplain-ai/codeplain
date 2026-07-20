@@ -67,8 +67,10 @@ class CodeplainAPI:
         connection_error_type = "Network error" if is_connection_error else "Error"
         if attempt < num_retries:
             if not silent:
-                self.console.debug(f"{connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}")
-                self.console.debug(f"Retrying in {retry_delay} seconds...")
+                self.console.debug(
+                    f"[#FFB454]↻ {connection_error_type} on attempt {attempt + 1}/{num_retries + 1}: {error}. "
+                    f"Retrying in {retry_delay} seconds...[/#FFB454]"
+                )
             time.sleep(retry_delay)
             # Exponential backoff
             return retry_delay * 2

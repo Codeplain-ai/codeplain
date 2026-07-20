@@ -283,9 +283,10 @@ class RenderContext:
             self.dispatch_error(error_msg)
         else:
             console.info(
-                f"Failed to adjust the unit tests after implementation code was updated while fixing the conformance tests for functionality {self.frid_context.frid}."
+                f"[#FFB454]↻ Failed to adjust the unit tests after implementation code was updated while fixing the "
+                f"conformance tests for functionality {self.frid_context.frid}. "
+                f"Restarting rendering the functionality {self.frid_context.frid} from scratch.[/#FFB454]"
             )
-            console.info(f"Restarting rendering the functionality {self.frid_context.frid} from scratch.")
             self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
 
     def _on_unit_test_limit_exceeded_in_refactoring(self):

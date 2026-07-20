@@ -144,7 +144,7 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.conflicting_module_name = current_testing_module_name
             render_context.conformance_tests_running_context.conflicting_frid = current_testing_frid
             console.info(
-                f"Potential conflicting functionalities detected while fixing conformance tests for functionality {current_testing_frid} in module {current_testing_module_name}."
+                f"[#FFB454]Potential conflicting functionalities detected while fixing conformance tests for functionality {current_testing_frid} in module {current_testing_module_name}.[/#FFB454]"
             )
 
         if issue_reason_code == self.ISSUE_REASON_CODE_CONFORMANCE_TESTS:

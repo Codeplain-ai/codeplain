@@ -28,8 +28,8 @@ class RenderFunctionalRequirement(BaseAction):
 
         if render_context.frid_context.functional_requirement_render_attempts > 1:
             console.info(
-                f"Unittests could not be fixed after rendering the functionality. "
-                f"Restarting rendering functionality {render_context.frid_context.frid} from scratch."
+                f"[#FFB454]↻ Unittests could not be fixed after rendering the functionality. "
+                f"Restarting rendering functionality {render_context.frid_context.frid} from scratch.[/#FFB454]"
             )
 
         render_utils.revert_changes_for_frid(render_context)
