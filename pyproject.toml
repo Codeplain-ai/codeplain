@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
@@ -41,8 +41,11 @@ dev = [
 [project.scripts]
 codeplain = "plain2code:main"
 
+# Derive the version from the git tag (e.g. v0.3.8 -> 0.3.8). The version is
+# baked into the package metadata at build time; system_config.py reads it back
+# from that metadata (with a git-tag fallback for uninstalled source checkouts).
 [tool.hatch.version]
-path = "_version.py"
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 include = [

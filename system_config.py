@@ -1,10 +1,44 @@
 import importlib.resources
+import os
 import sys
 
 import yaml
 
-from _version import __version__
 from plain2code_console import console
+
+
+def _resolve_version() -> str:
+    """Resolve the client version.
+
+    For an installed package the version is read from its metadata (hatch-vcs
+    bakes it in from the git tag at build time). When running from a source
+    checkout that hasn't been installed, fall back to the nearest git tag.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("codeplain")
+    except PackageNotFoundError:
+        pass
+
+    try:
+        import git
+
+        # Anchor to this source file's own location so we inspect the
+        # codeplain checkout's repo, not the caller's working directory
+        # (codeplain may be run from anywhere).
+        source_dir = os.path.dirname(os.path.abspath(__file__))
+        repo = git.Repo(source_dir, search_parent_directories=True)
+
+        # Highest version tag, regardless of branch ancestry (a dev run may sit
+        # on a feature branch that doesn't descend from the latest release tag).
+        latest_tag = repo.git.tag("--list", "--sort=-v:refname").splitlines()[0]
+        return latest_tag.lstrip("v")
+    except Exception:
+        return "0.0.0.dev0"
+
+
+__version__ = _resolve_version()
 
 
 class SystemConfig:
