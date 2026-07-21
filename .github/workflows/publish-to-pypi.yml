@@ -3,17 +3,10 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to build (e.g., 0.2.1)"
-        required: true
-        type: string
-      publish_to_pypi:
-        description: "Actually publish to PyPI?"
-        required: true
-        default: false
-        type: boolean
+
+# Least privilege by default: jobs get no GITHUB_TOKEN scopes unless they
+# opt in below.
+permissions: {}
 
 jobs:
   build:
@@ -24,48 +17,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Extract version
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            # Strip 'v' prefix from tag (v0.2.1 -> 0.2.1)
-            VERSION=${GITHUB_REF_NAME#v}
-          else
-            # Use manual input
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
-
-      - name: Update version in pyproject.toml
-        run: |
-          sed -i "s/^version = .*/version = \"${{ steps.get_version.outputs.VERSION }}\"/" pyproject.toml
-          echo "Updated pyproject.toml:"
-          grep "^version" pyproject.toml
-
-      - name: Commit version update to repo
-        if: github.event_name == 'release'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml
-          git commit -m "Bump version to ${{ steps.get_version.outputs.VERSION }}"
-          git push origin HEAD:main
+          # hatch-vcs derives the version from git tags, so we need full history.
+          fetch-depth: 0
 
       - name: Install uv
+        # uv provisions its own Python (honoring requires-python), so no
+        # separate actions/setup-python step is needed.
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Build package
+        # hatch-vcs reads the version straight from the release tag.
         run: |
           uv build
+          echo "Built distributions:"
+          ls -l dist/
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@v4
@@ -74,7 +42,6 @@ jobs:
           path: dist/
 
       - name: Upload assets to GitHub Release
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -83,11 +50,14 @@ jobs:
   publish-to-pypi:
     name: Publish to PyPI
     needs: build
-    if: github.event_name == 'release' || github.event.inputs.publish_to_pypi == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/codeplain
+    permissions:
+      # Mint a short-lived OIDC token so PyPI Trusted Publishing can
+      # authenticate this run — no long-lived API token needed.
+      id-token: write
 
     steps:
       - name: Download distribution packages
@@ -96,14 +66,5 @@ jobs:
           name: python-package-distributions
           path: dist/
 
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
       - name: Publish to PyPI
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          uv tool run twine upload dist/*
+        uses: pypa/gh-action-pypi-publish@release/v1
