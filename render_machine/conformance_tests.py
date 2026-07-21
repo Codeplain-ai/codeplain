@@ -144,6 +144,26 @@ class ConformanceTests:
             style=console.OUTPUT_STYLE,
         )
 
+    def fetch_all_existing_conformance_test_files(self, module_name: str) -> dict[str, str]:
+        """Fetch the content of all existing conformance test files of the module.
+
+        Files are collected from every conformance test subfolder of the module (one subfolder
+        per functional requirement) and keyed as "<subfolder>/<relative file path>" so each
+        file's suite remains identifiable. Hidden subfolders (copies of required modules' tests)
+        and the conformance tests definition file (stored at the module folder root) are not
+        included. Returns an empty dict when the module has no conformance tests yet.
+        """
+        all_files_content: dict[str, str] = {}
+        module_folder = self.get_module_conformance_tests_folder(module_name)
+        for folder_name in sorted(self.fetch_existing_conformance_test_folder_names(module_name)):
+            folder_path = os.path.join(module_folder, folder_name)
+            file_names = file_utils.list_all_text_files(folder_path)
+            files_content = file_utils.get_existing_files_content(folder_path, file_names)
+            for file_name, content in files_content.items():
+                all_files_content[os.path.join(folder_name, file_name)] = content
+
+        return all_files_content
+
     def fetch_existing_conformance_test_files(
         self,
         module_name: str,
