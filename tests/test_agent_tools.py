@@ -210,6 +210,58 @@ def test_get_session_changes_reports_cumulative_diff(project_dir):
     assert "def helper():" in result
 
 
+def _conformance_ctx():
+    """A real running context with prep already satisfied (flag cleared)."""
+    from render_machine.render_types import ConformanceTestsRunningContext
+
+    ctx = ConformanceTestsRunningContext(
+        current_testing_module_name="m",
+        current_testing_frid="1",
+        fix_attempts=0,
+        conformance_tests_json={},
+        conformance_tests_render_attempts=0,
+        current_testing_frid_specifications=None,
+        should_prepare_testing_environment=False,
+    )
+    return ctx
+
+
+def test_tracking_build_file_change_rearms_environment_preparation(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    os.makedirs(build_folder)
+    impl_path = os.path.join(build_folder, "app.py")
+    Path(impl_path).write_text("x = 1\n", encoding="utf-8")
+
+    render_context = _fake_render_context(build_folder)
+    render_context.conformance_tests_running_context = _conformance_ctx()
+
+    tools._track_file_change(impl_path, render_context)
+
+    # An implementation edit means the build is stale — prep must run again.
+    assert render_context.conformance_tests_running_context.should_prepare_testing_environment is True
+    assert impl_path in render_context.conformance_tests_running_context.file_change_tracker
+
+
+def test_tracking_conformance_test_file_change_does_not_rearm_preparation(project_dir):
+    build_folder = os.path.join(project_dir, "build")
+    conformance_folder = os.path.join(project_dir, "conformance_tests")
+    os.makedirs(build_folder)
+    os.makedirs(conformance_folder)
+    test_path = os.path.join(conformance_folder, "AppTest.py")
+    Path(test_path).write_text("assert True\n", encoding="utf-8")
+
+    render_context = _fake_render_context(build_folder)
+    render_context.conformance_tests_folder = conformance_folder
+    render_context.conformance_tests_running_context = _conformance_ctx()
+
+    tools._track_file_change(test_path, render_context)
+
+    # A test-only edit does not touch the build, so prep stays skipped, but the change
+    # is still tracked for the reviewer/revert.
+    assert render_context.conformance_tests_running_context.should_prepare_testing_environment is False
+    assert test_path in render_context.conformance_tests_running_context.file_change_tracker
+
+
 def test_get_session_changes_without_tracked_changes(project_dir):
     build_folder = os.path.join(project_dir, "build")
     os.makedirs(build_folder)
@@ -375,8 +427,10 @@ def test_tool_names_match_server_definitions():
     }
 
     # Compatibility aliases the client keeps for older servers; not part of the
-    # current server contract.
-    client_only_aliases = {"think"}
+    # current server contract. "report_progress" was removed from the server's tool
+    # set but stays registered client-side for servers that still offer it, alongside
+    # the older "think" name.
+    client_only_aliases = {"think", "report_progress"}
     client_tool_names = (set(DEFAULT_TOOLS) | TERMINAL_TOOLS) - client_only_aliases
 
     assert server_tool_names == client_tool_names, (

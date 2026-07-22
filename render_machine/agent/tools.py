@@ -366,10 +366,23 @@ def _is_within_any(full_path: str, allowed_folders: list[str]) -> bool:
 
 
 def _track_file_change(full_path: str, render_context: RenderContext):
-    """Record original file content before modification for revert-on-rejection."""
+    """Record original file content before modification for revert-on-rejection.
+
+    Also re-arm the testing-environment preparation whenever an implementation
+    (build-folder) file is modified. Preparation is skipped once it has succeeded
+    (should_prepare_testing_environment is cleared), so without this an agent fix that
+    edits implementation code would run the conformance tests against the previously
+    built environment — the edit never reaches the executed tests. Editing a
+    build-folder file means the build is stale and must be re-prepared before the next
+    run. Test-only edits (conformance-tests folder) do not touch the build, so they
+    leave the flag alone.
+    """
     ctx = render_context.conformance_tests_running_context
-    if ctx:
-        ctx.track_file_before_modification(full_path)
+    if not ctx:
+        return
+    ctx.track_file_before_modification(full_path)
+    if render_context.build_folder and _is_within_any(full_path, [render_context.build_folder]):
+        ctx.should_prepare_testing_environment = True
 
 
 def _describe_match_locations(original_content: str, search_text: str, max_locations: int = 5) -> str:
