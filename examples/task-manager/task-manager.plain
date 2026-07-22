@@ -1,0 +1,26 @@
+---
+description: 'A task manager application — extends the task model with editing features'
+import:
+  - python-console-app-template # spec source available at https://github.com/Codeplain-ai/codeplain/blob/main/standard_template_library/
+requires:
+  - task-model
+---
+
+***implementation reqs***
+
+- :MainExecutableFile: of :App: should be called "taskmgr.py".
+
+***test reqs***
+> Test requirements are defined in 'python-console-app-template'.
+
+***functional specs***
+
+- :User: should be able to delete :Task:
+
+- :User: should be able to edit :Task:
+
+- :User: should be able to mark :Task: as completed.
+
+
+
+> see https://www.plainlang.org/ for more information on ***plain

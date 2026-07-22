@@ -1,0 +1,4 @@
+unittests-script: ../../test_scripts/run_unittests_python.sh
+conformance-tests-script: ../../test_scripts/run_conformance_tests_python.sh
+copy-build: true
+build-dest: dist

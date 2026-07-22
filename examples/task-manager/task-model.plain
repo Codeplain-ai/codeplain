@@ -1,0 +1,37 @@
+---
+description: 'Core task model — base module providing tasks and a task list'
+import:
+  - python-console-app-template # spec source available at https://github.com/Codeplain-ai/codeplain/blob/main/standard_template_library/
+exported_concepts: [":User:", ":Task:", ":TaskList:"]
+---
+
+***definitions***
+
+- :User: is the user of :App:
+
+- :Task: describes an activity that needs to be done by :User:. :Task: has the following attributes
+  - Name - a short description of :Task:. This is a required attribute. The name must be at least 3 characters long.
+  - Notes - additional details about :Task:
+  - Due Date - optional date by which :User: is supposed to complete :Task:.
+
+- :TaskList: is a list of :Task: items.
+  - Initially :TaskList: should be empty.
+
+***implementation reqs***
+
+- :MainExecutableFile: of :App: should be called "taskmgr.py".
+
+***test reqs***
+> Test requirements are defined in 'python-console-app-template'.
+
+***functional specs***
+
+- Implement the entry point for :App:.
+
+- :User: should be able to add :Task:. Only valid :Task: items can be added.
+
+- Show :TaskList:
+
+
+
+> see https://www.plainlang.org/ for more information on ***plain
