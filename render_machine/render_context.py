@@ -34,7 +34,6 @@ class RenderContext:
         plain_module: PlainModule,
         build_folder: str,
         build_dest: str,
-        conformance_tests_folder: str,
         conformance_tests_dest: str,
         unittests_script: str,
         conformance_tests_script: str,
@@ -59,7 +58,6 @@ class RenderContext:
         self.required_modules = plain_module.required_modules
         self.build_folder = build_folder
         self.build_dest = build_dest
-        self.conformance_tests_folder = conformance_tests_folder
         self.conformance_tests_dest = conformance_tests_dest
         self.unittests_script = unittests_script
         self.conformance_tests_script = conformance_tests_script
@@ -91,7 +89,7 @@ class RenderContext:
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
         # Initialize conformance tests utilities
         self.conformance_tests = ConformanceTests(
-            conformance_tests_folder=self.conformance_tests_folder,
+            modules_base_folder=plain_module.build_folder,
             conformance_tests_definition_file_name=CONFORMANCE_TESTS_DEFINITION_FILE_NAME,
         )
 
