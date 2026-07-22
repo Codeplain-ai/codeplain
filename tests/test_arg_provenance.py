@@ -26,7 +26,7 @@ def _sources(args):
 def test_default_when_neither_cli_nor_config(project):
     args = parse_arguments([os.path.join(project, "module.plain")])
     assert _sources(args)["build_folder"] == "default"
-    assert _sources(args)["conformance_tests_folder"] == "default"
+    assert _sources(args)["build_dest"] == "default"
 
 
 def test_cli_value_is_marked_as_cli(project):
@@ -82,8 +82,8 @@ def test_boolean_flag_from_config(project):
 def test_mixed_sources(project):
     """CLI, config, and default values coexist on the same invocation."""
     (Path(project) / "config.yaml").write_text("build-folder: from_config\n")
-    args = parse_arguments([os.path.join(project, "module.plain"), "--conformance-tests-folder", "ct_from_cli"])
+    args = parse_arguments([os.path.join(project, "module.plain"), "--conformance-tests-dest", "ct_from_cli"])
     srcs = _sources(args)
-    assert srcs["conformance_tests_folder"] == "cli"
+    assert srcs["conformance_tests_dest"] == "cli"
     assert srcs["build_folder"] == "config"
     assert srcs["build_dest"] == "default"
