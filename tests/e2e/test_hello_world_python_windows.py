@@ -49,7 +49,7 @@ def test_render_and_run_hello_world_python_windows(codeplain_exe: Path, api_key:
         f"codeplain render failed (rc={result.returncode}):\n" f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
 
-    generated = tmp_path / "build" / "hello_world_python" / "hello_world.py"
+    generated = tmp_path / "build" / "hello_world_python" / "code" / "hello_world.py"
     assert generated.exists(), f"expected generated file at {generated} but it was not produced"
 
     result = subprocess.run(

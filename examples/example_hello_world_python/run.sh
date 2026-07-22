@@ -7,9 +7,9 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-cd plain_modules/hello_world_python
+cd plain_modules/hello_world_python/code
 
-python ../../harness_tests/hello_world_display/test_hello_world.py
+python ../../../harness_tests/hello_world_display/test_hello_world.py
 
 # Check if the test harness has failed for the hello world example
 if [ $? -ne 0 ]; then

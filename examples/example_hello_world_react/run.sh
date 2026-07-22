@@ -20,7 +20,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-../../test_scripts/run_conformance_tests_cypress.sh plain_modules/hello_world_react harness_tests/hello_world_display ${VERBOSE:+-v}
+../../test_scripts/run_conformance_tests_cypress.sh plain_modules/hello_world_react/code harness_tests/hello_world_display ${VERBOSE:+-v}
 
 # Check if the test harness has failed for the hello world example
 if [ $? -ne 0 ]; then
