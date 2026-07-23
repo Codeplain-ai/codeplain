@@ -16,7 +16,6 @@ CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
 
 
 DEFAULT_BUILD_FOLDER = "plain_modules"
-DEFAULT_CONFORMANCE_TESTS_FOLDER = "conformance_tests"
 DEFAULT_BUILD_DEST = "dist"
 DEFAULT_CONFORMANCE_TESTS_DEST = "dist_conformance_tests"
 
@@ -299,23 +298,15 @@ def create_parser():
         parser,
         "--unittests-script",
         type=str,
-        help="Shell script to run unit tests on generated code. Receives the build folder path as its first argument (default: 'plain_modules').",
-    )
-    _add_arg(
-        parser,
-        "--conformance-tests-folder",
-        type=non_empty_string,
-        default=DEFAULT_CONFORMANCE_TESTS_FOLDER,
-        help="Folder for conformance test files",
-        path=True,
+        help="Shell script to run unit tests on generated code. Receives the module's code folder path as its first argument (e.g. `plain_modules/module_name/code`).",
     )
     _add_arg(
         parser,
         "--conformance-tests-script",
         type=str,
         help="Path to conformance tests shell script. Every conformance test script should accept two arguments: "
-        "1) Path to a folder (e.g. `plain_modules/module_name`) containing generated source code, "
-        "2) Path to a subfolder of the conformance tests folder (e.g. `conformance_tests/subfoldername`) containing test files.",
+        "1) Path to a folder (e.g. `plain_modules/module_name/code`) containing generated source code, "
+        "2) Path to a subfolder of the module's tests folder (e.g. `plain_modules/module_name/tests/subfoldername`) containing test files.",
     )
 
     _add_arg(
@@ -400,7 +391,7 @@ def create_parser():
         "--copy-conformance-tests",
         action="store_true",
         default=False,
-        help="If set, copy the conformance tests of code in `--conformance-tests-folder` folder to `--conformance-tests-dest` folder successful rendering. Requires --conformance-tests-script.",
+        help="If set, copy the module's conformance tests (from `<build-folder>/<module>/tests`) to `--conformance-tests-dest` folder after successful rendering. Requires --conformance-tests-script.",
     )
     _add_arg(
         parser,
@@ -490,8 +481,8 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
-    if args.conformance_tests_folder == args.conformance_tests_dest:
-        parser.error("--conformance-tests-folder and --conformance-tests-dest cannot be the same")
+    if args.conformance_tests_dest == args.build_folder:
+        parser.error("--conformance-tests-dest and --build-folder cannot be the same")
 
     args.render_conformance_tests = args.conformance_tests_script is not None
 

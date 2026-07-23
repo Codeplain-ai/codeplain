@@ -356,7 +356,6 @@ def main():  # noqa: C901
         plain_module = plain_modules.PlainModule(
             os.path.basename(args.filename),
             args.build_folder,
-            args.conformance_tests_folder,
             template_dirs,
         )
     except Exception as e:

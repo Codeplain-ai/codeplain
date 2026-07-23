@@ -4,7 +4,7 @@ import os
 import file_utils
 from plain2code_console import console
 from plain2code_exceptions import InternalClientError
-from plain_modules import PlainModule
+from plain_modules import PlainModule, get_module_tests_folder
 
 CONFORMANCE_TESTS_DEFINITION_FILE_NAME = "conformance_tests.json"
 
@@ -14,14 +14,14 @@ class ConformanceTests:
 
     def __init__(
         self,
-        conformance_tests_folder: str,
+        modules_base_folder: str,
         conformance_tests_definition_file_name: str,
     ):
-        self.conformance_tests_folder = conformance_tests_folder
+        self.modules_base_folder = modules_base_folder
         self.conformance_tests_definition_file_name = conformance_tests_definition_file_name
 
     def get_module_conformance_tests_folder(self, module_name: str) -> str:
-        return os.path.join(self.conformance_tests_folder, module_name)
+        return get_module_tests_folder(self.modules_base_folder, module_name)
 
     def _get_full_conformance_tests_definition_file_name(self, module_name: str) -> str:
         return os.path.join(
@@ -81,7 +81,9 @@ class ConformanceTests:
                 break
 
             source_conformance_test_folder_name = (
-                self.get_module_conformance_tests_folder(copy_from_module + "/." + current_testing_module_name)
+                os.path.join(
+                    self.get_module_conformance_tests_folder(copy_from_module), "." + current_testing_module_name
+                )
                 + conformance_test_subfolder_name
             )
 
@@ -89,7 +91,7 @@ class ConformanceTests:
                 break
 
         new_conformance_test_folder_name = (
-            self.get_module_conformance_tests_folder(module_name + "/." + current_testing_module_name)
+            os.path.join(self.get_module_conformance_tests_folder(module_name), "." + current_testing_module_name)
             + conformance_test_subfolder_name
         )
 

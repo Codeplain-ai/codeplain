@@ -28,7 +28,7 @@ def test_render_and_run_hello_world_python(e2e_container, exec_in_container, cop
     )
     assert rc == 0, f"codeplain render failed (rc={rc}):\nstdout:\n{out}\nstderr:\n{err}"
 
-    generated = "build/hello_world_python/hello_world.py"
+    generated = "build/hello_world_python/code/hello_world.py"
     rc, _, _ = exec_in_container(e2e_container, f"test -f {generated}")
     assert rc == 0, f"expected generated file at {generated} but it was not produced"
 

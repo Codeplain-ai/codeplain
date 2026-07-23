@@ -20,9 +20,19 @@ from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 
 CODEPLAIN_MEMORY_SUBFOLDER = ".memory"
 CODEPLAIN_METADATA_FOLDER = ".codeplain"
+MODULE_CODE_SUBFOLDER = "code"
+MODULE_TESTS_SUBFOLDER = "tests"
 MODULE_METADATA_FILENAME = "module_metadata.json"
 MODULE_FUNCTIONALITIES = "functionalities"
 REQUIRED_MODULES_FUNCTIONALITIES = "required_modules_functionalities"
+
+
+def get_module_code_folder(modules_base_folder: str, module_name: str) -> str:
+    return os.path.join(modules_base_folder, module_name, MODULE_CODE_SUBFOLDER)
+
+
+def get_module_tests_folder(modules_base_folder: str, module_name: str) -> str:
+    return os.path.join(modules_base_folder, module_name, MODULE_TESTS_SUBFOLDER)
 
 
 def _strip_functional_requirements(plain_source_tree: dict) -> dict:
@@ -33,10 +43,9 @@ def _strip_functional_requirements(plain_source_tree: dict) -> dict:
 
 
 class PlainModule:
-    def __init__(self, filename: str, build_folder: str, conformance_tests_folder: str, template_dirs: list[str]):
+    def __init__(self, filename: str, build_folder: str, template_dirs: list[str]):
         self.filename = filename
         self.build_folder = build_folder
-        self.conformance_tests_folder = conformance_tests_folder
         self.template_dirs = template_dirs
         module_name, plain_source, required_modules_names = plain_file.plain_file_parser(
             self.filename, self.template_dirs
@@ -53,7 +62,6 @@ class PlainModule:
                 PlainModule(
                     plain_file.get_filename_from_module_name(module_name),
                     self.build_folder,
-                    self.conformance_tests_folder,
                     self.template_dirs,
                 )
                 for module_name in required_modules_names
@@ -71,15 +79,23 @@ class PlainModule:
         return all_required_modules
 
     @property
+    def module_folder(self):
+        return os.path.join(self.build_folder, self.module_name)
+
+    @property
     def module_conformance_tests_folder(self):
-        return os.path.join(self.conformance_tests_folder, self.module_name)
+        return get_module_tests_folder(self.build_folder, self.module_name)
 
     @property
     def module_build_folder(self):
-        return os.path.join(self.build_folder, self.module_name)
+        return get_module_code_folder(self.build_folder, self.module_name)
+
+    @property
+    def module_memory_folder(self):
+        return os.path.join(self.module_folder, CODEPLAIN_MEMORY_SUBFOLDER)
 
     def get_codeplain_folder(self):
-        return os.path.join(self.module_build_folder, CODEPLAIN_METADATA_FOLDER)
+        return os.path.join(self.module_folder, CODEPLAIN_METADATA_FOLDER)
 
     def get_module_render_status(self) -> tuple[str | None, str | None]:
         module_name, frid = git_utils.get_last_rendered_functionality(self.module_build_folder)
@@ -186,10 +202,7 @@ class PlainModule:
 
         return functionalities
 
-    def module_metadata_path(self, for_git_repo: bool = False) -> str:
-        if for_git_repo:
-            return os.path.join(CODEPLAIN_METADATA_FOLDER, MODULE_METADATA_FILENAME)
-
+    def module_metadata_path(self) -> str:
         return os.path.join(self.get_codeplain_folder(), MODULE_METADATA_FILENAME)
 
     def get_hashes(self) -> dict[str, str]:
@@ -200,6 +213,42 @@ class PlainModule:
         if len(self.required_modules) > 0:
             hashes["required_modules_code_hash"] = self.required_modules[-1].get_module_code_hash()
         return hashes
+
+    def seed_module_metadata(self) -> None:
+        """Write a fresh metadata file containing only the module hashes.
+
+        Called at the start of a full render, before any functionality is
+        rendered, so change detection has a clean baseline.
+        """
+        os.makedirs(self.get_codeplain_folder(), exist_ok=True)
+        with open(self.module_metadata_path(), "w", encoding="utf-8") as f:
+            json.dump(self.get_hashes(), f, indent=4)
+
+    def truncate_metadata_functionalities(self, frid: str | None) -> None:
+        """Trim the stored functionalities list to the first int(frid) entries.
+
+        The metadata file is not tracked in the module's git repo, so when the
+        code repo is reverted to an earlier functionality the stored list must
+        be trimmed to match the reverted code. A frid of None means no
+        functionality is implemented (empty list).
+        """
+        metadata = self.load_module_metadata()
+        if metadata is None:
+            return
+
+        keep_count = int(frid) if frid is not None else 0
+        functionalities = metadata.get(MODULE_FUNCTIONALITIES, [])
+        if len(functionalities) <= keep_count:
+            return
+
+        metadata[MODULE_FUNCTIONALITIES] = functionalities[:keep_count]
+        with open(self.module_metadata_path(), "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=4)
+
+    def revert_code_to_frid(self, frid: str | None) -> None:
+        """Revert the code repo to the commit for frid and keep metadata in sync."""
+        git_utils.revert_to_commit_with_frid(self.module_build_folder, frid)
+        self.truncate_metadata_functionalities(frid)
 
     def save_module_metadata(self):
         codeplain_folder = self.get_codeplain_folder()
@@ -372,10 +421,6 @@ class PlainModule:
         return False
 
     def wipe_module(self) -> None:
-        if os.path.exists(self.module_build_folder):
-            console.warning(f"Wiping module {self.module_build_folder}...")
-            shutil.rmtree(self.module_build_folder)
-
-        if os.path.exists(self.module_conformance_tests_folder):
-            console.warning(f"Wiping conformance tests for module {self.module_conformance_tests_folder}...")
-            shutil.rmtree(self.module_conformance_tests_folder)
+        if os.path.exists(self.module_folder):
+            console.warning(f"Wiping module {self.module_folder}...")
+            shutil.rmtree(self.module_folder)

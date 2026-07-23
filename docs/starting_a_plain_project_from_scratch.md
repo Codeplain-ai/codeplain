@@ -22,9 +22,15 @@ my-new-project/
 ├── run_unittests_[language].sh         # Unit test script
 ├── run_conformance_tests_[language].sh # Conformance test script
 ├── build/                              # Generated final code
-├── plain_modules/                      # Generated modules code
-└── conformance_tests/                  # Generated conformanece tests code
+└── plain_modules/                      # Generated modules
+    └── my_app/                         # One folder per module
+        ├── .codeplain/                 # Module metadata
+        ├── .memory/                    # Conformance test memory
+        ├── code/                       # Generated code
+        └── tests/                      # Generated conformance tests
 ```
+
+The `tests/` folder is only created when a conformance test script is configured.
 
 In this guide we will cover how to create each of these step by step.
 

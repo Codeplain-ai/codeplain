@@ -15,7 +15,7 @@ import pytest
 from change_detection import determine_partial_render_start
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from plain2code_exceptions import ModuleDoesNotExistError
-from plain_modules import CODEPLAIN_METADATA_FOLDER, MODULE_METADATA_FILENAME, PlainModule
+from plain_modules import MODULE_METADATA_FILENAME, PlainModule
 
 # --------------------------------------------------------------------------
 # Fixtures
@@ -28,36 +28,33 @@ def fixtures_dir(get_test_data_path):
 
 
 @pytest.fixture
-def tmp_build_folders():
-    """Yield (build_folder, conformance_tests_folder) as temp dirs."""
-    with tempfile.TemporaryDirectory() as build, tempfile.TemporaryDirectory() as conformance:
-        yield build, conformance
+def tmp_build_folder():
+    """Yield a temp build folder holding the per-module trees."""
+    with tempfile.TemporaryDirectory() as build:
+        yield build
 
 
 @pytest.fixture
-def solo_module(fixtures_dir, tmp_build_folders):
-    build, conformance = tmp_build_folders
-    return PlainModule("pr_solo.plain", build, conformance, [fixtures_dir])
+def solo_module(fixtures_dir, tmp_build_folder):
+    return PlainModule("pr_solo.plain", tmp_build_folder, [fixtures_dir])
 
 
 @pytest.fixture
-def root_module(fixtures_dir, tmp_build_folders):
+def root_module(fixtures_dir, tmp_build_folder):
     """Builds pr_root -> pr_middle -> pr_leaf, each with 2 FRIDs."""
-    build, conformance = tmp_build_folders
-    return PlainModule("pr_root.plain", build, conformance, [fixtures_dir])
+    return PlainModule("pr_root.plain", tmp_build_folder, [fixtures_dir])
 
 
 @pytest.fixture
-def code_var_module(fixtures_dir, tmp_build_folders):
+def code_var_module(fixtures_dir, tmp_build_folder):
     """A solo module whose FRID 2 pulls in a template with a code variable, so its
     raw markdown keeps a ``{{ variable_name }}`` placeholder that differs from the
     rendered (variable-substituted) text."""
-    build, conformance = tmp_build_folders
-    return PlainModule("pr_code_var.plain", build, conformance, [fixtures_dir])
+    return PlainModule("pr_code_var.plain", tmp_build_folder, [fixtures_dir])
 
 
 def _write_metadata(module: PlainModule, metadata: dict) -> None:
-    folder = os.path.join(module.module_build_folder, CODEPLAIN_METADATA_FOLDER)
+    folder = module.get_codeplain_folder()
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, MODULE_METADATA_FILENAME), "w", encoding="utf-8") as f:
         json.dump(metadata, f)
@@ -341,3 +338,118 @@ def test_code_variable_frid_not_flagged_as_change(code_var_module):
     code_var_module.update_frid_in_module_metadata("2")
 
     assert determine_partial_render_start(code_var_module) is None
+
+
+# --------------------------------------------------------------------------
+# module folder layout
+# --------------------------------------------------------------------------
+
+
+def test_module_folder_layout(solo_module, tmp_build_folder):
+    module_folder = os.path.join(tmp_build_folder, "pr_solo")
+    assert solo_module.module_folder == module_folder
+    assert solo_module.module_build_folder == os.path.join(module_folder, "code")
+    assert solo_module.module_conformance_tests_folder == os.path.join(module_folder, "tests")
+    assert solo_module.get_codeplain_folder() == os.path.join(module_folder, ".codeplain")
+    assert solo_module.module_memory_folder == os.path.join(module_folder, ".memory")
+
+
+def test_wipe_module_removes_whole_module_folder(solo_module):
+    os.makedirs(solo_module.module_build_folder)
+    os.makedirs(solo_module.module_conformance_tests_folder)
+    solo_module.wipe_module()
+    assert not os.path.exists(solo_module.module_folder)
+
+
+# --------------------------------------------------------------------------
+# seed_module_metadata
+# --------------------------------------------------------------------------
+
+
+def test_seed_module_metadata_writes_hashes(solo_module):
+    solo_module.seed_module_metadata()
+    assert solo_module.load_module_metadata() == solo_module.get_hashes()
+
+
+def test_seed_module_metadata_overwrites_stale_functionalities(solo_module):
+    _write_metadata(solo_module, {"source_hash": "stale", "functionalities": ["old fr"]})
+    solo_module.seed_module_metadata()
+    metadata = solo_module.load_module_metadata()
+    assert metadata == solo_module.get_hashes()
+    assert "functionalities" not in metadata
+
+
+# --------------------------------------------------------------------------
+# truncate_metadata_functionalities
+# --------------------------------------------------------------------------
+
+
+def test_truncate_metadata_functionalities_no_metadata_is_noop(solo_module):
+    solo_module.truncate_metadata_functionalities("1")
+    assert solo_module.load_module_metadata() is None
+
+
+def test_truncate_metadata_functionalities_shortens_list_and_keeps_hashes(solo_module):
+    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": ["fr1", "fr2", "fr3"]})
+    solo_module.truncate_metadata_functionalities("1")
+    metadata = solo_module.load_module_metadata()
+    assert metadata["functionalities"] == ["fr1"]
+    assert metadata["source_hash"] == "abc"
+
+
+def test_truncate_metadata_functionalities_noop_when_list_short_enough(solo_module):
+    _write_metadata(solo_module, {"functionalities": ["fr1"]})
+    solo_module.truncate_metadata_functionalities("2")
+    assert solo_module.load_module_metadata()["functionalities"] == ["fr1"]
+
+
+def test_truncate_metadata_functionalities_none_frid_empties_list(solo_module):
+    _write_metadata(solo_module, {"functionalities": ["fr1", "fr2"]})
+    solo_module.truncate_metadata_functionalities(None)
+    assert solo_module.load_module_metadata()["functionalities"] == []
+
+
+# --------------------------------------------------------------------------
+# revert_code_to_frid
+# --------------------------------------------------------------------------
+
+
+def _commit_finished_frid(module: PlainModule, frid: str) -> None:
+    marker = Path(module.module_build_folder) / f"frid_{frid}.txt"
+    marker.write_text(f"frid {frid}\n")
+    add_all_files_and_commit(
+        module.module_build_folder,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(frid),
+        module_name=module.module_name,
+        frid=frid,
+    )
+
+
+def test_revert_code_to_frid_reverts_repo_and_trims_metadata(solo_module):
+    os.makedirs(solo_module.module_build_folder)
+    init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
+    _commit_finished_frid(solo_module, "1")
+    _commit_finished_frid(solo_module, "2")
+    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": ["fr1", "fr2"]})
+
+    solo_module.revert_code_to_frid("1")
+
+    assert os.path.exists(os.path.join(solo_module.module_build_folder, "frid_1.txt"))
+    assert not os.path.exists(os.path.join(solo_module.module_build_folder, "frid_2.txt"))
+    metadata = solo_module.load_module_metadata()
+    assert metadata["functionalities"] == ["fr1"]
+    assert metadata["source_hash"] == "abc"
+    # The metadata folder lives outside the code repo and must survive the revert.
+    assert os.path.exists(solo_module.get_codeplain_folder())
+
+
+def test_revert_code_to_frid_none_reverts_to_initial_state(solo_module):
+    os.makedirs(solo_module.module_build_folder)
+    init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
+    _commit_finished_frid(solo_module, "1")
+    _write_metadata(solo_module, {"functionalities": ["fr1"]})
+
+    solo_module.revert_code_to_frid(None)
+
+    assert not os.path.exists(os.path.join(solo_module.module_build_folder, "frid_1.txt"))
+    assert solo_module.load_module_metadata()["functionalities"] == []
