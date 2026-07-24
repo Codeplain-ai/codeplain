@@ -177,16 +177,22 @@ def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
 def _get_allowed_read_folders(render_context: RenderContext) -> list[str]:
     """Return normalized absolute paths of folders the agent can read from.
 
-    This is the write set plus the module's memory folder. Agents may browse and read
-    persisted memory notes (via read_file/grep/ls_files) on demand, but may only add to
-    them through the dedicated write_memory tool — so the memory folder is intentionally
-    readable here while staying out of the write set.
+    This is the write set, plus the module's memory folder, plus the whole
+    conformance-tests root. Agents may browse and read persisted memory notes (via
+    read_file/grep/ls_files) on demand, but may only add to them through the dedicated
+    write_memory tool — so the memory folder is intentionally readable here while staying
+    out of the write set. The conformance-tests root is readable (read-only) so agents can
+    consult sibling modules' conformance tests as reference examples of how a conformance
+    test project for this project is laid out, built, and wired to run in isolation.
     """
     folders = list(_get_allowed_write_folders(render_context))
     memory_manager = getattr(render_context, "memory_manager", None)
     memory_folder = getattr(memory_manager, "memory_folder", None) if memory_manager else None
     if memory_folder:
         folders.append(os.path.normpath(os.path.abspath(memory_folder)))
+    conformance_root = getattr(render_context, "conformance_tests_folder", None)
+    if conformance_root:
+        folders.append(os.path.normpath(os.path.abspath(conformance_root)))
     return folders
 
 
@@ -229,6 +235,8 @@ def build_sandbox_contract(render_context: RenderContext) -> str:
         if script
     ]
     modules_root = _get_modules_root(render_context)
+    conformance_root = getattr(render_context, "conformance_tests_folder", None)
+    conformance_root = os.path.normpath(os.path.abspath(conformance_root)) if conformance_root else None
 
     lines = ["You can WRITE (create/edit/delete files) ONLY inside these folders:"]
     lines.extend(f"- {folder}" for folder in write_folders)
@@ -241,10 +249,17 @@ def build_sandbox_contract(render_context: RenderContext) -> str:
         lines.append("- The test/setup scripts (read-only harness files):")
         lines.extend(f"  - {script}" for script in scripts)
     lines.append("- Temporary files under /tmp and /var/folders (e.g. saved test output).")
+    if conformance_root:
+        lines.append(
+            f"- Every module's conformance tests under the conformance-tests root ({conformance_root}) "
+            "(read-only). Sibling modules' conformance tests can be a good source of information — they "
+            "already build and pass in this project's test harness. Explore them with ls_files/grep to "
+            "find a relevant one rather than reading them all."
+        )
     lines.append("- Any file outside the modules root (project files, libraries, dependencies).")
     lines.append(
-        f"- NOT other modules' folders under the modules root ({modules_root}): your build folder "
-        "already contains the merged code of the modules it builds on — read that copy instead."
+        f"- NOT other modules' implementation/build folders under the modules root ({modules_root}): your "
+        "build folder already contains the merged code of the modules it builds on — read that copy instead."
     )
     lines.append("")
     lines.append("Rules:")
@@ -257,6 +272,13 @@ def build_sandbox_contract(render_context: RenderContext) -> str:
     lines.append(
         "- Do NOT run the full test suite via run_command — it runs automatically when you submit. "
         "Run single targeted tests instead."
+    )
+    lines.append(
+        "- Other modules' conformance tests can be used as references of tests that build and pass "
+        "see how they are structured and made to build and run in isolation — project layout, build "
+        "and packaging configuration, dependency declarations, and test bootstrapping/fixtures. Do NOT "
+        "copy their test assertions or the behavior they verify: each module covers different "
+        "functionality."
     )
     return "\n".join(lines)
 
