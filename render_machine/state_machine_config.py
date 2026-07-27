@@ -137,10 +137,23 @@ class StateMachineConfig:
             ],
         }
 
-    def get_postprocessing_conformance_tests_states(self) -> Dict[str, Any]:
+    def get_postprocessing_conformance_tests_states(self, use_agent: bool = False) -> Dict[str, Any]:
+        # The conformance-tests summary (SummarizeConformanceTests -> the
+        # /summarize_finished_conformance_tests endpoint) only feeds the legacy,
+        # non-agentic conformance-test generator. The agentic renderer never reads
+        # the summary back (it explores the repo with its own tools), so entering the
+        # SUMMARY step there is a wasted LLM call per FR. Skip it by starting the
+        # postprocessing chain at the COMMIT step when the agentic renderer is on;
+        # the SUMMARY child stays defined (and reachable in legacy mode) but is never
+        # entered under the agent.
+        initial_step = (
+            States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value
+            if use_agent
+            else States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value
+        )
         return {
             "name": States.POSTPROCESSING_CONFORMANCE_TESTS.value,
-            "initial": States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value,
+            "initial": initial_step,
             "children": [
                 States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value,
                 States.CONFORMANCE_TESTS_READY_FOR_COMMIT.value,
@@ -167,7 +180,7 @@ class StateMachineConfig:
                 self.get_processing_unit_tests_states(
                     render_context, render_context._on_unit_test_limit_exceeded_in_conformance_tests
                 ),
-                self.get_postprocessing_conformance_tests_states(),
+                self.get_postprocessing_conformance_tests_states(use_agent=render_context.use_agent),
             ],
         }
 
