@@ -417,6 +417,16 @@ def main():  # noqa: C901
                 exc_info = sys.exc_info()
     finally:
         if exc_info:
+            # Uncaught render crashes are otherwise only surfaced via the exit summary
+            # (stdout) and Sentry. Log the full traceback through the codeplain logger so
+            # it lands in codeplain.log (live via the FileHandler, or via the buffered
+            # CrashLogHandler dump below) even when Sentry is not configured. Must run
+            # before dump_crash_logs so the buffered path includes this record.
+            logging.getLogger(LOGGER_NAME).error(
+                "Render terminated by an unhandled exception: %s",
+                error_message,
+                exc_info=exc_info,
+            )
             dump_crash_logs(args, run_state)
             capture_crash(exc_info, run_state, args)
         print_exit_summary(

@@ -1,3 +1,4 @@
+import codecs
 import os
 import shutil
 import stat
@@ -49,34 +50,90 @@ FILE_EXTENSION_MAPPING = {
 
 SYSTEM_FOLDERS = [".git", CODEPLAIN_METADATA_FOLDER, CODEPLAIN_MEMORY_SUBFOLDER]
 
+# Directories that are never part of the rendered source: virtualenvs, dependency installs
+# and tool caches. Tools invoked by the agent (pip, npm, pytest, ...) drop these into the
+# build folder, and they can contain huge trees, native binaries and dangling symlinks. They
+# are pruned only from list_all_text_files' walk; SYSTEM_FOLDERS still governs dist copying
+# and is_system_folder_path so their behaviour is unchanged.
+NON_SOURCE_FOLDERS = [
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".gradle",
+    ".dart_tool",
+    ".next",
+]
+
+# Read/decode text-detection in bounded chunks so a large file can never exhaust memory.
+TEXT_READ_CHUNK_BYTES = 65536
+
 
 def is_system_folder_path(file_path: str) -> bool:
     parts = Path(file_path).parts
     return bool(parts) and parts[0] in SYSTEM_FOLDERS
 
 
+def _decode_as_utf8(path: str) -> None:
+    """Stream a file through an incremental UTF-8 decoder to confirm it is text.
+
+    Raises UnicodeDecodeError if the bytes are not valid UTF-8 (i.e. a binary file), or
+    OSError if the file cannot be read. Decoding in chunks keeps memory flat regardless of
+    file size, and the incremental decoder tolerates multibyte characters that straddle a
+    chunk boundary (final=True flushes any trailing partial sequence, erroring if it is
+    genuinely truncated).
+    """
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(TEXT_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            decoder.decode(chunk)
+        decoder.decode(b"", final=True)
+
+
 def list_all_text_files(directory):
     all_files = []
     for root, dirs, files in os.walk(directory, topdown=True):
-        # Skip directories that should not be traversed
-        for skip_dir in SYSTEM_FOLDERS:
-            if skip_dir in dirs:
-                dirs.remove(skip_dir)
+        # Prune directories we should never traverse (in place, so os.walk skips them).
+        dirs[:] = [d for d in dirs if d not in SYSTEM_FOLDERS and d not in NON_SOURCE_FOLDERS]
 
         modified_root = os.path.relpath(root, directory)
         if modified_root == ".":
             modified_root = ""
 
         for filename in files:
-            if not any(filename.endswith(ending) for ending in BINARY_FILE_EXTENSIONS):
-                try:
-                    with open(os.path.join(root, filename), "rb") as f:
-                        f.read().decode("utf-8")
-                except UnicodeDecodeError:
-                    console.debug(f"WARNING! Not listing {filename} in {root}. File is not a text file. Skipping it.")
-                    continue
+            if any(filename.endswith(ending) for ending in BINARY_FILE_EXTENSIONS):
+                continue
 
-                all_files.append(os.path.join(modified_root, filename))
+            full_path = os.path.join(root, filename)
+
+            # Skip anything we cannot safely read: dangling symlinks, permission errors, and
+            # non-regular files (FIFOs/sockets/devices) whose read could block indefinitely.
+            try:
+                st = os.stat(full_path)  # follows symlinks; raises on a broken link
+            except OSError as e:
+                console.debug(f"WARNING! Not listing {filename} in {root}: {e}. Skipping it.")
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                console.debug(f"WARNING! Not listing {filename} in {root}. Not a regular file. Skipping it.")
+                continue
+
+            try:
+                _decode_as_utf8(full_path)
+            except UnicodeDecodeError:
+                console.debug(f"WARNING! Not listing {filename} in {root}. File is not a text file. Skipping it.")
+                continue
+            except OSError as e:
+                console.debug(f"WARNING! Not listing {filename} in {root}: {e}. Skipping it.")
+                continue
+
+            all_files.append(os.path.join(modified_root, filename))
 
     return all_files
 
