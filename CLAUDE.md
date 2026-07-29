@@ -14,14 +14,14 @@ The codebase serves two audiences:
 - **End users**: developers who write `***plain` specs and run `plain2code.py` to generate code
 - **Internal devs**: maintaining the renderer itself (this codebase)
 
-### Related Repository: plain2code_rest_api
+### Related Repository: codeplain-api
 
-This repository has a sibling repository **`plain2code_rest_api`** which contains the backend API service that this client communicates with. The two repositories are typically cloned as siblings:
+This repository has a sibling repository **`codeplain-api`** which contains the backend API service that this client communicates with. The two repositories are typically cloned as siblings:
 
 ```
 parent-directory/
-├── codeplain/              # This repository (client)
-└── plain2code_rest_api/    # Backend API service
+├── codeplain/          # This repository (client)
+└── codeplain-api/      # Backend API service
 ```
 
 **When to work across both repositories:**
