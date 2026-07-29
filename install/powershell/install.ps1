@@ -347,12 +347,35 @@ if ($nonInteractive) {
 
 $plainForgeInstalled = $false
 if ($installPlainForge -notmatch '^[Nn]$') {
-    if (Get-Command npx -ErrorAction SilentlyContinue) {
-        npx plain-forge install
-        $plainForgeInstalled = $true
+    # A stale version-manager shim can make npx resolvable without a working
+    # Node.js behind it, so verify node actually runs before invoking npx.
+    $nodeWorks = $false
+    if ((Get-Command node -ErrorAction SilentlyContinue) -and (Get-Command npx -ErrorAction SilentlyContinue)) {
+        try {
+            & node --version *> $null
+            $nodeWorks = ($LASTEXITCODE -eq 0)
+        } catch {
+            $nodeWorks = $false
+        }
+    }
+    if ($nodeWorks) {
+        # A plain-forge failure must not abort the rest of the setup
+        # ($ErrorActionPreference is 'Stop').
+        try {
+            npx plain-forge install
+            if ($LASTEXITCODE -eq 0) {
+                $plainForgeInstalled = $true
+            }
+        } catch {
+            # fall through to the retry hint below
+        }
+        if (-not $plainForgeInstalled) {
+            Write-Host "${GRAY}plain-forge installation failed. You can retry later with:${NC}"
+            Write-Host "  npx plain-forge install"
+        }
         Write-Host ""
     } else {
-        Write-Host "${GRAY}npx not found. Install Node.js, then run:${NC}"
+        Write-Host "${GRAY}Node.js not found. Skipping plain-forge. Install Node.js, then run:${NC}"
         Write-Host "  npx plain-forge install"
         Write-Host ""
     }
