@@ -13,6 +13,12 @@ from plain2code_trace import preview, trace
 MAX_RETRIES = 4
 RETRY_DELAY = 3
 
+# Timeout for agent session requests (/agent/start, /agent/continue). A single agent
+# turn on the slow extended-thinking Bedrock models (Claude Sonnet 5, Opus 4.8) can run
+# up to the server's 590s request budget, so the client must outlast it — anything past
+# the server's 600s platform deadline is dead anyway.
+AGENT_REQUEST_TIMEOUT = 620
+
 RETRY_ERROR_CODES = [
     "LLMInternalError",
 ]
@@ -585,7 +591,7 @@ class CodeplainAPI:
             # Ask the server to run this session on the task's stronger escalation
             # model (the model choice itself stays server-side).
             payload["escalated"] = True
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, timeout=AGENT_REQUEST_TIMEOUT)
 
     def agent_continue(
         self, session_id: str, tool_results: list[dict], run_state: RunState, keep_session_alive: bool = False
@@ -597,7 +603,7 @@ class CodeplainAPI:
             "tool_results": tool_results,
             "keep_session_alive": keep_session_alive,
         }
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, timeout=AGENT_REQUEST_TIMEOUT)
 
     def agent_continue_with_message(self, session_id: str, message: str, run_state: RunState):
         """Continue an agent session by adding a new user message (without tool results)."""
@@ -609,7 +615,7 @@ class CodeplainAPI:
             "user_message": message,  # Additional context as user message
             "keep_session_alive": True,  # Keep session alive for continuation
         }
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, timeout=AGENT_REQUEST_TIMEOUT)
 
     def agent_end_session(self, session_id: str, run_state: RunState):
         """Explicitly end an agent session and remove it from the server."""
