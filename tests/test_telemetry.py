@@ -48,7 +48,6 @@ def make_args(**overrides):
 def clean_telemetry_env(monkeypatch):
     """Ensure tests are not affected by the developer's environment and never send real events."""
     monkeypatch.delenv(NO_TELEMETRY_ENV_VAR, raising=False)
-    monkeypatch.delenv(plain2code_telemetry.ENVIRONMENT_ENV_VAR, raising=False)
     yield
     client = sentry_sdk.get_client()
     if client.is_active():
@@ -192,15 +191,15 @@ def test_nested_sensitive_keys_are_scrubbed(transport):
     assert secret not in json.dumps(transport.events[0], default=str)
 
 
-def test_environment_defaults_to_production(transport):
+def test_environment_comes_from_system_config(transport):
     init_with_transport(transport)
-    assert sentry_sdk.get_client().options["environment"] == "production"
+    assert sentry_sdk.get_client().options["environment"] == plain2code_telemetry.system_config.environment
 
 
-def test_environment_env_var_respected(monkeypatch, transport):
-    monkeypatch.setenv(plain2code_telemetry.ENVIRONMENT_ENV_VAR, "development")
+def test_environment_follows_system_config(monkeypatch, transport):
+    monkeypatch.setattr(plain2code_telemetry.system_config, "environment", "staging")
     init_with_transport(transport)
-    assert sentry_sdk.get_client().options["environment"] == "development"
+    assert sentry_sdk.get_client().options["environment"] == "staging"
 
 
 def test_release_is_client_version(transport):
