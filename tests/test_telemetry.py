@@ -9,7 +9,7 @@ from sentry_sdk.transport import Transport
 
 import plain2code_telemetry
 from plain2code_state import RunState
-from plain2code_telemetry import NO_TELEMETRY_ENV_VAR, capture_crash, initialize_telemetry, telemetry_enabled
+from plain2code_telemetry import TELEMETRY_ENV_VAR, capture_crash, initialize_telemetry, telemetry_enabled
 
 
 class CaptureTransport(Transport):
@@ -47,7 +47,10 @@ def make_args(**overrides):
 @pytest.fixture(autouse=True)
 def clean_telemetry_env(monkeypatch):
     """Ensure tests are not affected by the developer's environment and never send real events."""
-    monkeypatch.delenv(NO_TELEMETRY_ENV_VAR, raising=False)
+    monkeypatch.delenv(TELEMETRY_ENV_VAR, raising=False)
+    # Tests run from a source checkout (a dev environment, where telemetry is
+    # off by default); pretend to be production so the default path is covered.
+    monkeypatch.setattr(plain2code_telemetry.system_config, "environment", "production")
     yield
     client = sentry_sdk.get_client()
     if client.is_active():
@@ -63,13 +66,31 @@ def init_with_transport(transport):
     assert initialize_telemetry(transport=transport)
 
 
-def test_no_telemetry_env_var_disables(monkeypatch, transport):
-    monkeypatch.setenv(NO_TELEMETRY_ENV_VAR, "1")
+@pytest.mark.parametrize("value", ["0", "false", "off", "OFF", " False "])
+def test_telemetry_env_var_disables_in_production(monkeypatch, transport, value):
+    monkeypatch.setenv(TELEMETRY_ENV_VAR, value)
 
     assert not telemetry_enabled()
     assert not initialize_telemetry(transport=transport)
     assert not capture_crash(make_exc_info(KeyError("boom")), None, make_args())
     assert transport.events == []
+
+
+def test_telemetry_disabled_outside_production(monkeypatch, transport):
+    monkeypatch.setattr(plain2code_telemetry.system_config, "environment", "development")
+
+    assert not telemetry_enabled()
+    assert not initialize_telemetry(transport=transport)
+    assert not capture_crash(make_exc_info(KeyError("boom")), None, make_args())
+    assert transport.events == []
+
+
+@pytest.mark.parametrize("value", ["1", "true", "on", "ON"])
+def test_telemetry_env_var_enables_outside_production(monkeypatch, value):
+    monkeypatch.setattr(plain2code_telemetry.system_config, "environment", "development")
+    monkeypatch.setenv(TELEMETRY_ENV_VAR, value)
+
+    assert telemetry_enabled()
 
 
 def test_capture_crash_sends_event_with_tags(transport):
@@ -198,6 +219,7 @@ def test_environment_comes_from_system_config(transport):
 
 def test_environment_follows_system_config(monkeypatch, transport):
     monkeypatch.setattr(plain2code_telemetry.system_config, "environment", "staging")
+    monkeypatch.setenv(TELEMETRY_ENV_VAR, "1")
     init_with_transport(transport)
     assert sentry_sdk.get_client().options["environment"] == "staging"
 

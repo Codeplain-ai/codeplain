@@ -1,9 +1,10 @@
 """Crash reporting via Sentry.
 
 Only unexpected exceptions are reported (the caller decides which exceptions are
-expected; see EXPECTED_EXCEPTIONS in plain2code.py). Reporting is on by default
-and can be disabled by setting the CODEPLAIN_NO_TELEMETRY environment variable
-to any non-empty value.
+expected; see EXPECTED_EXCEPTIONS in plain2code.py). In production, reporting is
+on by default and can be disabled by setting CODEPLAIN_TELEMETRY to 0, false or
+off. In any other environment it is off unless CODEPLAIN_TELEMETRY is explicitly
+set to 1, true or on.
 """
 
 import os
@@ -20,7 +21,7 @@ from system_config import system_config
 
 SENTRY_DSN = "https://64d0d86b50b34e2dede3e4eaf5142282@o4510793955934208.ingest.us.sentry.io/4511540621213696"
 
-NO_TELEMETRY_ENV_VAR = "CODEPLAIN_NO_TELEMETRY"
+TELEMETRY_ENV_VAR = "CODEPLAIN_TELEMETRY"
 
 FLUSH_TIMEOUT_SECONDS = 2
 
@@ -48,10 +49,17 @@ SCRUB_DENYLIST = DEFAULT_DENYLIST + [
 
 
 def telemetry_enabled() -> bool:
-    """Return True if crash reporting should be active."""
-    if os.environ.get(NO_TELEMETRY_ENV_VAR):
-        return False
-    return True
+    """Return True if crash reporting should be active.
+
+    In production it is on unless CODEPLAIN_TELEMETRY disables it.
+    Anywhere else it is off unless CODEPLAIN_TELEMETRY enables it.
+    """
+    setting = os.environ.get(TELEMETRY_ENV_VAR, "").strip().lower()
+
+    if system_config.environment == "production":
+        return setting not in {"0", "false", "off"}
+
+    return setting in {"1", "true", "on"}
 
 
 def initialize_telemetry(**init_overrides: Any) -> bool:
