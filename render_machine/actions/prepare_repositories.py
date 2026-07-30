@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 import file_utils
@@ -24,7 +23,7 @@ class PrepareRepositories(BaseAction):
 
             console.debug(f"Reverting code to version implemented for {previous_frid}.")
 
-            git_utils.revert_to_commit_with_frid(render_context.build_folder, previous_frid)
+            render_context.plain_module.revert_code_to_frid(previous_frid)
             # conformance tests are still not fully implemented
             if render_context.render_conformance_tests:
                 git_utils.revert_to_commit_with_frid(
@@ -33,22 +32,18 @@ class PrepareRepositories(BaseAction):
                 )
 
         else:
-            module_hashes = render_context.plain_module.get_hashes()
-            initial_files = {
-                render_context.plain_module.module_metadata_path(for_git_repo=True): json.dumps(module_hashes)
-            }
+            file_utils.delete_folder(render_context.plain_module.module_folder)
+            render_context.plain_module.seed_module_metadata()
 
             if render_context.required_modules:
                 previous_module = render_context.required_modules[-1]
                 console.debug(f"Cloning git repo from module {previous_module.module_name}.")
 
-                file_utils.delete_folder(render_context.build_folder)
                 git_utils.clone_repo(
                     previous_module.module_build_folder,
                     render_context.build_folder,
                     render_context.module_name,
                     render_context.run_state.render_id,
-                    initial_files,
                 )
             else:
                 console.debug("Initializing git repositories for the render folders.")
@@ -57,7 +52,6 @@ class PrepareRepositories(BaseAction):
                     render_context.build_folder,
                     render_context.module_name,
                     render_context.run_state.render_id,
-                    initial_files,
                 )
 
                 if render_context.base_folder:
@@ -75,7 +69,6 @@ class PrepareRepositories(BaseAction):
                     render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
                     render_context.module_name,
                     render_context.run_state.render_id,
-                    initial_files,
                 )
 
         return self.SUCCESSFUL_OUTCOME, None

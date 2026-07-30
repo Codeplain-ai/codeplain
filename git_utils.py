@@ -64,7 +64,6 @@ def init_git_repo(
     path_to_repo: Union[str, os.PathLike],
     module_name: Optional[str] = None,
     render_id: Optional[str] = None,
-    initial_files: Optional[dict[str, str]] = None,
 ) -> Repo:
     """
     Initializes a new git repository in the given path.
@@ -79,10 +78,6 @@ def init_git_repo(
     repo = Repo.init(path_to_repo)
     _ensure_git_config(repo)
 
-    if initial_files:
-        file_utils.store_response_files(path_to_repo, initial_files, [])
-        repo.git.add(".")
-
     repo.git.commit(
         "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
     )
@@ -95,13 +90,8 @@ def clone_repo(
     new_repo_path: str,
     module_name: Optional[str] = None,
     render_id: Optional[str] = None,
-    initial_files: Optional[dict[str, str]] = None,
 ) -> Repo:
     repo = Repo.clone_from(source_repo_path, new_repo_path)
-
-    if initial_files:
-        file_utils.store_response_files(new_repo_path, initial_files, [])
-        repo.git.add(".")
 
     repo.git.commit(
         "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)

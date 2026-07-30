@@ -212,8 +212,12 @@ Two logging modes:
 ### Code Generation Process
 - Templates in `standard_template_library/` use Liquid2 syntax
 - Template search order: (1) `.plain` file dir, (2) `--template-dir`, (3) built-in standard lib
-- Generated code written to `build/` (configurable via `--build-folder`)
-- Each FRID render produces a git commit in build folder for rollback capability
+- Each module renders into its own tree under the build folder (configurable via `--build-folder`, default `plain_modules/`):
+  - `<build-folder>/<module>/code/` — implementation code (its own git repo)
+  - `<build-folder>/<module>/tests/` — conformance tests (its own git repo; only created when a conformance tests script is configured)
+  - `<build-folder>/<module>/.codeplain/` — module metadata (`module_metadata.json`), not tracked in git
+  - `<build-folder>/<module>/.memory/` — conformance test memory, not tracked in git
+- Each FRID render produces a git commit in the `code/` and `tests/` repos for rollback capability
 
 ### Configuration
 - `config.yaml` can be placed in `.plain` file dir or CWD

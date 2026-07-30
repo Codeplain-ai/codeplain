@@ -212,6 +212,12 @@ def render(  # noqa: C901
 
     warn_if_acceptance_tests_without_conformance_script(plain_module, args)
 
+    # The module_metadata file lives outside the code git repo. That means that a crash mid-render can leave it
+    # claiming a functionality was implemented even thought it wasn't yet committed (because of the crash).
+    # Out of precaution, this reconciles every module_metadata against the code repo.
+    for module in plain_module.all_required_modules + [plain_module]:
+        module.reconcile_metadata_with_git()
+
     render_choice = None
     if render_range is None:
         plain_module_render_state = get_plain_module_render_state(plain_module)
@@ -356,7 +362,6 @@ def main():  # noqa: C901
         plain_module = plain_modules.PlainModule(
             os.path.basename(args.filename),
             args.build_folder,
-            args.conformance_tests_folder,
             template_dirs,
         )
     except Exception as e:

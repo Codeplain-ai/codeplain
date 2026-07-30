@@ -1,7 +1,7 @@
 """Tests for folder-path argument resolution.
 
-Covers --base-folder, --build-folder, --conformance-tests-folder,
---build-dest, --conformance-tests-dest, --template-dir.
+Covers --base-folder, --build-folder, --build-dest,
+--conformance-tests-dest, --template-dir.
 
 The rule: CLI values resolve against CWD, config values resolve against
 the config file's directory, and values left at their default (for the
@@ -19,7 +19,6 @@ from plain2code_arguments import (
     DEFAULT_BUILD_DEST,
     DEFAULT_BUILD_FOLDER,
     DEFAULT_CONFORMANCE_TESTS_DEST,
-    DEFAULT_CONFORMANCE_TESTS_FOLDER,
     parse_arguments,
 )
 
@@ -50,12 +49,6 @@ def test_missing_build_folder_defaults_next_to_spec(layout):
     with patch("os.getcwd", return_value=str(layout["cwd"])):
         args = parse_arguments([layout["plain_file"]])
     assert args.build_folder == str(layout["spec"] / DEFAULT_BUILD_FOLDER)
-
-
-def test_missing_conformance_tests_folder_defaults_next_to_spec(layout):
-    with patch("os.getcwd", return_value=str(layout["cwd"])):
-        args = parse_arguments([layout["plain_file"]])
-    assert args.conformance_tests_folder == str(layout["spec"] / DEFAULT_CONFORMANCE_TESTS_FOLDER)
 
 
 def test_missing_build_dest_defaults_next_to_spec(layout):
@@ -126,15 +119,21 @@ def test_config_build_folder_resolves_against_config_dir(layout):
 
 
 def test_config_all_output_folders_resolve_against_config_dir(layout):
-    (layout["config"] / "config.yaml").write_text(
-        "build-folder: b\n" "conformance-tests-folder: ct\n" "build-dest: d\n" "conformance-tests-dest: cd\n"
-    )
+    (layout["config"] / "config.yaml").write_text("build-folder: b\n" "build-dest: d\n" "conformance-tests-dest: cd\n")
     with patch("os.getcwd", return_value=str(layout["config"])):
         args = parse_arguments([layout["plain_file"]])
     assert args.build_folder == str(layout["config"] / "b")
-    assert args.conformance_tests_folder == str(layout["config"] / "ct")
     assert args.build_dest == str(layout["config"] / "d")
     assert args.conformance_tests_dest == str(layout["config"] / "cd")
+
+
+def test_removed_conformance_tests_folder_config_key_errors(layout, capsys):
+    (layout["config"] / "config.yaml").write_text("conformance-tests-folder: ct\n")
+    with patch("os.getcwd", return_value=str(layout["config"])):
+        with pytest.raises(SystemExit):
+            parse_arguments([layout["plain_file"]])
+    err = capsys.readouterr().err
+    assert "Invalid configuration key: conformance-tests-folder" in err
 
 
 def test_config_template_dir_resolves_against_config_dir(layout):
