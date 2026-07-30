@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from functools import cached_property
@@ -13,16 +12,29 @@ except ImportError:
     raise GitNotInstalledError("git is not installed. Please install git and try again.")
 
 import git_utils
+import metadata_utils
 import plain_file
 import plain_spec
+from metadata_utils import (
+    MODULE_FUNCTIONALITIES,
+    MODULE_METADATA_FILENAME,
+    REQUIRED_MODULES_FUNCTIONALITIES,
+)
 from plain2code_console import console
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 
 CODEPLAIN_MEMORY_SUBFOLDER = ".memory"
 CODEPLAIN_METADATA_FOLDER = ".codeplain"
-MODULE_METADATA_FILENAME = "module_metadata.json"
-MODULE_FUNCTIONALITIES = "functionalities"
-REQUIRED_MODULES_FUNCTIONALITIES = "required_modules_functionalities"
+MODULE_CODE_SUBFOLDER = "code"
+MODULE_TESTS_SUBFOLDER = "tests"
+
+
+def get_module_code_folder(modules_base_folder: str, module_name: str) -> str:
+    return os.path.join(modules_base_folder, module_name, MODULE_CODE_SUBFOLDER)
+
+
+def get_module_tests_folder(modules_base_folder: str, module_name: str) -> str:
+    return os.path.join(modules_base_folder, module_name, MODULE_TESTS_SUBFOLDER)
 
 
 def _strip_functional_requirements(plain_source_tree: dict) -> dict:
@@ -33,10 +45,9 @@ def _strip_functional_requirements(plain_source_tree: dict) -> dict:
 
 
 class PlainModule:
-    def __init__(self, filename: str, build_folder: str, conformance_tests_folder: str, template_dirs: list[str]):
+    def __init__(self, filename: str, build_folder: str, template_dirs: list[str]):
         self.filename = filename
         self.build_folder = build_folder
-        self.conformance_tests_folder = conformance_tests_folder
         self.template_dirs = template_dirs
         module_name, plain_source, required_modules_names = plain_file.plain_file_parser(
             self.filename, self.template_dirs
@@ -53,7 +64,6 @@ class PlainModule:
                 PlainModule(
                     plain_file.get_filename_from_module_name(module_name),
                     self.build_folder,
-                    self.conformance_tests_folder,
                     self.template_dirs,
                 )
                 for module_name in required_modules_names
@@ -71,15 +81,23 @@ class PlainModule:
         return all_required_modules
 
     @property
+    def module_folder(self):
+        return os.path.join(self.build_folder, self.module_name)
+
+    @property
     def module_conformance_tests_folder(self):
-        return os.path.join(self.conformance_tests_folder, self.module_name)
+        return get_module_tests_folder(self.build_folder, self.module_name)
 
     @property
     def module_build_folder(self):
-        return os.path.join(self.build_folder, self.module_name)
+        return get_module_code_folder(self.build_folder, self.module_name)
+
+    @property
+    def module_memory_folder(self):
+        return os.path.join(self.module_folder, CODEPLAIN_MEMORY_SUBFOLDER)
 
     def get_codeplain_folder(self):
-        return os.path.join(self.module_build_folder, CODEPLAIN_METADATA_FOLDER)
+        return os.path.join(self.module_folder, CODEPLAIN_METADATA_FOLDER)
 
     def get_module_render_status(self) -> tuple[str | None, str | None]:
         module_name, frid = git_utils.get_last_rendered_functionality(self.module_build_folder)
@@ -104,16 +122,7 @@ class PlainModule:
         return repo
 
     def load_module_metadata(self) -> dict | None:
-        codeplain_folder = self.get_codeplain_folder()
-        if not os.path.exists(codeplain_folder):
-            return None
-
-        metadata_path = os.path.join(codeplain_folder, MODULE_METADATA_FILENAME)
-        if not os.path.exists(metadata_path):
-            return None
-
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        return metadata_utils.load_metadata(self.module_metadata_path())
 
     def update_frid_in_module_metadata(self, frid: str) -> None:
         # Store the raw FR markdown (with any {{ code_variable }} placeholders intact), exactly
@@ -130,10 +139,7 @@ class PlainModule:
             functionalities.append(frid_text)
         metadata[MODULE_FUNCTIONALITIES] = functionalities
 
-        codeplain_folder = self.get_codeplain_folder()
-        os.makedirs(codeplain_folder, exist_ok=True)
-        with open(self.module_metadata_path(), "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=4)
+        metadata_utils.write_metadata(self.module_metadata_path(), metadata)
 
     def get_module_source_hash(self) -> str:
         return plain_spec.get_hash_value([self.plain_source] + self.resources_list)
@@ -186,10 +192,7 @@ class PlainModule:
 
         return functionalities
 
-    def module_metadata_path(self, for_git_repo: bool = False) -> str:
-        if for_git_repo:
-            return os.path.join(CODEPLAIN_METADATA_FOLDER, MODULE_METADATA_FILENAME)
-
+    def module_metadata_path(self) -> str:
         return os.path.join(self.get_codeplain_folder(), MODULE_METADATA_FILENAME)
 
     def get_hashes(self) -> dict[str, str]:
@@ -201,12 +204,46 @@ class PlainModule:
             hashes["required_modules_code_hash"] = self.required_modules[-1].get_module_code_hash()
         return hashes
 
-    def save_module_metadata(self):
-        codeplain_folder = self.get_codeplain_folder()
-        os.makedirs(codeplain_folder, exist_ok=True)
+    def seed_module_metadata(self) -> None:
+        """Write a fresh metadata file containing only the module hashes.
 
+        Called at the start of a full render, before any functionality is
+        rendered, so change detection has a clean baseline.
+        """
+        metadata_utils.write_metadata(self.module_metadata_path(), self.get_hashes())
+
+    def truncate_metadata_functionalities(self, frid: str | None) -> None:
+        """Trim the stored functionalities list to the first int(frid) entries.
+
+        The metadata file is not tracked in the module's git repo, so when the
+        code repo is reverted to an earlier functionality the stored list must
+        be trimmed to match the reverted code. A frid of None means no
+        functionality is implemented (empty list).
+        """
+        metadata = self.load_module_metadata()
+        if metadata is None:
+            return
+
+        keep_count = int(frid) if frid is not None else 0
+        if metadata_utils.truncate_functionalities(metadata, keep_count):
+            metadata_utils.write_metadata(self.module_metadata_path(), metadata)
+
+    def revert_code_to_frid(self, frid: str | None) -> None:
+        """Revert the code repo to the commit for frid and keep metadata in sync."""
+        git_utils.revert_to_commit_with_frid(self.module_build_folder, frid)
+        self.truncate_metadata_functionalities(frid)
+
+    def reconcile_metadata_with_git(self) -> None:
+        """
+        Trim the metadata functionalities list to what the code repo actually committed.
+        """
+        module_name, frid = git_utils.get_last_rendered_functionality(self.module_build_folder)
+        own_frid = frid if module_name == self.module_name else None
+
+        self.truncate_metadata_functionalities(own_frid)
+
+    def save_module_metadata(self):
         module_metadata = self.get_hashes()
-        metadata_path = self.module_metadata_path()
         module_metadata[MODULE_FUNCTIONALITIES] = self._get_module_functional_requirements()
 
         required_modules_functionalities = {}
@@ -216,8 +253,7 @@ class PlainModule:
         if required_modules_functionalities:
             module_metadata[REQUIRED_MODULES_FUNCTIONALITIES] = required_modules_functionalities
 
-        with open(metadata_path, "w", encoding="utf-8") as f:
-            json.dump(module_metadata, f, indent=4)
+        metadata_utils.write_metadata(self.module_metadata_path(), module_metadata)
 
     def _ensure_module_folders_exist(self, first_render_frid: str, render_conformance_tests: bool):
         """
@@ -372,10 +408,6 @@ class PlainModule:
         return False
 
     def wipe_module(self) -> None:
-        if os.path.exists(self.module_build_folder):
-            console.warning(f"Wiping module {self.module_build_folder}...")
-            shutil.rmtree(self.module_build_folder)
-
-        if os.path.exists(self.module_conformance_tests_folder):
-            console.warning(f"Wiping conformance tests for module {self.module_conformance_tests_folder}...")
-            shutil.rmtree(self.module_conformance_tests_folder)
+        if os.path.exists(self.module_folder):
+            console.warning(f"Wiping module {self.module_folder}...")
+            shutil.rmtree(self.module_folder)

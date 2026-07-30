@@ -77,11 +77,10 @@ def test_warning_covers_required_modules_for_real_plain_module(get_test_data_pat
     module with acceptance tests should still trigger the warning, naming the
     required module. This mirrors the dry-run path which builds a real PlainModule."""
     fixtures_dir = get_test_data_path("data/acceptance_tests_warning")
-    with tempfile.TemporaryDirectory() as build, tempfile.TemporaryDirectory() as conformance:
+    with tempfile.TemporaryDirectory() as build:
         plain_module = PlainModule(
             "main_requiring_acceptance_tests.plain",
             build,
-            conformance,
             [fixtures_dir],
         )
 

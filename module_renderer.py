@@ -1,5 +1,4 @@
 import argparse
-import os
 import threading
 
 from event_bus import EventBus
@@ -48,9 +47,8 @@ class ModuleRenderer:
             self.codeplainAPI,
             memory_manager,
             plain_module,
-            build_folder=os.path.join(self.args.build_folder, plain_module.module_name),
+            build_folder=plain_module.module_build_folder,
             build_dest=self.args.build_dest,
-            conformance_tests_folder=self.args.conformance_tests_folder,
             conformance_tests_dest=self.args.conformance_tests_dest,
             unittests_script=self.args.unittests_script,
             conformance_tests_script=self.args.conformance_tests_script,
@@ -115,8 +113,7 @@ class ModuleRenderer:
 
         memory_manager = MemoryManager(
             self.codeplainAPI,
-            plain_module.module_name,
-            self.args.conformance_tests_folder,
+            plain_module.module_memory_folder,
         )
         render_context = self._build_render_context_for_module(
             plain_module,
@@ -165,7 +162,7 @@ class ModuleRenderer:
             if self.args.copy_build:
                 rendered_code_path = f"{self.args.build_dest}/"
             else:
-                rendered_code_path = self.args.build_folder
+                rendered_code_path = self.plain_module.module_build_folder
 
             self.run_state.set_render_generated_code_path(rendered_code_path)
             self.event_bus.publish(RenderCompleted(rendered_code_path=rendered_code_path))

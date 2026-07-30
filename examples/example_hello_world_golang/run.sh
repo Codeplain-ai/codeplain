@@ -20,11 +20,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-cd plain_modules/hello_world_golang
+cd plain_modules/hello_world_golang/code
 
 # We need to compile the tests so that we can execute them in the current folder
 # (https://stackoverflow.com/questions/23847003/golang-tests-and-working-directory/29541248#29541248)
-go test -c ../../harness_tests/hello_world_test.go
+go test -c ../../../harness_tests/hello_world_test.go
 
 # Check if test compilation has failed for the hello world example
 if [ $? -ne 0 ]; then
