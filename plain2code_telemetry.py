@@ -21,8 +21,6 @@ from system_config import system_config
 SENTRY_DSN = "https://64d0d86b50b34e2dede3e4eaf5142282@o4510793955934208.ingest.us.sentry.io/4511540621213696"
 
 NO_TELEMETRY_ENV_VAR = "CODEPLAIN_NO_TELEMETRY"
-ENVIRONMENT_ENV_VAR = "CODEPLAIN_ENV"
-DEFAULT_ENVIRONMENT = "production"
 
 FLUSH_TIMEOUT_SECONDS = 2
 
@@ -65,7 +63,7 @@ def initialize_telemetry(**init_overrides: Any) -> bool:
         init_kwargs: dict[str, Any] = dict(
             dsn=SENTRY_DSN,
             release=system_config.client_version,
-            environment=os.environ.get(ENVIRONMENT_ENV_VAR, DEFAULT_ENVIRONMENT),
+            environment=system_config.environment,
             send_default_pii=False,
             server_name="",  # hostname is identifying; don't send it
             default_integrations=False,

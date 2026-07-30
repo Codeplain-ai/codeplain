@@ -6,6 +6,10 @@ import yaml
 
 from plain2code_console import console
 
+ENVIRONMENT_VAR = "CODEPLAIN_ENV"
+PRODUCTION_ENV = "production"
+DEVELOPMENT_ENV = "development"
+
 
 def _resolve_version() -> str:
     """Resolve the client version.
@@ -38,7 +42,46 @@ def _resolve_version() -> str:
         return "0.0.0.dev0"
 
 
+def _resolve_installed() -> bool:
+    """Return True if codeplain was installed from a package index.
+
+    An installed distribution that came from an index has no PEP 610
+    ``direct_url.json``; installs from a local path, VCS or direct URL
+    (``pip install -e .``, ``pip install .``, a git URL) do. A source checkout
+    that was never installed has no distribution metadata at all.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    try:
+        dist = distribution("codeplain")
+    except PackageNotFoundError:
+        return False
+    except Exception:
+        return False
+
+    try:
+        return dist.read_text("direct_url.json") is None
+    except Exception:
+        return False
+
+
+def _resolve_environment(installed: bool) -> str:
+    """Resolve the environment this run reports itself as.
+
+    An explicit CODEPLAIN_ENV always wins. Otherwise a package installed from an
+    index is a real user install ("production"), while anything else (a source
+    checkout, an editable install) is a dev run.
+    """
+    explicit_env = os.environ.get(ENVIRONMENT_VAR, "").strip()
+    if explicit_env:
+        return explicit_env
+
+    return PRODUCTION_ENV if installed else DEVELOPMENT_ENV
+
+
 __version__ = _resolve_version()
+__installed__ = _resolve_installed()
+__environment__ = _resolve_environment(__installed__)
 
 
 class SystemConfig:
@@ -50,6 +93,8 @@ class SystemConfig:
             raise KeyError("Missing 'error_messages' section in system_config.yaml")
 
         self.client_version = __version__
+        self.installed = __installed__
+        self.environment = __environment__
         self.error_messages = self.config["error_messages"]
 
     def _load_config(self):
