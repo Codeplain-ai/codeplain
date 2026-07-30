@@ -325,8 +325,11 @@ if [[ ! "${INSTALL_PLAIN_FORGE:-}" =~ ^[Nn]$ ]]; then
         fi
         echo ""
     else
-        echo -e "${GRAY}Node.js not found. Skipping plain-forge. Install Node.js, then run:${NC}"
-        echo -e "  npx plain-forge install"
+        echo -e "  ${GRAY}plain-forge brings codeplain's agentic skills to your coding agent,${NC}"
+        echo -e "  ${GRAY}but installing it requires Node.js, which was not found on this machine.${NC}"
+        echo ""
+        echo -e "  ${GRAY}If you want it, install Node.js and then run:${NC}"
+        echo -e "  ${WHITE}${BOLD}npx plain-forge install${NC}"
         echo ""
     fi
 fi

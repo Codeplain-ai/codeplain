@@ -375,8 +375,11 @@ if ($installPlainForge -notmatch '^[Nn]$') {
         }
         Write-Host ""
     } else {
-        Write-Host "${GRAY}Node.js not found. Skipping plain-forge. Install Node.js, then run:${NC}"
-        Write-Host "  npx plain-forge install"
+        Write-Host "  ${GRAY}plain-forge brings codeplain's agentic skills to your coding agent,${NC}"
+        Write-Host "  ${GRAY}but installing it requires Node.js, which was not found on this machine.${NC}"
+        Write-Host ""
+        Write-Host "  ${GRAY}If you want it, install Node.js and then run:${NC}"
+        Write-Host "  ${WHITE}${BOLD}npx plain-forge install${NC}"
         Write-Host ""
     }
 }
