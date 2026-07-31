@@ -15,11 +15,21 @@ jobs:
     permissions:
       contents: write
 
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           # hatch-vcs derives the version from git tags, so we need full history.
           fetch-depth: 0
+
+      - name: Notify Slack (start)
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: Release \`${{ github.ref_name }}\` published by *${{ github.actor }}* — building and publishing to PyPI...\"}"
 
       - name: Install uv
         # uv provisions its own Python (honoring requires-python), so no
@@ -47,6 +57,13 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} dist/* --clobber
 
+      - name: Notify Slack (build failure)
+        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: Build of \`${{ github.ref_name }}\` FAILED :x:. Nothing was published to PyPI. See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.\"}"
+
   publish-to-pypi:
     name: Publish to PyPI
     needs: build
@@ -59,6 +76,9 @@ jobs:
       # authenticate this run — no long-lived API token needed.
       id-token: write
 
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
     steps:
       - name: Download distribution packages
         uses: actions/download-artifact@v4
@@ -68,3 +88,17 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Notify Slack (success)
+        if: ${{ success() && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: \`${{ github.ref_name }}\` published to PyPI :white_check_mark:. Install with \`pip install --upgrade codeplain\`.\"}"
+
+      - name: Notify Slack (failure)
+        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: Publishing \`${{ github.ref_name }}\` to PyPI FAILED :x:. See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.\"}"

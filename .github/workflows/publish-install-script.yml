@@ -14,6 +14,9 @@ jobs:
     name: Upload to Cloudflare R2
     runs-on: ubuntu-latest
 
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -53,4 +56,18 @@ jobs:
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type "text/plain"
           echo "✓ examples.ps1 uploaded to R2"
+
+      - name: Notify Slack (success)
+        if: ${{ success() && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: Install scripts deployed to R2 :white_check_mark: (\`${GITHUB_SHA:0:7}\`, by *${{ github.actor }}*).\"}"
+
+      - name: Notify Slack (failure)
+        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: Install script deploy to R2 FAILED :x: (\`${GITHUB_SHA:0:7}\`). Users may be getting a stale installer. See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.\"}"
 
