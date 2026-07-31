@@ -1,0 +1,124 @@
+name: PowerShell Install Scripts
+
+on:
+  push:
+    paths:
+      - 'install/powershell/*.ps1'
+      - '.github/workflows/lint-powershell.yml'
+  pull_request:
+    paths:
+      - 'install/powershell/*.ps1'
+      - '.github/workflows/lint-powershell.yml'
+  workflow_dispatch:
+
+jobs:
+  parse-windows-powershell-51:
+    name: Parse under Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The install scripts are fetched over HTTP and executed on stock Windows,
+      # where powershell.exe (5.1) is the default shell. 5.1 reads BOM-less files
+      # as ANSI (CP1252), so a non-ASCII glyph such as U+2713 decodes into a smart
+      # quote that silently terminates the enclosing string. The resulting parse
+      # errors point at unrelated lines far below the real cause, so parse every
+      # script with 5.1 explicitly rather than relying on PowerShell 7.
+      - name: Parse each script with 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "PowerShell $($PSVersionTable.PSVersion) / ANSI codepage $([System.Text.Encoding]::Default.WebName)"
+
+          $failed = $false
+          Get-ChildItem 'install/powershell' -Filter *.ps1 | Sort-Object Name | ForEach-Object {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $_.FullName, [ref]$null, [ref]$errors) | Out-Null
+
+              if ($errors -and $errors.Count -gt 0) {
+                  $failed = $true
+                  Write-Host "FAIL $($_.Name): $($errors.Count) parse error(s)"
+                  $errors | Sort-Object { $_.Extent.StartLineNumber } | ForEach-Object {
+                      Write-Host "     L$($_.Extent.StartLineNumber): $($_.Message)"
+                  }
+              } else {
+                  Write-Host "OK   $($_.Name)"
+              }
+          }
+
+          if ($failed) { exit 1 }
+
+      # A BOM would fix file-based parsing but break `irm ... | iex`: PowerShell 5.1
+      # decodes an HTTP text/* body with no charset as ISO-8859-1, turning the BOM
+      # into literal "i>>?" text and failing with
+      # "The term 'i>>?$ErrorActionPreference' is not recognized".
+      # Keeping the sources pure ASCII is what makes both paths safe, so enforce it.
+      - name: Require pure ASCII and no BOM
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = $false
+
+          Get-ChildItem 'install/powershell' -Filter *.ps1 | Sort-Object Name | ForEach-Object {
+              $fileBad = $false
+              $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+
+              if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                  $failed = $true
+                  $fileBad = $true
+                  Write-Host "FAIL $($_.Name): has a UTF-8 BOM (breaks 'irm | iex'); remove it"
+              }
+
+              # Report line/column of any byte outside ASCII so the fix is obvious.
+              $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+              $lineNo = 0
+              foreach ($line in ($text -split "`r?`n")) {
+                  $lineNo++
+                  for ($i = 0; $i -lt $line.Length; $i++) {
+                      if ([int]$line[$i] -gt 127) {
+                          $failed = $true
+                          $fileBad = $true
+                          $cp = "U+{0:X4}" -f [int]$line[$i]
+                          Write-Host "FAIL $($_.Name) L${lineNo} C$($i + 1): non-ASCII $cp"
+                          Write-Host "     build it from its code point instead, e.g. `$CHECK = [char]0x2713"
+                          break
+                      }
+                  }
+              }
+
+              if (-not $fileBad) { Write-Host "OK   $($_.Name)" }
+          }
+
+          if ($failed) { exit 1 }
+
+  parse-powershell-7:
+    name: Parse under PowerShell 7
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse each script with 7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "PowerShell $($PSVersionTable.PSVersion)"
+
+          $failed = $false
+          Get-ChildItem 'install/powershell' -Filter *.ps1 | Sort-Object Name | ForEach-Object {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $_.FullName, [ref]$null, [ref]$errors) | Out-Null
+
+              if ($errors -and $errors.Count -gt 0) {
+                  $failed = $true
+                  Write-Host "FAIL $($_.Name): $($errors.Count) parse error(s)"
+                  $errors | Sort-Object { $_.Extent.StartLineNumber } | ForEach-Object {
+                      Write-Host "     L$($_.Extent.StartLineNumber): $($_.Message)"
+                  }
+              } else {
+                  Write-Host "OK   $($_.Name)"
+              }
+          }
+
+          if ($failed) { exit 1 }

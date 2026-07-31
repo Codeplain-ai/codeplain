@@ -9,6 +9,12 @@ if (-not $env:GRAY)       { $GRAY        = "$([char]27)[38;2;128;128;128m" } els
 if (-not $env:BOLD)       { $BOLD        = "$([char]27)[1m"               } else { $BOLD        = $env:BOLD }
 if (-not $env:NC)         { $NC          = "$([char]27)[0m"               } else { $NC          = $env:NC }
 
+# Symbols built from code points so this file stays pure ASCII. Windows PowerShell 5.1
+# reads BOM-less files as ANSI (CP1252), where a literal U+2713 decodes to a smart quote
+# that silently terminates the enclosing string and breaks parsing.
+$CHECK = [char]0x2713
+$CROSS = [char]0x2717
+
 # Examples configuration
 $EXAMPLES_FOLDER_NAME = "plainlang-examples"
 $EXAMPLES_DOWNLOAD_URL = "https://codeplain.ai/examples/windows"
@@ -40,7 +46,7 @@ if (-not (Test-Path $EXTRACT_PATH -PathType Container)) {
     try {
         New-Item -ItemType Directory -Path $EXTRACT_PATH -Force | Out-Null
     } catch {
-        Write-Host "  ${RED}✗ Failed to create directory: ${EXTRACT_PATH}${NC}"
+        Write-Host "  ${RED}${CROSS} Failed to create directory: ${EXTRACT_PATH}${NC}"
         Write-Host "  ${GRAY}Skipping example download.${NC}"
         $SKIP_DOWNLOAD = $true
     }
@@ -73,7 +79,7 @@ if (-not $SKIP_DOWNLOAD) {
 
                 Clear-Host
                 Write-Host ""
-                Write-Host "  ${GREEN}✓ Examples downloaded successfully!${NC}"
+                Write-Host "  ${GREEN}${CHECK} Examples downloaded successfully!${NC}"
                 Write-Host ""
                 Write-Host "  ${GRAY}Examples are in: ${EXTRACTED_DIR}${NC}"
                 Write-Host ""
@@ -86,15 +92,15 @@ if (-not $SKIP_DOWNLOAD) {
                 Write-Host "  ${GRAY}See hello-world/python/README.md for details.${NC}"
                 Write-Host ""
             } catch {
-                Write-Host "  ${RED}✗ Failed to extract examples.${NC}"
+                Write-Host "  ${RED}${CROSS} Failed to extract examples.${NC}"
             }
 
             Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
         } else {
-            Write-Host "  ${RED}✗ Failed to download examples.${NC}"
+            Write-Host "  ${RED}${CROSS} Failed to download examples.${NC}"
         }
     } catch {
-        Write-Host "  ${RED}✗ Failed to download examples.${NC}"
+        Write-Host "  ${RED}${CROSS} Failed to download examples.${NC}"
         Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
     }
 

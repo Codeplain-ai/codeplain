@@ -32,6 +32,12 @@ $GRAY_LIGHT = "$ESC[38;2;211;211;211m"       # #D3D3D3
 $BOLD       = "$ESC[1m"
 $NC         = "$ESC[0m"                      # No Color / Reset
 
+# Symbols built from code points so this file stays pure ASCII. Windows PowerShell 5.1
+# reads BOM-less files as ANSI (CP1252), where a literal U+2713 decodes to a smart quote
+# that silently terminates the enclosing string and breaks parsing.
+$CHECK  = [char]0x2713
+$ROCKET = [System.Char]::ConvertFromUtf32(0x1F680)
+
 # Export colors for child scripts (as environment variables)
 $env:YELLOW = $YELLOW
 $env:GREEN = $GREEN
@@ -92,11 +98,11 @@ function Test-ApiKey {
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Write-Host "${GRAY}uv is not installed.${NC}"
     Install-Uv
-    Write-Host "${GREEN}✓${NC} uv installed successfully"
+    Write-Host "${GREEN}${CHECK}${NC} uv installed successfully"
     Write-Host ""
 }
 
-Write-Host "${GREEN}✓${NC} uv detected"
+Write-Host "${GREEN}${CHECK}${NC} uv detected"
 Write-Host ""
 
 try {
@@ -125,16 +131,16 @@ if ($codeplainLine) {
     $newLine = @(uv tool list 2>$null) | Where-Object { $_ -match '^codeplain' } | Select-Object -First 1
     $newVersion = ($newLine -replace 'codeplain v', '').Trim()
     if ($currentVersion -eq $newVersion) {
-        Write-Host "${GREEN}✓${NC} codeplain is already up to date (${newVersion})"
+        Write-Host "${GREEN}${CHECK}${NC} codeplain is already up to date (${newVersion})"
     } else {
-        Write-Host "${GREEN}✓${NC} codeplain upgraded from ${currentVersion} to ${newVersion}!"
+        Write-Host "${GREEN}${CHECK}${NC} codeplain upgraded from ${currentVersion} to ${newVersion}!"
     }
 } else {
     Write-Host "Installing codeplain...${NC}"
     Write-Host ""
     uv tool install codeplain
     if (-not $nonInteractive) { Clear-Host }
-    Write-Host "${GREEN}✓ codeplain installed successfully!${NC}"
+    Write-Host "${GREEN}${CHECK} codeplain installed successfully!${NC}"
 }
 
 # Ensure uv tool bin directory is on user PATH permanently (so codeplain is available)
@@ -146,12 +152,12 @@ if ($userPath) {
         $newPath = ($userPath.TrimEnd(';') + ';' + $uvBinDir)
         [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         $env:Path = $uvBinDir + ';' + $env:Path
-        Write-Host "${GREEN}✓${NC} added $uvBinDir to your user PATH"
+        Write-Host "${GREEN}${CHECK}${NC} added $uvBinDir to your user PATH"
     }
 } else {
     [Environment]::SetEnvironmentVariable('Path', $uvBinDir, 'User')
     $env:Path = $uvBinDir + ';' + $env:Path
-    Write-Host "${GREEN}✓${NC} added $uvBinDir to your user PATH"
+    Write-Host "${GREEN}${CHECK}${NC} added $uvBinDir to your user PATH"
 }
 Write-Host ""
 
@@ -181,7 +187,7 @@ if ($env:CODEPLAIN_API_KEY) {
         Write-Host "${GRAY}Verifying your existing API key...${NC}"
         $existingResult = Test-ApiKey $env:CODEPLAIN_API_KEY
         if ($existingResult -eq "valid") {
-            Write-Host "${GREEN}✓${NC} Using existing API key."
+            Write-Host "${GREEN}${CHECK}${NC} Using existing API key."
             $skipApiKeySetup = $true
             $apiKeyVerified = $true
         } elseif ($existingResult -eq "invalid") {
@@ -225,7 +231,7 @@ if (-not $skipApiKeySetup) {
             Write-Host "${GRAY}Verifying your API key...${NC}"
             $result = Test-ApiKey $apiKey
             if ($result -eq "valid") {
-                Write-Host "${GREEN}✓${NC} API key verified."
+                Write-Host "${GREEN}${CHECK}${NC} API key verified."
                 Write-Host ""
                 $apiKeyVerified = $true
                 break
@@ -252,7 +258,7 @@ if ($skipApiKeySetup) {
 
     # Persist as user environment variable (survives reboots)
     [Environment]::SetEnvironmentVariable('CODEPLAIN_API_KEY', $apiKey, 'User')
-    Write-Host "${GREEN}✓ API key saved to user environment variables${NC}"
+    Write-Host "${GREEN}${CHECK} API key saved to user environment variables${NC}"
 }
 
 # ASCII Art Welcome
@@ -268,7 +274,7 @@ Write-Host @'
 Write-Host ""
 # Only claim success when a verified API key is actually configured.
 if ($apiKeyVerified) {
-    Write-Host "${GREEN}✓ Sign in successful.${NC}"
+    Write-Host "${GREEN}${CHECK} Sign in successful.${NC}"
     Write-Host ""
 }
 Write-Host "  ${WHITE}Welcome to *codeplain!${NC}"
@@ -392,7 +398,7 @@ $plynInstalled = $false
 if ($editorCmds.Count -gt 0 -and $installPlyn -notmatch '^[Nn]$') {
     foreach ($editor in $editorCmds) {
         & $editor.Cmd --install-extension Codeplain.plyn
-        Write-Host "${GREEN}✓${NC} plyn installed for $($editor.Name)"
+        Write-Host "${GREEN}${CHECK}${NC} plyn installed for $($editor.Name)"
     }
     $plynInstalled = $true
     Write-Host ""
@@ -435,7 +441,7 @@ if ($env:CODEPLAIN_API_KEY) {
         $verifyOk = $false
     }
     if ($verifyOk) {
-        Write-Host "${GREEN}✓${NC} Installation verified."
+        Write-Host "${GREEN}${CHECK}${NC} Installation verified."
     } else {
         Write-Host "${RED}Something went wrong during installation.${NC}"
         Write-Host "${GRAY}Output of 'codeplain --status':${NC}"
@@ -473,7 +479,7 @@ Write-Host "     ${WHITE}${BOLD}codeplain your-project.plain${NC}"
 Write-Host ""
 Write-Host "  ${GRAY}Discord: https://discord.gg/cgbynb9hFq   Docs: https://plainlang.org/${NC}"
 Write-Host ""
-Write-Host "  ${GRAY}Happy development!${NC} 🚀"
+Write-Host "  ${GRAY}Happy development!${NC} ${ROCKET}"
 Write-Host ""
 
 # Refresh environment for this session
