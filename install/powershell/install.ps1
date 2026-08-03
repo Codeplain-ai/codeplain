@@ -49,11 +49,61 @@ $env:NC = $NC
 if (-not $nonInteractive) { Clear-Host }
 Write-Host "Started ${YELLOW}${BOLD}*codeplain CLI${NC} installation..."
 
+# Run a script block under a Process-scoped Bypass execution policy.
+#
+# On a fresh Windows machine the execution policy is Restricted. Piping this
+# installer to iex sidesteps that, but scripts we invoke in turn do not get the
+# same free pass: uv's installer refuses to run unless Get-ExecutionPolicy
+# reports Unrestricted/RemoteSigned/Bypass, and any .ps1 we execute from disk
+# (walkthrough, examples, the npx shim) is blocked outright.
+#
+# Process scope is the narrowest thing that works: it applies only to this
+# PowerShell process and its children, is discarded when the process exits, and
+# leaves the user's CurrentUser/LocalMachine policy untouched. We restore the
+# previous process value afterwards so the relaxed policy lasts no longer than
+# the call that needs it.
+function Invoke-WithBypassedExecutionPolicy {
+    param([Parameter(Mandatory = $true)][scriptblock]$ScriptBlock)
+
+    if (-not ($IsWindows -or ($env:OS -eq "Windows_NT"))) {
+        # Execution policy is a Windows-only concept; Set-ExecutionPolicy throws
+        # on other platforms.
+        return & $ScriptBlock
+    }
+
+    $previousPolicy = $null
+    $policyChanged = $false
+    try {
+        $previousPolicy = Get-ExecutionPolicy -Scope Process
+        if ($previousPolicy -ne 'Bypass') {
+            Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
+            $policyChanged = $true
+        }
+    } catch {
+        # Typically a Group Policy lockdown: the MachinePolicy/UserPolicy scopes
+        # win over Process, so there is nothing we can do here. Run anyway and
+        # let the child script surface its own error.
+        Write-Host "${GRAY}Could not relax the execution policy for this process: $($_.Exception.Message)${NC}"
+    }
+
+    try {
+        & $ScriptBlock
+    } finally {
+        if ($policyChanged) {
+            try {
+                Set-ExecutionPolicy -Scope Process -ExecutionPolicy $previousPolicy -Force -ErrorAction Stop
+            } catch {
+                Write-Host "${GRAY}Could not restore this process's execution policy to '${previousPolicy}'.${NC}"
+            }
+        }
+    }
+}
+
 # Install uv if not present
 function Install-Uv {
     Write-Host "Installing uv package manager..."
     if ($IsWindows -or ($env:OS -eq "Windows_NT")) {
-        irm https://astral.sh/uv/install.ps1 | iex
+        Invoke-WithBypassedExecutionPolicy { irm https://astral.sh/uv/install.ps1 | iex }
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
     } else {
         bash -c "curl -LsSf https://astral.sh/uv/install.sh | sh"
@@ -305,15 +355,17 @@ function Invoke-SubScript {
         $scriptPath = ".\$ScriptName"
     }
 
+    # Both branches execute a .ps1 from disk, which the execution policy blocks
+    # under the default Restricted setting.
     if ($scriptPath) {
         # Run locally
-        & $scriptPath
+        Invoke-WithBypassedExecutionPolicy { & $scriptPath }
     } else {
         # Download and run
         $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) $ScriptName
         Invoke-WebRequest -Uri "${env:CODEPLAIN_SCRIPTS_BASE_URL}/${ScriptName}" -OutFile $tempFile -UseBasicParsing
         try {
-            & $tempFile
+            Invoke-WithBypassedExecutionPolicy { & $tempFile }
         } finally {
             Remove-Item $tempFile -ErrorAction SilentlyContinue
         }
@@ -348,7 +400,9 @@ if ($nonInteractive) {
 $plainForgeInstalled = $false
 if ($installPlainForge -notmatch '^[Nn]$') {
     if (Get-Command npx -ErrorAction SilentlyContinue) {
-        npx plain-forge install
+        # npm ships an npx.ps1 shim that PowerShell prefers over npx.cmd, so this
+        # call is subject to the execution policy too.
+        Invoke-WithBypassedExecutionPolicy { npx plain-forge install }
         $plainForgeInstalled = $true
         Write-Host ""
     } else {
