@@ -117,6 +117,40 @@ function Install-Uv {
     }
 }
 
+# A stale shim can make git resolvable without a working git behind it, so
+# verify git actually runs rather than trusting Get-Command alone.
+function Test-GitAvailable {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        & git --version *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+# Print install instructions for the current platform and exit. codeplain uses
+# git to checkpoint the code it renders, and GitPython fails at import time
+# when the git executable is missing, so 'codeplain --status' would die with a
+# raw traceback that says nothing about the actual cause.
+function Assert-Git {
+    Write-Host "  ${YELLOW}${BOLD}Git is required to continue, but it doesn't appear to be installed.${NC}"
+    Write-Host ""
+    Write-Host "  Please install Git by following the instructions on the official Git website:"
+    Write-Host ""
+    if ($IsWindows -or ($env:OS -eq "Windows_NT")) {
+        Write-Host "  ${WHITE}${BOLD}https://git-scm.com/install/win${NC}"
+    } elseif ($IsMacOS) {
+        Write-Host "  ${WHITE}${BOLD}https://git-scm.com/install/mac${NC}"
+    } else {
+        Write-Host "  ${WHITE}${BOLD}https://git-scm.com/install/linux${NC}"
+    }
+    Write-Host ""
+    Write-Host "  ${GRAY}Once Git is installed, restart your terminal and run this installer again.${NC}"
+    Write-Host ""
+    exit 1
+}
+
 # Verify an API key against the Codeplain API's /status endpoint.
 # Returns a status string: "valid" (HTTP 200), "invalid" (HTTP 401), or
 # "error" (could not reach the API). This checks only the API key.
@@ -153,6 +187,15 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 Write-Host "${GREEN}${CHECK}${NC} uv detected"
+Write-Host ""
+
+# Checked here, alongside uv, so a missing prerequisite stops the installer
+# before the user answers any prompts rather than at the --status check below.
+if (-not (Test-GitAvailable)) {
+    Assert-Git
+}
+
+Write-Host "${GREEN}✓${NC} git detected"
 Write-Host ""
 
 try {

@@ -42,6 +42,38 @@ install_uv() {
     export PATH="$HOME/.local/bin:$PATH"
 }
 
+# A stale shim can make git resolvable without a working git behind it, so
+# verify git actually runs rather than trusting command -v alone.
+git_available() {
+    command -v git &> /dev/null && git --version &> /dev/null
+}
+
+# Print install instructions for the current platform and exit. codeplain uses
+# git to checkpoint the code it renders, and GitPython fails at import time
+# when the git executable is missing, so 'codeplain --status' would die with a
+# raw traceback that says nothing about the actual cause.
+require_git() {
+    echo -e "  ${YELLOW}${BOLD}Git is required to continue, but it doesn't appear to be installed.${NC}"
+    echo ""
+    echo -e "  Please install Git by following the instructions on the official Git website:"
+    echo ""
+    case "$OSTYPE" in
+        darwin*)
+            echo -e "  ${WHITE}${BOLD}https://git-scm.com/install/mac${NC}"
+            ;;
+        msys* | cygwin* | win32*)
+            echo -e "  ${WHITE}${BOLD}https://git-scm.com/install/win${NC}"
+            ;;
+        *)
+            echo -e "  ${WHITE}${BOLD}https://git-scm.com/install/linux${NC}"
+            ;;
+    esac
+    echo ""
+    echo -e "  ${GRAY}Once Git is installed, restart your terminal and run this installer again.${NC}"
+    echo ""
+    exit 1
+}
+
 # Trim leading/trailing whitespace (spaces, tabs, newlines, carriage returns).
 # Users often copy the API key with surrounding whitespace or newlines.
 trim_whitespace() {
@@ -75,6 +107,15 @@ if ! command -v uv &> /dev/null; then
 fi
 
 echo -e "${GREEN}✓${NC} uv detected"
+echo -e ""
+
+# Checked here, alongside uv, so a missing prerequisite stops the installer
+# before the user answers any prompts rather than at the --status check below.
+if ! git_available; then
+    require_git
+fi
+
+echo -e "${GREEN}✓${NC} git detected"
 echo -e ""
 
 # Install or upgrade codeplain using uv tool
