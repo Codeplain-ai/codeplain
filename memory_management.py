@@ -63,11 +63,6 @@ class MemoryManager:
         return sorted(names)
 
     @staticmethod
-    def memory_folder_for(conformance_tests_folder: str, module_name: str) -> str:
-        """Return the .memory folder path for a module (the per-module memory root)."""
-        return os.path.join(conformance_tests_folder, module_name, CODEPLAIN_MEMORY_SUBFOLDER)
-
-    @staticmethod
     def write_agent_memory_file(
         memory_folder: str, file_name: str, content: str, subfolder: str = AGENT_MEMORY_SUBFOLDER
     ) -> str:
@@ -116,9 +111,9 @@ class MemoryManager:
             console.debug(f"Synced {copied} global memory note(s) into {target_global}.")
         return copied
 
-    def __init__(self, codeplain_api, module_name: str, conformance_tests_folder: str):
+    def __init__(self, codeplain_api, memory_folder: str):
         self.codeplain_api = codeplain_api
-        self.memory_folder = MemoryManager.memory_folder_for(conformance_tests_folder, module_name)
+        self.memory_folder = memory_folder
 
     def create_conformance_tests_memory(
         self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str

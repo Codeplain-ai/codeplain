@@ -155,10 +155,7 @@ class ModuleRenderer:
         within a full render (modules rendered earlier feed later ones) and across renders.
         """
         all_modules = self.plain_module.all_required_modules + [self.plain_module]
-        source_memory_folders = [
-            MemoryManager.memory_folder_for(self.args.conformance_tests_folder, module.module_name)
-            for module in all_modules
-        ]
+        source_memory_folders = [module.module_memory_folder for module in all_modules]
         MemoryManager.sync_global_memories(memory_manager.memory_folder, source_memory_folders)
 
     def render_module(self) -> None:

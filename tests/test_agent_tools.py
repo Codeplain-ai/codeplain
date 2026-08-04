@@ -18,14 +18,21 @@ import pytest
 from render_machine.agent import tools
 from render_machine.agent.agent_runner import TERMINAL_TOOLS
 from render_machine.agent.tool_executor import DEFAULT_TOOLS
+from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
 
 
 def _fake_render_context(build_folder: str) -> SimpleNamespace:
     """Minimal render-context stand-in accepted by the file tools."""
+    modules_root = os.path.dirname(os.path.normpath(os.path.abspath(build_folder)))
     return SimpleNamespace(
         build_folder=build_folder,
+        plain_module=SimpleNamespace(build_folder=modules_root),
         conformance_tests_running_context=None,
-        conformance_tests_folder=None,
+        conformance_tests=ConformanceTests(
+            modules_base_folder=modules_root,
+            conformance_tests_definition_file_name=CONFORMANCE_TESTS_DEFINITION_FILE_NAME,
+        ),
+        should_run_conformance_tests=lambda: False,
         memory_manager=None,
         conformance_tests_script=None,
         prepare_environment_script=None,
@@ -251,7 +258,6 @@ def test_tracking_conformance_test_file_change_does_not_rearm_preparation(projec
     Path(test_path).write_text("assert True\n", encoding="utf-8")
 
     render_context = _fake_render_context(build_folder)
-    render_context.conformance_tests_folder = conformance_folder
     render_context.conformance_tests_running_context = _conformance_ctx()
 
     tools._track_file_change(test_path, render_context)

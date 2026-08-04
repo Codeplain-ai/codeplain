@@ -168,8 +168,11 @@ def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
                 ctx.get_current_conformance_test_folder_name(),
             )
             folders.append(os.path.normpath(os.path.abspath(folder)))
-    elif render_context.conformance_tests_folder:
-        folders.append(os.path.normpath(os.path.abspath(render_context.conformance_tests_folder)))
+    elif render_context.should_run_conformance_tests():
+        module_tests_folder = render_context.conformance_tests.get_module_conformance_tests_folder(
+            render_context.module_name
+        )
+        folders.append(os.path.normpath(os.path.abspath(module_tests_folder)))
 
     return folders
 
@@ -177,12 +180,12 @@ def _get_allowed_write_folders(render_context: RenderContext) -> list[str]:
 def _get_allowed_read_folders(render_context: RenderContext) -> list[str]:
     """Return normalized absolute paths of folders the agent can read from.
 
-    This is the write set, plus the module's memory folder, plus the whole
-    conformance-tests root. Agents may browse and read persisted memory notes (via
+    This is the write set, plus the module's memory folder, plus every module's
+    conformance-tests folder. Agents may browse and read persisted memory notes (via
     read_file/grep/ls_files) on demand, but may only add to them through the dedicated
     write_memory tool — so the memory folder is intentionally readable here while staying
-    out of the write set. The conformance-tests root is readable (read-only) so agents can
-    consult sibling modules' conformance tests as reference examples of how a conformance
+    out of the write set. Sibling modules' conformance-tests folders are readable
+    (read-only) so agents can consult them as reference examples of how a conformance
     test project for this project is laid out, built, and wired to run in isolation.
     """
     folders = list(_get_allowed_write_folders(render_context))
@@ -190,9 +193,7 @@ def _get_allowed_read_folders(render_context: RenderContext) -> list[str]:
     memory_folder = getattr(memory_manager, "memory_folder", None) if memory_manager else None
     if memory_folder:
         folders.append(os.path.normpath(os.path.abspath(memory_folder)))
-    conformance_root = getattr(render_context, "conformance_tests_folder", None)
-    if conformance_root:
-        folders.append(os.path.normpath(os.path.abspath(conformance_root)))
+    folders.extend(_get_all_module_tests_folders(render_context))
     return folders
 
 
@@ -235,8 +236,7 @@ def build_sandbox_contract(render_context: RenderContext) -> str:
         if script
     ]
     modules_root = _get_modules_root(render_context)
-    conformance_root = getattr(render_context, "conformance_tests_folder", None)
-    conformance_root = os.path.normpath(os.path.abspath(conformance_root)) if conformance_root else None
+    sibling_tests_folders = _get_all_module_tests_folders(render_context)
 
     lines = ["You can WRITE (create/edit/delete files) ONLY inside these folders:"]
     lines.extend(f"- {folder}" for folder in write_folders)
@@ -249,9 +249,9 @@ def build_sandbox_contract(render_context: RenderContext) -> str:
         lines.append("- The test/setup scripts (read-only harness files):")
         lines.extend(f"  - {script}" for script in scripts)
     lines.append("- Temporary files under /tmp and /var/folders (e.g. saved test output).")
-    if conformance_root:
+    if sibling_tests_folders:
         lines.append(
-            f"- Every module's conformance tests under the conformance-tests root ({conformance_root}) "
+            f"- Every module's conformance tests ({os.path.join(modules_root, '<module>', 'tests')}) "
             "(read-only). Sibling modules' conformance tests can be a good source of information — they "
             "already build and pass in this project's test harness. Explore them with ls_files/grep to "
             "find a relevant one rather than reading them all."
@@ -284,14 +284,27 @@ def build_sandbox_contract(render_context: RenderContext) -> str:
 
 
 def _get_modules_root(render_context: RenderContext) -> str:
-    """Return the directory that holds all per-module build folders.
+    """Return the directory that holds all per-module folders.
 
-    Build folders are constructed as ``<modules_root>/<module_name>`` (e.g.
-    ``plain_modules/module_2``), so the modules root is the build folder's parent. Its
-    other children are sibling module folders, which contain confusing near-duplicates
-    of the current build folder's code.
+    Module folders are constructed as ``<modules_root>/<module_name>`` (e.g.
+    ``plain_modules/module_2``), each holding the module's ``code/`` (the build folder)
+    and ``tests/`` trees. Sibling module folders contain confusing near-duplicates of
+    the current build folder's code.
     """
-    return os.path.dirname(os.path.normpath(os.path.abspath(render_context.build_folder)))
+    return os.path.normpath(os.path.abspath(render_context.plain_module.build_folder))
+
+
+def _get_all_module_tests_folders(render_context: RenderContext) -> list[str]:
+    """Return the existing conformance-tests folders of every module under the modules root."""
+    modules_root = _get_modules_root(render_context)
+    if not os.path.isdir(modules_root):
+        return []
+    folders = []
+    for module_name in sorted(os.listdir(modules_root)):
+        tests_folder = render_context.conformance_tests.get_module_conformance_tests_folder(module_name)
+        if os.path.isdir(tests_folder):
+            folders.append(os.path.normpath(os.path.abspath(tests_folder)))
+    return folders
 
 
 def _check_read_access(full_path: str, render_context: RenderContext) -> str | None:

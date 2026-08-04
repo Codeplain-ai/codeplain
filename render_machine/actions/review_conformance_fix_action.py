@@ -302,10 +302,11 @@ class ReviewConformanceFixAction(BaseAction):
         )
 
         candidate_repos = [os.path.abspath(render_context.build_folder)]
-        conformance_root = os.path.abspath(render_context.conformance_tests.conformance_tests_folder)
-        # Conformance repos are per module; derive the touched ones from the tracked
-        # paths, plus the current testing module's repo for side effects (e.g. files
-        # written by run_command) that were never routed through the tracked tools.
+        modules_base_folder = os.path.abspath(render_context.conformance_tests.modules_base_folder)
+        # Conformance repos are per module (<modules_base>/<module>/tests); derive the
+        # touched ones from the tracked paths, plus the current testing module's repo
+        # for side effects (e.g. files written by run_command) that were never routed
+        # through the tracked tools.
         conformance_module_folders = {
             os.path.abspath(
                 render_context.conformance_tests.get_module_conformance_tests_folder(ctx.current_testing_module_name)
@@ -313,9 +314,14 @@ class ReviewConformanceFixAction(BaseAction):
         }
         for path in tracked_paths:
             absolute_path = os.path.abspath(path)
-            if absolute_path.startswith(conformance_root + os.sep):
-                module_dir = os.path.relpath(absolute_path, conformance_root).split(os.sep)[0]
-                conformance_module_folders.add(os.path.join(conformance_root, module_dir))
+            if not absolute_path.startswith(modules_base_folder + os.sep):
+                continue
+            module_name = os.path.relpath(absolute_path, modules_base_folder).split(os.sep)[0]
+            tests_folder = os.path.abspath(
+                render_context.conformance_tests.get_module_conformance_tests_folder(module_name)
+            )
+            if absolute_path.startswith(tests_folder + os.sep):
+                conformance_module_folders.add(tests_folder)
         candidate_repos.extend(sorted(conformance_module_folders))
 
         committed_repos = []
