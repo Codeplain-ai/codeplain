@@ -22,6 +22,7 @@ macOS and Linux:
 
 ```bash
 curl -fsSL https://codeplain.ai/install.sh | bash
+# re-run to update to the latest version
 ```
 
 Windows PowerShell:
@@ -44,10 +45,37 @@ export CODEPLAIN_API_KEY="your_actual_api_key_here"
 
 You describe what you want in plain English, an agent helps you write a spec in \*\*\*plain language, and \*codeplain renders the actual code. This is what [plain-forge](https://github.com/Codeplain-ai/plain-forge) sets up: a toolkit of skills, rules, and docs that plugs into your AI coding agent of choice — Claude Code, Codex, ForgeCode, OpenCode, or any other agent that reads from a standard skills directory — and turns a conversation into a complete `.plain` spec, then keeps maintaining it across the lifetime of the project.
 
-If you didn't install it during step 1, run it any time:
+If you didn't install it during step 1, run it any time using your favorite Node package runner:
 
 ```bash
 npx plain-forge install
+```
+
+The same command works with any other runner — pick whichever matches your toolchain:
+
+```bash
+# npm (bundled with Node.js)
+npx plain-forge install
+
+# pnpm
+pnpm dlx plain-forge install
+
+# Bun
+bunx plain-forge install
+
+# Yarn (Berry, v2+)
+yarn dlx plain-forge install
+
+# Deno (npm: specifier, needs permissions to write the skills directory)
+deno run -A npm:plain-forge install
+```
+
+Every runner downloads `plain-forge` on demand and runs it without adding it to your project's dependencies. The package exposes a `plain-forge` binary, so no runner needs an extra `--package` flag.
+
+`install` fails if plain-forge is already installed at the target — to refresh an existing installation to the latest skills, rules, and docs, use `update` instead (swap in your runner of choice):
+
+```bash
+npx plain-forge update
 ```
 
 ### 3. Convert specs into tested and validated code
@@ -71,9 +99,9 @@ You can immediately test the system with a simple "Hello World" example:
 
   _Note: Rendering will take a few minutes to complete._
 
-- The system will generate a Python application in the `build` directory. You can run it with:
+- The system will generate a Python application in the `dist` directory. You can run it with:
   ```bash
-  cd build
+  cd dist
   python hello_world.py
   ```
 
