@@ -312,13 +312,24 @@ fi
 
 PLAIN_FORGE_INSTALLED=false
 if [[ ! "${INSTALL_PLAIN_FORGE:-}" =~ ^[Nn]$ ]]; then
-    if command -v npx &> /dev/null; then
-        npx plain-forge install < /dev/tty
-        PLAIN_FORGE_INSTALLED=true
+    # A stale nvm/volta/asdf shim can make npx resolvable without a working
+    # Node.js behind it, so verify node actually runs before invoking npx.
+    if command -v npx &> /dev/null && node --version &> /dev/null; then
+        # The install must not abort the rest of the setup if plain-forge
+        # fails (set -e is active), so run it inside the condition.
+        if npx plain-forge install < /dev/tty; then
+            PLAIN_FORGE_INSTALLED=true
+        else
+            echo -e "${GRAY}plain-forge installation failed. You can retry later with:${NC}"
+            echo -e "  npx plain-forge install"
+        fi
         echo ""
     else
-        echo -e "${GRAY}npx not found. Install Node.js, then run:${NC}"
-        echo -e "  npx plain-forge install"
+        echo -e "  ${GRAY}plain-forge brings codeplain's agentic skills to your coding agent,${NC}"
+        echo -e "  ${GRAY}but installing it requires Node.js, which was not found on this machine.${NC}"
+        echo ""
+        echo -e "  ${GRAY}If you want it, install Node.js and then run:${NC}"
+        echo -e "  ${WHITE}${BOLD}npx plain-forge install${NC}"
         echo ""
     fi
 fi
