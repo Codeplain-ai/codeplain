@@ -612,3 +612,34 @@ def test_edit_file_fuzzy_tolerates_indentation_differences(project_dir):
 
     assert "Successfully edited" in result
     assert "return 2" in Path(file_path).read_text(encoding="utf-8")
+
+
+def test_tool_executor_refuses_temporarily_disabled_tool(monkeypatch):
+    """A call to a disabled tool must be refused without executing it, even though the
+    tool is present in DEFAULT_TOOLS (the model can emit calls the server never
+    declared to it, and unpatched servers forward them verbatim)."""
+    import render_machine.agent.tool_executor as tool_executor_module
+    from render_machine.agent.tool_executor import ToolExecutor
+
+    monkeypatch.setattr(tool_executor_module, "TEMPORARILY_DISABLED_TOOLS", {"run_command"})
+
+    executed = []
+    executor = ToolExecutor({"run_command": lambda args, ctx: executed.append(args) or "ran"})
+    results = executor.execute_calls([{"id": "c1", "name": "run_command", "args": {"command": "ls"}}], None)
+
+    assert executed == []
+    assert results[0]["call_id"] == "c1"
+    assert "temporarily disabled" in results[0]["output"]
+    assert "run_command" in results[0]["output"]
+
+
+def test_tool_executor_runs_tools_not_in_disabled_set(monkeypatch):
+    import render_machine.agent.tool_executor as tool_executor_module
+    from render_machine.agent.tool_executor import ToolExecutor
+
+    monkeypatch.setattr(tool_executor_module, "TEMPORARILY_DISABLED_TOOLS", set())
+
+    executor = ToolExecutor({"run_command": lambda args, ctx: "ran: " + args["command"]})
+    results = executor.execute_calls([{"id": "c1", "name": "run_command", "args": {"command": "ls"}}], None)
+
+    assert results[0]["output"] == "ran: ls"

@@ -11,6 +11,13 @@ logger = logging.getLogger(__name__)
 
 ToolFunction = Callable[[dict, RenderContext], str]
 
+# Mirrors the server's TEMPORARILY_DISABLED_TOOLS (agent/agent_llm.py in codeplain-api).
+# The model can emit calls to tools that were never declared to it (Gemini does not
+# hard-constrain function-call names), and servers without the corresponding fix forward
+# such calls verbatim — so the block must also be enforced here, at the point of
+# execution. Empty this set to re-enable.
+TEMPORARILY_DISABLED_TOOLS = {"run_command"}
+
 DEFAULT_TOOLS: dict[str, ToolFunction] = {
     "run_unit_tests": tools.run_unit_tests,
     "run_command": tools.run_command,
@@ -43,6 +50,14 @@ class ToolExecutor:
     def _execute_single(self, call: dict, render_context: RenderContext) -> str:
         name = call["name"]
         args = call.get("args", {})
+
+        if name in TEMPORARILY_DISABLED_TOOLS:
+            trace("tool", name=name, error="temporarily disabled")
+            return (
+                f"Error: the tool '{name}' is temporarily disabled and was NOT executed. "
+                f"Do not call it again — further calls will also be refused. Use run_unit_tests "
+                f"to run the unit test suite, and read_file / grep / ls_files to investigate instead."
+            )
 
         tool_fn = self._tools.get(name)
         if tool_fn is None:
