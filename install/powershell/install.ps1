@@ -195,7 +195,7 @@ if (-not (Test-GitAvailable)) {
     Assert-Git
 }
 
-Write-Host "${GREEN}✓${NC} git detected"
+Write-Host "${GREEN}${CHECK} ${NC} git detected"
 Write-Host ""
 
 try {
