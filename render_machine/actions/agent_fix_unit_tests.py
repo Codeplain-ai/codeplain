@@ -3,8 +3,8 @@ from typing import Any
 
 import file_utils
 import plain_spec
+import preload
 import repo_map
-from memory_management import MemoryManager
 from render_machine import render_utils
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -58,10 +58,15 @@ class AgentFixUnitTests(BaseAction):
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
             "memory_folder": render_context.memory_manager.memory_folder,
-            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
             "test_script_timeout_seconds": render_utils.effective_test_script_timeout(render_context),
             "sandbox_contract": build_sandbox_contract(render_context),
         }
+        memory_contents, memory_names = preload.build_memory_preload(render_context.memory_manager.memory_folder)
+        task_params["memory_file_names"] = memory_names
+        task_params["memory_files_content"] = memory_contents
+        environment_brief = preload.build_environment_brief(render_context.build_folder)
+        if environment_brief:
+            task_params["environment_brief"] = environment_brief
         # Orientation seeds: codebase map (boosted by spec terms and the failing test
         # output, so implicated files keep their outlines when the map is over budget)
         # plus the per-FRID implementation history.

@@ -3,8 +3,8 @@ from typing import Any
 
 import file_utils
 import plain_spec
+import preload
 import repo_map
-from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine import render_utils
 from render_machine.actions.base_action import BaseAction
@@ -117,9 +117,14 @@ class AgentRenderConformanceTests(BaseAction):
         all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
 
         specifications = self._build_specifications_text(render_context)
+        memory_contents, memory_names = preload.build_memory_preload(render_context.memory_manager.memory_folder)
+        linked_resources_content, leftover_resource_paths = preload.build_linked_resources_preload(
+            render_context.frid_context.linked_resources
+        )
         task_params = {
             "specifications": specifications,
-            "linked_resource_paths": self._get_linked_resource_paths(render_context),
+            "linked_resource_paths": leftover_resource_paths,
+            "linked_resources_content": linked_resources_content,
             "acceptance_tests": all_acceptance_tests,
             "build_folder": render_context.build_folder,
             "conformance_tests_folder": conformance_tests_folder_name,
@@ -131,7 +136,8 @@ class AgentRenderConformanceTests(BaseAction):
             ),
             "module_name": render_context.module_name,
             "memory_folder": render_context.memory_manager.memory_folder,
-            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
+            "memory_file_names": memory_names,
+            "memory_files_content": memory_contents,
         }
         self._add_orientation_params(task_params, render_context, conformance_tests_folder_name, specifications)
 
@@ -148,7 +154,10 @@ class AgentRenderConformanceTests(BaseAction):
 
         Codebase map, the module's implementation history, the harness time budget
         (tests must be authored to fit it — never by bending spec-mandated values),
-        and the file-access sandbox contract.
+        the file-access sandbox contract, plus the preloads that spare discovery
+        turns: the current FRID's implementation diff (the exact code the tests must
+        exercise), a worked example from an existing conformance suite, the module's
+        source files, and the local toolchain brief.
         """
         repo_map_text = repo_map.build_repo_map_param(
             render_context,
@@ -162,6 +171,31 @@ class AgentRenderConformanceTests(BaseAction):
             task_params["code_brief"] = code_brief
         task_params["test_script_timeout_seconds"] = render_utils.effective_test_script_timeout(render_context)
         task_params["sandbox_contract"] = build_sandbox_contract(render_context)
+
+        implementation_diff = preload.build_implementation_diff_preload(render_context)
+        if implementation_diff:
+            task_params["implementation_diff"] = implementation_diff
+        module_names = [render_context.module_name] + [
+            module.module_name for module in (render_context.required_modules or [])
+        ]
+        tests_folders = [
+            render_context.conformance_tests.get_module_conformance_tests_folder(name) for name in module_names
+        ]
+        test_example = preload.build_conformance_test_example_preload(
+            tests_folders, exclude_folder=conformance_tests_folder_name
+        )
+        if test_example:
+            task_params["conformance_test_example"] = test_example
+        existing_source_files = preload.build_source_files_preload(
+            render_context.build_folder,
+            relevance_text=specifications,
+            module_files=preload.module_changed_files(render_context.build_folder),
+        )
+        if existing_source_files:
+            task_params["existing_source_files"] = existing_source_files
+        environment_brief = preload.build_environment_brief(render_context.build_folder)
+        if environment_brief:
+            task_params["environment_brief"] = environment_brief
 
     def _render_acceptance_test(self, render_context: RenderContext):
         if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:
@@ -185,9 +219,14 @@ class AgentRenderConformanceTests(BaseAction):
         console.info(f"Agent generating acceptance test:\n  {acceptance_test}")
 
         specifications = self._build_specifications_text(render_context)
+        memory_contents, memory_names = preload.build_memory_preload(render_context.memory_manager.memory_folder)
+        linked_resources_content, leftover_resource_paths = preload.build_linked_resources_preload(
+            render_context.frid_context.linked_resources
+        )
         task_params = {
             "specifications": specifications,
-            "linked_resource_paths": self._get_linked_resource_paths(render_context),
+            "linked_resource_paths": leftover_resource_paths,
+            "linked_resources_content": linked_resources_content,
             "acceptance_test": acceptance_test,
             "existing_conformance_tests": conformance_tests_files_content,
             "build_folder": render_context.build_folder,
@@ -200,7 +239,8 @@ class AgentRenderConformanceTests(BaseAction):
             ),
             "module_name": render_context.module_name,
             "memory_folder": render_context.memory_manager.memory_folder,
-            "memory_file_names": MemoryManager.list_memory_files(render_context.memory_manager.memory_folder),
+            "memory_file_names": memory_names,
+            "memory_files_content": memory_contents,
         }
         self._add_orientation_params(task_params, render_context, conformance_tests_folder_name, specifications)
 
@@ -261,9 +301,3 @@ class AgentRenderConformanceTests(BaseAction):
                 )
 
         return "\n\n".join(sections)
-
-    def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
-        linked_resources = render_context.frid_context.linked_resources
-        if not linked_resources:
-            return []
-        return list(linked_resources.keys())

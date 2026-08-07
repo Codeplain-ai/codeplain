@@ -2,9 +2,9 @@ from typing import Any
 
 import file_utils
 import plain_spec
+import preload
 import render_machine.render_utils as render_utils
 import repo_map
-from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.agent import agent_runner
@@ -52,14 +52,20 @@ class AgentRenderFunctionalRequirement(BaseAction):
 
         memory_folder = render_context.memory_manager.memory_folder
         specifications = self._build_specifications_text(render_context)
+        memory_contents, memory_names = preload.build_memory_preload(memory_folder)
+        linked_resources_content, leftover_resource_paths = preload.build_linked_resources_preload(
+            render_context.frid_context.linked_resources
+        )
         task_params = {
             "specifications": specifications,
-            "linked_resource_paths": self._get_linked_resource_paths(render_context),
+            "linked_resource_paths": leftover_resource_paths,
+            "linked_resources_content": linked_resources_content,
             "include_unittests": render_context.should_run_unit_tests(),
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
             "memory_folder": memory_folder,
-            "memory_file_names": MemoryManager.list_memory_files(memory_folder),
+            "memory_file_names": memory_names,
+            "memory_files_content": memory_contents,
             "test_script_timeout_seconds": render_utils.effective_test_script_timeout(render_context),
             "sandbox_contract": build_sandbox_contract(render_context),
         }
@@ -71,6 +77,19 @@ class AgentRenderFunctionalRequirement(BaseAction):
         code_brief = repo_map.read_code_brief(render_context.build_folder)
         if code_brief:
             task_params["code_brief"] = code_brief
+        # The module's own source (not the inherited required-module code, except the
+        # spec-relevant interfaces), preloaded so the agent starts implementing
+        # instead of re-reading its own files one tool round-trip at a time.
+        existing_source_files = preload.build_source_files_preload(
+            render_context.build_folder,
+            relevance_text=specifications,
+            module_files=preload.module_changed_files(render_context.build_folder),
+        )
+        if existing_source_files:
+            task_params["existing_source_files"] = existing_source_files
+        environment_brief = preload.build_environment_brief(render_context.build_folder)
+        if environment_brief:
+            task_params["environment_brief"] = environment_brief
 
         tool_executor = ToolExecutor(available_tools=RENDER_FUNCTIONAL_REQUIREMENT_TOOLS)
         agent_runner.run("render_functional_requirement", task_params, render_context, tool_executor)
@@ -147,10 +166,3 @@ class AgentRenderFunctionalRequirement(BaseAction):
                 )
 
         return "\n\n".join(sections)
-
-    def _get_linked_resource_paths(self, render_context: RenderContext) -> list[str]:
-        """Get list of linked resource paths (not content) for the agent to read if needed."""
-        linked_resources = render_context.frid_context.linked_resources
-        if not linked_resources:
-            return []
-        return list(linked_resources.keys())
