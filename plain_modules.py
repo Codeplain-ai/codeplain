@@ -4,12 +4,17 @@ import os
 import shutil
 from functools import cached_property
 
-from plain2code_exceptions import GitNotInstalledError, MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
+from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
 
-try:
-    from git.exc import NoSuchPathError
-except ImportError:
-    raise GitNotInstalledError("git is not installed. Please install git and try again.")
+# Configure GitPython before it is first imported. With the default refresh mode
+# a missing git executable makes ``import git`` raise ImportError at import time,
+# which crashes the CLI with a traceback before main() can report it. "quiet"
+# defers that probe so a missing git surfaces later as an ordinary git error;
+# plain2code's startup check detects the missing binary and reports it cleanly.
+if "GIT_PYTHON_REFRESH" not in os.environ:
+    os.environ["GIT_PYTHON_REFRESH"] = "quiet"
+
+from git.exc import NoSuchPathError
 
 import git_utils
 import metadata_utils

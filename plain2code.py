@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -319,6 +320,13 @@ def main():  # noqa: C901
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     args = parse_arguments()
+
+    # git is required for every operation: the client drives a git-backed render
+    # state machine. Detect a missing git binary up front and report it cleanly,
+    # rather than letting a deep GitPython failure crash the CLI with a traceback.
+    if shutil.which("git") is None:
+        console.error("git is not installed. Please install git and try again.\n")
+        sys.exit(1)
 
     # Handle --version flag before any other initialization
     if args.version:
