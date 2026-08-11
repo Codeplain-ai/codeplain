@@ -1,157 +1,69 @@
 # Contributing to Codeplain
 
-Thanks for your interest in contributing to Codeplain!
+Thanks for contributing to Codeplain.
 
-This guide covers the basic workflow for contributing changes to the repository.
+## Before You Start
 
----
+Check existing issues and pull requests before starting work.
 
-## Find an Issue
+Keep each contribution focused on one issue or a closely related set of changes.
 
-Start by checking the **Issues** tab in the Codeplain repository.
+## Contribution Workflow
 
-Before starting work:
+1. Fork the Codeplain repository.
+2. Make your changes on a branch in your fork.
+3. Commit and push the changes to your fork.
+4. Open a pull request against the Codeplain `main` branch.
 
-* Read the issue description and existing comments.
-* Check whether someone is already working on it.
-* For larger changes, leave a comment before starting.
+## Configure Codeplain
 
----
+Use your own Codeplain API key for local development and testing.
 
-## Fork and Clone the Repository
+Never commit API keys, credentials, or other secrets.
 
-Fork the Codeplain repository on GitHub, then clone your fork:
+## Test with a Plain Example
 
-```bash
-git clone https://github.com/YOUR-USERNAME/codeplain.git
-cd codeplain
-```
+When relevant, test your change with an existing example from the `plainlang-examples` repository.
 
-Add the original Codeplain repository as `upstream`:
+This provides a real `.plain` project for verifying the change in an actual Codeplain workflow.
 
-```bash
-git remote add upstream https://github.com/Codeplain-ai/codeplain.git
-```
+## Run Tests
 
-Before starting new work, update your local repository:
+Run the tests relevant to your change before opening a pull request.
 
-```bash
-git fetch upstream
-git switch main
-git merge upstream/main
-```
+For changes that affect the CLI, rendering, or test execution, also test the change by running the relevant Codeplain command from the terminal.
 
----
+Check that:
 
-## Create a Branch
+* the command returns the expected exit code,
+* errors are clear and do not expose unintended tracebacks,
+* existing Codeplain behavior still works.
 
-Create a separate branch for your change:
+For platform-specific changes, test the relevant `.sh` or `.ps1` workflow.
 
-```bash
-git switch -c your-branch-name
-```
+## Keep the Change Clean
 
-For example:
+Before submitting:
 
-```bash
-git switch -c fix-windows-installer
-```
+* remove temporary files and debugging output,
+* avoid unrelated changes,
+* add or update tests where needed,
+* update documentation when behavior changes,
+* verify that no secrets are included.
 
-Keep each branch and pull request focused on one issue or related set of changes.
-
----
-
-## Make and Test Your Changes
-
-Make your changes and run the relevant tests before submitting a pull request.
-
-Before committing:
-
-* Review your changes.
-* Remove temporary files and debugging output.
-* Avoid unrelated changes.
-* Add or update tests when needed.
-* Update documentation when necessary.
-
-Useful commands:
+Review your changes with:
 
 ```bash
 git status
 git diff
 ```
 
----
+## Pull Request
 
-## Commit and Push
+Include:
 
-Commit your changes with a clear message:
-
-```bash
-git add .
-git commit -m "Fix Windows installer Python detection"
-```
-
-Push the branch to your fork:
-
-```bash
-git push -u origin your-branch-name
-```
-
----
-
-## Open a Pull Request
-
-Open your fork on GitHub and create a pull request into the Codeplain `main` branch.
-
-In the pull request:
-
-1. Describe what you changed.
-2. Explain why the change is needed.
-3. Link the related issue when applicable.
-4. Mention how you tested the change.
-
-Review the **Files changed** tab before submitting.
-
----
-
-## Review Changes
-
-If a maintainer requests changes, update the same branch and push again:
-
-```bash
-git add .
-git commit -m "Address review feedback"
-git push
-```
-
-The existing pull request will update automatically.
-
----
-
-## Contribution Flow
-
-```text
-Issue
-  ↓
-Fork
-  ↓
-Clone
-  ↓
-Create branch
-  ↓
-Make changes
-  ↓
-Run tests
-  ↓
-Commit
-  ↓
-Push
-  ↓
-Pull request
-```
-
----
-
-## Thank You
-
-Thank you for contributing to Codeplain!
+* what changed,
+* why it changed,
+* the related issue, when applicable,
+* how the change was tested,
+* the `plainlang-examples` example used, when relevant.
