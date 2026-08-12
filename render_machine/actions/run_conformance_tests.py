@@ -1,6 +1,8 @@
 import os
 from typing import Any
 
+import conformance_test_journal
+import failure_signature
 import render_machine.render_utils as render_utils
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
@@ -15,6 +17,32 @@ class RunConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_tests_passed"
     FAILED_OUTCOME = "conformance_tests_failed"
     UNRECOVERABLE_ERROR_OUTCOME = "unrecoverable_error_occurred"
+
+    @staticmethod
+    def _fingerprint_run(render_context: RenderContext, exit_code: int, conformance_tests_issue: str) -> None:
+        """Fingerprint this run so the fix it triggers can be journalled against the failure that caused it.
+
+        Every run is added to the project's line profile, passing runs especially: what separates a failure
+        from the surrounding build chatter is that the chatter also shows up when the tests pass.
+        """
+        ctx = render_context.conformance_tests_running_context
+        memory_folder = render_context.memory_manager.memory_folder
+
+        profile = failure_signature.LineFrequencyProfile.load(memory_folder)
+        profile.observe(
+            conformance_tests_issue,
+            passed=exit_code == 0,
+            functionality=f"{ctx.current_testing_module_name}:{ctx.current_testing_frid}",
+        )
+        profile.save(memory_folder)
+
+        if exit_code == 0:
+            ctx.last_failure_signature = None
+            ctx.last_failure_excerpt = None
+            return
+
+        ctx.last_failure_signature = failure_signature.compute_signature(conformance_tests_issue, exit_code, profile)
+        ctx.last_failure_excerpt = conformance_test_journal.build_issue_excerpt(conformance_tests_issue)
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         conformance_tests_script = os.path.normpath(render_context.conformance_tests_script)
@@ -53,6 +81,8 @@ class RunConformanceTests(BaseAction):
             conformance_tests_temp_log_file_path
         )
         render_context.script_execution_history.should_update_script_outputs = True
+
+        self._fingerprint_run(render_context, exit_code, conformance_tests_issue)
 
         render_context.memory_manager.create_conformance_tests_memory(
             render_context, exit_code, conformance_tests_issue

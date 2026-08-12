@@ -1,8 +1,14 @@
-from typing import Any
+from typing import Any, Optional
 
 import diff_utils
 import file_utils
 import plain_spec
+from conformance_test_journal import (
+    PROMPT_FILE_NAME,
+    TARGET_CONFORMANCE_TESTS,
+    TARGET_IMPLEMENTATION,
+    ConformanceTestJournal,
+)
 from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
@@ -25,6 +31,37 @@ class FixConformanceTest(BaseAction):
     ISSUE_REASON_CODE_IMPLEMENTATION_CODE = 1
     ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS = 2
     ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS = 3
+
+    @staticmethod
+    def _load_journal(render_context: RenderContext) -> Optional[ConformanceTestJournal]:
+        """The journal for the functionality under test, or None when no functionality is under test."""
+        ctx = render_context.conformance_tests_running_context
+        if ctx.current_testing_frid is None:
+            return None
+
+        return ConformanceTestJournal.load(
+            render_context.memory_manager.memory_folder, ctx.current_testing_module_name, ctx.current_testing_frid
+        )
+
+    @classmethod
+    def _record_attempt(cls, render_context: RenderContext, target: str, code_diff_files_content: dict) -> None:
+        """Journal this round: the failure that prompted it, and the change made in response.
+
+        Recorded after the fix rather than before it, because only then is it known what the fix touched.
+        """
+        ctx = render_context.conformance_tests_running_context
+        journal = cls._load_journal(render_context)
+        if journal is None:
+            return
+
+        journal.record_attempt(
+            target=target,
+            files_changed=list(code_diff_files_content or {}),
+            diff_text="\n".join(code_diff_files_content.values()) if code_diff_files_content else None,
+            issue_signature=ctx.last_failure_signature,
+            issue_excerpt=ctx.last_failure_excerpt,
+        )
+        journal.save(render_context.memory_manager.memory_folder)
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         ctx = render_context.conformance_tests_running_context
@@ -68,6 +105,13 @@ class FixConformanceTest(BaseAction):
             render_context.build_folder
         )
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
+
+        # What has already been tried for this functionality, so that exhausted approaches are not repeated.
+        journal = self._load_journal(render_context)
+        previous_attempts = journal.render_for_prompt() if journal else None
+        if previous_attempts:
+            memory_files_content[PROMPT_FILE_NAME] = previous_attempts
+
         (
             existing_conformance_test_files,
             existing_conformance_test_files_content,
@@ -161,6 +205,8 @@ class FixConformanceTest(BaseAction):
             code_diff_files_content = diff_utils.get_code_diff(response_files, existing_conformance_test_files_content)
             render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
 
+            self._record_attempt(render_context, TARGET_CONFORMANCE_TESTS, code_diff_files_content)
+
             return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
         else:
             if len(response_files) > 0:
@@ -180,6 +226,12 @@ class FixConformanceTest(BaseAction):
                 ctx.test_that_triggered_code_change = (ctx.current_testing_module_name, ctx.current_testing_frid)
                 ctx.execution_phase = TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
 
+                self._record_attempt(render_context, TARGET_IMPLEMENTATION, code_diff_files_content)
+
                 return self.IMPLEMENTATION_CODE_UPDATED, None
             else:
+                # A round that changed nothing is still a round, and knowing it happened is what stops the
+                # same barren approach being taken again.
+                self._record_attempt(render_context, TARGET_IMPLEMENTATION, {})
+
                 return self.IMPLEMENTATION_CODE_NOT_UPDATED, None

@@ -18,10 +18,11 @@ The two questions want opposite treatments of the same text, so this module prod
   Boilerplate is deliberately *not* stripped here: the reader needs the surrounding context that the
   signature has to discard.
 
-Boilerplate is identified without any framework knowledge, by frequency: a line whose digit-blind skeleton
-appears in most runs of this project is boilerplate, whatever it happens to say. The profile spans every run
-in the project, including passing ones, so that a failure repeated twenty times in one functionality does not
-mistake itself for boilerplate.
+Boilerplate is identified without any framework knowledge: **a line that appears when the tests pass cannot
+be what identifies a failure.** One green run settles the question for every line in it, whatever framework
+wrote it. Where no green run exists yet, frequency stands in as a fallback - but counted across
+functionalities, never across runs, because a fix loop re-runs one failure up to twenty times and by run
+count that failure looks exactly as ubiquitous as the build log around it.
 
 Every entry point degrades to "unknown" (``None``) rather than guessing. The signature feeds an advisory
 record, so a missing answer costs a little context while a wrong one costs correctness.
@@ -35,11 +36,13 @@ from typing import Optional
 
 from plain2code_console import console
 
-# A profile needs a few runs before its frequency estimates mean anything. With only two runs, "appears in
-# every run" would describe the shared failure itself rather than the project's boilerplate.
-MIN_RUNS_FOR_MATURE_PROFILE = 3
+# Fallback route to recognising boilerplate, for a project that has not produced a passing run yet: a line
+# in most runs of at least this many different functionalities is furniture. Counting functionalities rather
+# than runs is what stops one functionality's repeated failure from voting itself into boilerplate - a fix
+# loop can run the same failure twenty times, and by run count alone that failure looks perfectly ubiquitous.
+MIN_FUNCTIONALITIES_FOR_MATURE_PROFILE = 3
 
-# Fraction of runs a line must appear in to count as boilerplate.
+# Fraction of the project's functionalities a line must turn up under to count as boilerplate on that route.
 BOILERPLATE_FREQUENCY_THRESHOLD = 0.75
 
 # Retained distinct lines. Well past what a real project produces; a backstop against a script that emits
@@ -144,15 +147,34 @@ def normalize_output(output: str) -> list[str]:
 
 
 class LineFrequencyProfile:
-    """How often each distinct line has been seen across this project's test script runs.
+    """Which of this project's test output lines are furniture rather than failure.
+
+    The primary test is simple and hard to argue with: **a line that appears when the tests pass cannot be
+    what identifies a failure**. Build logs, startup banners, progress chatter and summary counts all show up
+    in a green run; an assertion message does not. That single rule covers most of what needs discarding, and
+    it does not care which framework produced the text.
+
+    Frequency across runs is only the fallback, for a project that has not managed a passing run yet, and it
+    is counted per functionality rather than per run. Counting runs would be actively wrong: a fix loop
+    re-runs the same failure up to twenty times, so by run count that failure is indistinguishable from
+    boilerplate - which would erase the signature at precisely the moment it is needed.
 
     Persisted next to the module's memory, but deliberately outside the folder that memory files are read
     from, so it is never fed into a prompt.
     """
 
-    def __init__(self, line_counts: Optional[dict[str, int]] = None, run_count: int = 0):
-        self.line_counts: dict[str, int] = line_counts or {}
+    def __init__(
+        self,
+        line_functionalities: Optional[dict[str, list[int]]] = None,
+        passing_lines: Optional[list[str]] = None,
+        run_count: int = 0,
+        functionalities_seen: Optional[list[str]] = None,
+    ):
+        # line -> indices into functionalities_seen. Indices rather than names to keep the file compact.
+        self.line_functionalities: dict[str, list[int]] = line_functionalities or {}
+        self.passing_lines: set[str] = set(passing_lines or [])
         self.run_count = run_count
+        self.functionalities_seen: list[str] = functionalities_seen or []
 
     @classmethod
     def load(cls, memory_folder: str) -> "LineFrequencyProfile":
@@ -163,7 +185,12 @@ class LineFrequencyProfile:
         try:
             with open(profile_path, "r", encoding="utf-8") as profile_file:
                 content = json.load(profile_file)
-            return cls(line_counts=content.get("line_counts", {}), run_count=content.get("run_count", 0))
+            return cls(
+                line_functionalities=content.get("line_functionalities", {}),
+                passing_lines=content.get("passing_lines", []),
+                run_count=content.get("run_count", 0),
+                functionalities_seen=content.get("functionalities_seen", []),
+            )
         except (json.JSONDecodeError, OSError, AttributeError) as exception:
             console.debug(f"Could not read the failure profile at {profile_path}: {exception}. Starting a new one.")
             return cls()
@@ -173,43 +200,82 @@ class LineFrequencyProfile:
         try:
             os.makedirs(memory_folder, exist_ok=True)
             with open(profile_path, "w", encoding="utf-8") as profile_file:
-                json.dump({"run_count": self.run_count, "line_counts": self.line_counts}, profile_file)
+                json.dump(
+                    {
+                        "run_count": self.run_count,
+                        "functionalities_seen": self.functionalities_seen,
+                        "line_functionalities": self.line_functionalities,
+                        "passing_lines": sorted(self.passing_lines),
+                    },
+                    profile_file,
+                )
         except OSError as exception:
             console.debug(f"Could not write the failure profile to {profile_path}: {exception}.")
 
-    def observe(self, output: str) -> None:
-        """Record one run. Every run counts, passing ones included.
-
-        Passing runs are what stop a failure that repeats across twenty fix attempts from looking like
-        boilerplate: the lines it shares with successful runs are furniture, the ones it does not are signal.
-        """
+    def observe(self, output: str, passed: bool, functionality: Optional[str] = None) -> None:
+        """Record one run of the test script, whether it passed, and which functionality it was testing."""
         skeletons = {_hash(_skeleton(line)) for line in normalize_output(output)}
         if not skeletons:
             return
 
         self.run_count += 1
+        functionality_index = self._index_of(functionality)
+
         for skeleton_hash in skeletons:
-            self.line_counts[skeleton_hash] = self.line_counts.get(skeleton_hash, 0) + 1
+            if passed:
+                self.passing_lines.add(skeleton_hash)
+            if functionality_index is None:
+                self.line_functionalities.setdefault(skeleton_hash, [])
+                continue
+            seen_in = self.line_functionalities.setdefault(skeleton_hash, [])
+            if functionality_index not in seen_in:
+                seen_in.append(functionality_index)
 
         self._evict_if_oversized()
 
+    def _index_of(self, functionality: Optional[str]) -> Optional[int]:
+        if functionality is None:
+            return None
+        if functionality not in self.functionalities_seen:
+            self.functionalities_seen.append(functionality)
+        return self.functionalities_seen.index(functionality)
+
     def _evict_if_oversized(self) -> None:
-        if len(self.line_counts) <= MAX_PROFILE_ENTRIES:
+        if len(self.line_functionalities) <= MAX_PROFILE_ENTRIES:
             return
 
-        # Rare lines are the ones a boilerplate profile has no use for, so they go first.
-        retained = sorted(self.line_counts.items(), key=lambda item: item[1], reverse=True)[:MAX_PROFILE_ENTRIES]
-        self.line_counts = dict(retained)
+        # Lines seen in a passing run are never evicted: each is a standing answer to "is this furniture?".
+        # Beyond those, the lines that turned up under the fewest functionalities are the least useful.
+        def retention_key(item: tuple[str, list[int]]) -> tuple[int, int]:
+            return (1 if item[0] in self.passing_lines else 0, len(item[1]))
+
+        retained = sorted(self.line_functionalities.items(), key=retention_key, reverse=True)[:MAX_PROFILE_ENTRIES]
+        self.line_functionalities = dict(retained)
+        self.passing_lines = {line for line in self.passing_lines if line in self.line_functionalities}
 
     @property
     def is_mature(self) -> bool:
-        return self.run_count >= MIN_RUNS_FOR_MATURE_PROFILE
+        """Whether the profile can yet tell furniture from failure.
+
+        One passing run is enough on its own, because it settles the question for every line it contains.
+        Failing runs only help once several different functionalities have contributed them.
+        """
+        return bool(self.passing_lines) or len(self.functionalities_seen) >= MIN_FUNCTIONALITIES_FOR_MATURE_PROFILE
 
     def is_boilerplate(self, line: str) -> bool:
         if not self.is_mature:
             return False
-        frequency = self.line_counts.get(_hash(_skeleton(line)), 0) / self.run_count
-        return frequency >= BOILERPLATE_FREQUENCY_THRESHOLD
+
+        skeleton_hash = _hash(_skeleton(line))
+        if skeleton_hash in self.passing_lines:
+            return True
+
+        functionality_count = len(self.functionalities_seen)
+        if functionality_count < MIN_FUNCTIONALITIES_FOR_MATURE_PROFILE:
+            return False
+
+        seen_under = len(self.line_functionalities.get(skeleton_hash, []))
+        return seen_under / functionality_count >= BOILERPLATE_FREQUENCY_THRESHOLD
 
     def distinctive_lines(self, output: str) -> list[str]:
         """The lines of this run that are not project furniture."""

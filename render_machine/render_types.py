@@ -90,6 +90,12 @@ class ConformanceTestsRunningContext:
         self.regenerating_conformance_tests: bool = False
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
+        # Fingerprint and readable excerpt of the most recent conformance test run, computed when the tests
+        # are run and consumed when the resulting fix is journalled. The signature is None whenever it cannot
+        # be established honestly, in which case the failure is still recorded but is not recognised as a
+        # repeat of an earlier one.
+        self.last_failure_signature: Optional[str] = None
+        self.last_failure_excerpt: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
         self.previous_conformance_tests_issue_frid: Optional[str] = None
         self.previous_conformance_tests_issue_module: Optional[str] = None

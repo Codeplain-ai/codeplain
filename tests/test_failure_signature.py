@@ -14,7 +14,7 @@ import pytest
 from failure_signature import (
     BOILERPLATE_FREQUENCY_THRESHOLD,
     MAX_PROFILE_ENTRIES,
-    MIN_RUNS_FOR_MATURE_PROFILE,
+    MIN_FUNCTIONALITIES_FOR_MATURE_PROFILE,
     PROFILE_FILE_NAME,
     LineFrequencyProfile,
     build_excerpt,
@@ -44,10 +44,19 @@ def _rerun_with_fresh_noise(output):
     return output.replace("Waiting for The Snap-In to start...\n" * 11, "Waiting for The Snap-In to start...\n" * 4)
 
 
-def _mature_profile(*outputs):
+def _failing(output, functionality="module:1"):
+    return (output, False, functionality)
+
+
+def _passing(output, functionality="module:1"):
+    return (output, True, functionality)
+
+
+def _profile(*runs):
+    """Build a profile from (output, passed, functionality) triples."""
     profile = LineFrequencyProfile()
-    for output in outputs:
-        profile.observe(output)
+    for output, passed, functionality in runs:
+        profile.observe(output, passed=passed, functionality=functionality)
     return profile
 
 
@@ -126,57 +135,116 @@ def test_empty_output_normalizes_to_nothing():
 # --- the profile ---------------------------------------------------------------------------------------
 
 
-def test_a_young_profile_declines_to_call_anything_boilerplate(jest_output):
-    profile = _mature_profile(jest_output)
+@pytest.fixture
+def passing_output(jest_output):
+    """The same suite, green: all the surrounding run furniture, none of the failure."""
+    return jest_output.split("FAIL ./can-invoke-extraction.test.ts")[0] + "PASS (12.004 s)\nTests: 14 passed\n"
+
+
+def test_a_profile_with_nothing_to_compare_calls_nothing_boilerplate(jest_output):
+    profile = _profile(_failing(jest_output))
+
     assert not profile.is_mature
     assert not profile.is_boilerplate("INFO: Application startup complete.")
 
 
-def test_profile_matures_after_enough_runs(jest_output):
-    profile = _mature_profile(*([jest_output] * MIN_RUNS_FOR_MATURE_PROFILE))
+def test_a_single_passing_run_is_enough_to_mature_a_profile(jest_output, passing_output):
+    """A green run answers the question for every line in it at once."""
+    profile = _profile(_failing(jest_output), _passing(passing_output))
+
     assert profile.is_mature
 
 
-def test_lines_common_to_every_run_are_boilerplate_and_the_failure_is_not(jest_output):
-    passing_run = jest_output.split("FAIL ./can-invoke-extraction.test.ts")[0] + "PASS (12.004 s)\nTests: 14 passed\n"
-    profile = _mature_profile(jest_output, _rerun_with_fresh_noise(jest_output), passing_run, passing_run)
+def test_failing_runs_alone_mature_a_profile_only_across_several_functionalities(jest_output):
+    barely = _profile(*[_failing(jest_output, f"module:{index}") for index in range(2)])
+    enough = _profile(
+        *[_failing(jest_output, f"module:{index}") for index in range(MIN_FUNCTIONALITIES_FOR_MATURE_PROFILE)]
+    )
+
+    assert not barely.is_mature
+    assert enough.is_mature
+
+
+def test_lines_that_show_up_in_a_passing_run_are_boilerplate_and_the_failure_is_not(jest_output, passing_output):
+    profile = _profile(_failing(jest_output), _passing(passing_output))
 
     assert profile.is_boilerplate("Starting mock DevRev server...")
     assert not profile.is_boilerplate("    All 3 attempts failed. Network error: ECONNREFUSED -")
 
 
-def test_a_pid_that_changes_every_run_is_still_recognised_as_boilerplate(jest_output):
+def test_a_failure_repeated_through_a_whole_fix_loop_does_not_become_boilerplate(jest_output, passing_output):
+    """The case that matters most, and the one a naive run-frequency count gets backwards.
+
+    A fix loop re-runs the same failure up to twenty times. Counted per run it looks utterly ubiquitous, and
+    would be discarded as furniture exactly when it is the thing being tracked. Counted per functionality it
+    is one functionality out of however many the project has, which is not ubiquitous at all.
+    """
+    profile = _profile(_passing(passing_output, "module:0"), *[_failing(jest_output, "module:1") for _ in range(20)])
+
+    assert not profile.is_boilerplate("    All 3 attempts failed. Network error: ECONNREFUSED -")
+    assert profile.is_boilerplate("Starting mock DevRev server...")
+
+
+def test_a_line_common_to_most_functionalities_is_boilerplate_without_any_passing_run(jest_output):
+    shared = "\n".join(["common setup line", "building the project"])
+    profile = _profile(
+        _failing(shared + "\nfailure in one\n", "module:1"),
+        _failing(shared + "\nfailure in two\n", "module:2"),
+        _failing(shared + "\nfailure in three\n", "module:3"),
+    )
+
+    assert profile.is_boilerplate("common setup line")
+    assert not profile.is_boilerplate("failure in one")
+
+
+def test_a_pid_that_changes_every_run_is_still_recognised_as_boilerplate(jest_output, passing_output):
     """Targeted masking may miss a volatile number; the digit-blind skeleton catches it anyway."""
-    runs = [jest_output.replace("[87920]", f"[9{index}455]") for index in range(4)]
-    profile = _mature_profile(*runs)
+    profile = _profile(_failing(jest_output), _passing(passing_output.replace("[87920]", "[13579]")))
 
     assert profile.is_boilerplate("INFO:     Started server process [<PID>]")
 
 
-def test_the_profile_is_capped_and_evicts_the_rarest_lines():
+def test_the_profile_is_capped():
     profile = LineFrequencyProfile()
-    profile.observe("\n".join(f"unique line {index}" for index in range(MAX_PROFILE_ENTRIES + 500)))
-    profile.observe("recurring line")
-    profile.observe("recurring line")
+    crowd = "\n".join(f"unique line {index}" for index in range(MAX_PROFILE_ENTRIES + 500))
+    profile.observe(crowd, passed=False, functionality="module:1")
 
-    assert len(profile.line_counts) <= MAX_PROFILE_ENTRIES
+    assert len(profile.line_functionalities) <= MAX_PROFILE_ENTRIES
 
 
-def test_profile_survives_a_save_and_load_round_trip(tmp_path, jest_output):
-    profile = _mature_profile(jest_output, jest_output, jest_output)
+def test_eviction_never_discards_what_a_passing_run_established(jest_output, passing_output):
+    profile = _profile(_passing("the green line", "module:0"))
+    crowd = "\n".join(f"unique line {index}" for index in range(MAX_PROFILE_ENTRIES + 500))
+    profile.observe(crowd, passed=False, functionality="module:1")
+
+    assert profile.is_boilerplate("the green line")
+
+
+def test_profile_survives_a_save_and_load_round_trip(tmp_path, jest_output, passing_output):
+    profile = _profile(_failing(jest_output), _passing(passing_output))
     profile.save(str(tmp_path))
 
     reloaded = LineFrequencyProfile.load(str(tmp_path))
     assert reloaded.run_count == profile.run_count
-    assert reloaded.line_counts == profile.line_counts
+    assert reloaded.functionalities_seen == profile.functionalities_seen
+    assert reloaded.line_functionalities == profile.line_functionalities
+    assert reloaded.passing_lines == profile.passing_lines
+
+
+def test_what_a_reloaded_profile_calls_boilerplate_does_not_change(tmp_path, jest_output, passing_output):
+    profile = _profile(_failing(jest_output), _passing(passing_output))
+    profile.save(str(tmp_path))
+    reloaded = LineFrequencyProfile.load(str(tmp_path))
+
+    assert reloaded.is_boilerplate("Starting mock DevRev server...")
+    assert not reloaded.is_boilerplate("    All 3 attempts failed. Network error: ECONNREFUSED -")
 
 
 def test_a_corrupt_profile_is_discarded_rather_than_raising(tmp_path):
     with open(os.path.join(str(tmp_path), PROFILE_FILE_NAME), "w", encoding="utf-8") as corrupt:
         corrupt.write("{not json at all")
 
-    profile = LineFrequencyProfile.load(str(tmp_path))
-    assert profile.run_count == 0
+    assert LineFrequencyProfile.load(str(tmp_path)).run_count == 0
 
 
 def test_a_missing_profile_loads_as_empty(tmp_path):
@@ -185,48 +253,47 @@ def test_a_missing_profile_loads_as_empty(tmp_path):
 
 def test_profile_is_written_outside_the_folder_memory_files_are_read_from(tmp_path):
     """The profile must never be picked up and fed into a prompt as if it were a memory."""
-    profile = _mature_profile("a\nb\n")
-    profile.save(str(tmp_path))
+    _profile(_failing("a\nb\n")).save(str(tmp_path))
 
     saved = json.load(open(os.path.join(str(tmp_path), PROFILE_FILE_NAME), encoding="utf-8"))
-    assert set(saved) == {"run_count", "line_counts"}
+    assert set(saved) == {"run_count", "functionalities_seen", "line_functionalities", "passing_lines"}
     assert not os.path.exists(os.path.join(str(tmp_path), "conformance_test_memory", PROFILE_FILE_NAME))
 
 
 # --- the signature -------------------------------------------------------------------------------------
 
 
-def test_the_same_failure_with_fresh_noise_keeps_its_signature(jest_output):
+def test_the_same_failure_with_fresh_noise_keeps_its_signature(jest_output, passing_output):
     rerun = _rerun_with_fresh_noise(jest_output)
-    profile = _mature_profile(jest_output, rerun, jest_output, rerun)
+    profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output), _failing(rerun))
 
-    assert compute_signature(jest_output, 1, profile) == compute_signature(rerun, 1, profile)
+    first = compute_signature(jest_output, 1, profile)
+    assert first is not None
+    assert first == compute_signature(rerun, 1, profile)
 
 
-def test_a_genuinely_different_failure_gets_a_different_signature(jest_output):
+def test_a_genuinely_different_failure_gets_a_different_signature(jest_output, passing_output):
     other_failure = jest_output.replace(
         "All 3 attempts failed. Network error: ECONNREFUSED -",
         'Server returned 422: {"error":"missing required field event_context"}',
     )
-    profile = _mature_profile(jest_output, _rerun_with_fresh_noise(jest_output), other_failure, other_failure)
+    profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output), _failing(other_failure))
 
     assert compute_signature(jest_output, 1, profile) != compute_signature(other_failure, 1, profile)
 
 
-def test_a_different_exit_code_is_a_different_failure(jest_output):
+def test_a_different_exit_code_is_a_different_failure(jest_output, passing_output):
     """Identical text with a different exit code is a different outcome - a timeout kill, say, not a failure."""
-    passing_run = jest_output.split("FAIL ./can-invoke-extraction.test.ts")[0] + "PASS (12.004 s)\n"
-    profile = _mature_profile(jest_output, _rerun_with_fresh_noise(jest_output), passing_run, passing_run)
+    profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output))
 
     failed = compute_signature(jest_output, 1, profile)
-    killed = compute_signature(jest_output, 137, profile)
     assert failed is not None
-    assert failed != killed
+    assert failed != compute_signature(jest_output, 137, profile)
 
 
 def test_line_order_does_not_affect_the_signature():
     """Parallel runners interleave output differently between runs."""
-    profile = _mature_profile("common\nfailure A\nfailure B\n", "common\nother\n", "common\nanother\n")
+    profile = _profile(_passing("common\n", "module:0"), _failing("common\nfailure A\nfailure B\n"))
 
     forwards = compute_signature("common\nfailure A\nfailure B\n", 1, profile)
     backwards = compute_signature("common\nfailure B\nfailure A\n", 1, profile)
@@ -234,18 +301,18 @@ def test_line_order_does_not_affect_the_signature():
 
 
 def test_signature_is_unknown_while_the_profile_is_young(jest_output):
-    assert compute_signature(jest_output, 1, _mature_profile(jest_output)) is None
+    assert compute_signature(jest_output, 1, _profile(_failing(jest_output))) is None
 
 
 def test_signature_is_unknown_when_every_line_is_boilerplate():
     """With nothing distinctive left there is no honest identity to report."""
-    profile = _mature_profile("same\n", "same\n", "same\n", "same\n")
+    profile = _profile(_passing("same\n", "module:0"))
 
     assert compute_signature("same\n", 1, profile) is None
 
 
 def test_signature_is_unknown_for_empty_output():
-    profile = _mature_profile("a\n", "b\n", "c\n")
+    profile = _profile(_passing("a\n", "module:0"))
 
     assert compute_signature("", 1, profile) is None
     assert compute_signature("   \n", 1, profile) is None
@@ -362,15 +429,20 @@ def test_boilerplate_detection_finds_the_maven_epilogue_and_leaves_the_failure()
         "[ERROR] ProfileTest.genderStatus:88 expected:<exact> but was:<nodata>\n",
         "[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0\n",
     ).replace("BUILD FAILURE", "BUILD SUCCESS")
-    profile = _mature_profile(MAVEN_OUTPUT, MAVEN_OUTPUT, passing, passing)
+    profile = _profile(_failing(MAVEN_OUTPUT), _passing(passing, "module:0"))
 
     assert profile.is_boilerplate("[INFO] Scanning for projects...")
     assert not profile.is_boilerplate("[ERROR] ProfileTest.genderStatus:<LINE> expected:<exact> but was:<nodata>")
 
 
-def test_boilerplate_threshold_needs_a_clear_majority_of_runs():
-    """A line in half the runs is a real signal, not furniture."""
-    profile = _mature_profile("common\nsometimes\n", "common\n", "common\nsometimes\n", "common\n")
+def test_boilerplate_needs_a_clear_majority_of_functionalities():
+    """A line turning up under half the functionalities is a real signal, not furniture."""
+    profile = _profile(
+        _failing("common\nsometimes\n", "module:1"),
+        _failing("common\n", "module:2"),
+        _failing("common\nsometimes\n", "module:3"),
+        _failing("common\n", "module:4"),
+    )
 
     assert BOILERPLATE_FREQUENCY_THRESHOLD > 0.5
     assert profile.is_boilerplate("common")
