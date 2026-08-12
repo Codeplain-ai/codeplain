@@ -1,0 +1,289 @@
+
+═════════════════════════ Test Script Output ═════════════════════════
+Starting mock DevRev server...
+INFO:     Started server process [87920]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://localhost:8003 (Press CTRL+C to quit)
+
+### Step 1: Starting The Snap-In in folder build...
+
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+Waiting for The Snap-In to start...
+The Snap-In is up and running!
+
+### Step 2: Running conformance tests conformance_tests/workflow_validation...
+
+
+> airdrop-snap-in-tests@1.0.0 test
+> jest --forceExit --detectOpenHandles --runInBand --runInBand --silent --setupFilesAfterEnv=/Users/testuser/Dev/devrev-snapin-shared/jest.setup.js --detectOpenHandles
+
+FAIL ./can-invoke-extraction.test.ts (15.358 s)
+  canInvokeExtraction Function Tests
+    ✕ should successfully invoke with valid event (1098 ms)
+    ✕ should handle null events gracefully (1031 ms)
+    ✕ should detect missing event_type (1032 ms)
+    ✕ should detect missing event_context (1026 ms)
+    ✕ should handle non-extraction event types (1030 ms)
+    ✕ should handle extraction event type EXTRACTION_EXTERNAL_SYNC_UNITS_START (1038 ms)
+    ✕ should handle extraction event type EXTRACTION_METADATA_START (1026 ms)
+    ✕ should handle extraction event type EXTRACTION_DATA_START (1030 ms)
+    ✕ should handle extraction event type EXTRACTION_DATA_CONTINUE (1033 ms)
+    ✕ should handle extraction event type EXTRACTION_DATA_DELETE (1028 ms)
+    ✕ should handle extraction event type EXTRACTION_ATTACHMENTS_START (1025 ms)
+    ✕ should handle extraction event type EXTRACTION_ATTACHMENTS_CONTINUE (1024 ms)
+    ✕ should handle extraction event type EXTRACTION_ATTACHMENTS_DELETE (1027 ms)
+    ✕ should fail if function name is incorrect (1027 ms)
+
+  ● canInvokeExtraction Function Tests › should successfully invoke with valid event
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at Object.<anonymous> (can-invoke-extraction.test.ts:176:20)
+
+  ● canInvokeExtraction Function Tests › should handle null events gracefully
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at Object.<anonymous> (can-invoke-extraction.test.ts:190:20)
+
+  ● canInvokeExtraction Function Tests › should detect missing event_type
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at Object.<anonymous> (can-invoke-extraction.test.ts:206:20)
+
+  ● canInvokeExtraction Function Tests › should detect missing event_context
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at Object.<anonymous> (can-invoke-extraction.test.ts:222:20)
+
+  ● canInvokeExtraction Function Tests › should handle non-extraction event types
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at Object.<anonymous> (can-invoke-extraction.test.ts:238:20)
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_EXTERNAL_SYNC_UNITS_START
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_METADATA_START
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_DATA_START
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_DATA_CONTINUE
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_DATA_DELETE
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_ATTACHMENTS_START
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_ATTACHMENTS_CONTINUE
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should handle extraction event type EXTRACTION_ATTACHMENTS_DELETE
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at can-invoke-extraction.test.ts:263:20
+
+  ● canInvokeExtraction Function Tests › should fail if function name is incorrect
+
+    All 3 attempts failed. Network error: ECONNREFUSED -
+
+      106 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Server returned ${lastError.response.status}: ${JSON.stringify(lastError.response.data)}`);
+      107 |     } else if (axios.isAxiosError(lastError)) {
+    > 108 |       throw new Error(`All ${MAX_RETRIES} attempts failed. Network error: ${lastError.code} - ${lastError.message}`);
+          |             ^
+      109 |     }
+      110 |     throw new Error(`All ${MAX_RETRIES} attempts failed: ${lastError.message}`);
+      111 |   }
+
+      at invokeFunction (can-invoke-extraction.test.ts:108:13)
+      at Object.<anonymous> (can-invoke-extraction.test.ts:278:20)
+
+Test Suites: 1 failed, 1 total
+Tests:       14 failed, 14 total
+Snapshots:   0 total
+Time:        15.513 s, estimated 21 s
+
+### Output of the The Snap-In log file:
+
+> airdrop-snap-in@1.1.6 test:server
+> ts-node test/main.ts
+
+[server]: Server is running at http://localhost:8000
+/Users/testuser/Dev/devrev-trello-snapin/node_build/test/runner.ts:100
+    const functionName: FunctionFactoryType = event.execution_metadata.function_name as FunctionFactoryType;
+                                                                       ^
+TypeError: Cannot read properties of undefined (reading 'function_name')
+    at handleEvent (/Users/testuser/Dev/devrev-trello-snapin/node_build/test/runner.ts:100:72)
+    at /Users/testuser/Dev/devrev-trello-snapin/node_build/test/runner.ts:58:9
+    at Layer.handle [as handle_request] (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/layer.js:95:5)
+    at next (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/route.js:149:13)
+    at Route.dispatch (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/route.js:119:3)
+    at Layer.handle [as handle_request] (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/layer.js:95:5)
+    at /Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/index.js:284:15
+    at Function.process_params (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/index.js:346:12)
+    at next (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/express/lib/router/index.js:280:10)
+    at urlencodedParser (/Users/testuser/Dev/devrev-trello-snapin/node_build/node_modules/body-parser/lib/types/urlencoded.js:85:7)
+
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [87920]
+
+══════════════════════════════════════════════════════════════════════
+Test script /Users/testuser/Dev/devrev-trello-snapin/../devrev-snapin-shared/run_devrev_snapin_conformance_tests.sh failed with exit code 2.
