@@ -84,10 +84,6 @@ class RunConformanceTests(BaseAction):
 
         self._fingerprint_run(render_context, exit_code, conformance_tests_issue)
 
-        render_context.memory_manager.create_conformance_tests_memory(
-            render_context, exit_code, conformance_tests_issue
-        )
-
         if exit_code == 0:
             if (
                 render_context.conformance_tests_running_context.current_testing_module_name
@@ -95,7 +91,7 @@ class RunConformanceTests(BaseAction):
                 and render_context.conformance_tests_running_context.current_testing_frid
                 == render_context.frid_context.frid
             ):
-                render_context.memory_manager.delete_unresolved_memory_files()
+                render_context.memory_manager.consolidate_lessons(render_context)
             return self.SUCCESSFUL_OUTCOME, None
 
         if exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:

@@ -91,16 +91,6 @@ class FixConformanceTest(BaseAction):
             )
         previous_conformance_tests_issue = previous_action_payload["previous_conformance_tests_issue"]
 
-        render_context.conformance_tests_running_context.previous_conformance_tests_issue_old = (
-            previous_conformance_tests_issue
-        )
-        render_context.conformance_tests_running_context.previous_conformance_tests_issue_frid = (
-            render_context.conformance_tests_running_context.current_testing_frid
-        )
-        render_context.conformance_tests_running_context.previous_conformance_tests_issue_module = (
-            render_context.conformance_tests_running_context.current_testing_module_name
-        )
-
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )

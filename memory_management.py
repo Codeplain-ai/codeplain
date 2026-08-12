@@ -1,9 +1,24 @@
-import json
+"""What the renderer remembers about conformance tests, and when.
+
+Two artifacts, with different lifetimes:
+
+* The **journal**, written mechanically as a functionality's fix loop runs, holding every attempt made against
+  it. See :mod:`conformance_test_journal`. It is discarded once that functionality's tests pass.
+
+* The **lessons**, extracted from the journal at that point and kept for the rest of the project. These are
+  the memory files, and they are fed into every later prompt - which is why the set is capped and why a lesson
+  has to be a transferable constraint rather than the story of one bug.
+
+Consolidation runs once per functionality. It replaces an earlier arrangement that rebuilt a memory after
+every conformance test run and, being told not to duplicate itself, deleted the previous one each time - so a
+twenty round fix loop remembered only its most recent round.
+"""
+
 import os
 
 import file_utils
+from conformance_test_journal import ConformanceTestJournal
 from plain2code_console import console
-from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 
 CONFORMANCE_TESTS_SUCCESS_EXIT_CODE = 0
@@ -27,106 +42,58 @@ class MemoryManager:
         self.codeplain_api = codeplain_api
         self.memory_folder = memory_folder
 
-    def create_conformance_tests_memory(
-        self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str
-    ):
+    def consolidate_lessons(self, render_context: RenderContext) -> None:
+        """Extract what transfers to later functionalities, then discard the journal it came from.
 
-        current_conformance_tests_issue_frid = render_context.conformance_tests_running_context.current_testing_frid
-        current_conformance_tests_issue_module = (
-            render_context.conformance_tests_running_context.current_testing_module_name
-        )
-        old_conformance_tests_issue_frid = (
-            render_context.conformance_tests_running_context.previous_conformance_tests_issue_frid
-        )
-        old_conformance_tests_issue_module = (
-            render_context.conformance_tests_running_context.previous_conformance_tests_issue_module
-        )
-
-        old_conformance_tests_issue = (
-            render_context.conformance_tests_running_context.previous_conformance_tests_issue_old
-        )
-
-        is_first_time_running_conformance_tests = (
-            old_conformance_tests_issue_frid is None
-            or old_conformance_tests_issue_frid == ""
-            or old_conformance_tests_issue_module != current_conformance_tests_issue_module
-        )
-        is_same_frid_as_previous_failing_test = (
-            current_conformance_tests_issue_frid == old_conformance_tests_issue_frid
-            and current_conformance_tests_issue_module == old_conformance_tests_issue_module
-        )
-        is_conformance_test_failed = exit_code != CONFORMANCE_TESTS_SUCCESS_EXIT_CODE
-
-        should_create_memory = not is_first_time_running_conformance_tests and (
-            is_same_frid_as_previous_failing_test or is_conformance_test_failed
-        )
-        code_diff_files = render_context.conformance_tests_running_context.code_diff_files
-
-        if not should_create_memory or code_diff_files is None:
-            console.debug(
-                "Skipping creation of conformance test memory because the conditions for creating memories are not met."
-            )
+        Called when a functionality's own conformance tests pass. A functionality whose tests passed without
+        any fixing has an empty journal and teaches nothing, so no call is made for it.
+        """
+        ctx = render_context.conformance_tests_running_context
+        if ctx.current_testing_frid is None:
             return
 
-        existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
-            render_context.build_folder
+        journal = ConformanceTestJournal.load(
+            self.memory_folder, ctx.current_testing_module_name, ctx.current_testing_frid
         )
+        previous_attempts = journal.render_for_prompt()
+        if not previous_attempts:
+            console.debug("No conformance test fixes were needed, so there are no lessons to consolidate.")
+            return
+
         memory_files, memory_files_content = MemoryManager.fetch_memory_files(self.memory_folder)
-
-        conformance_tests_folder_name = (
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
-        )
-
+        conformance_tests_folder_name = ctx.get_current_conformance_test_folder_name()
         (
             _,
-            existing_conformance_test_files_content,
+            conformance_tests_files_content,
         ) = render_context.conformance_tests.fetch_existing_conformance_test_files(
             render_context.module_name,
             render_context.required_modules,
-            render_context.conformance_tests_running_context.current_testing_module_name,
+            ctx.current_testing_module_name,
             conformance_tests_folder_name,
         )
-        acceptance_tests = render_context.conformance_tests_running_context.get_current_acceptance_tests()
 
-        response_files = render_context.codeplain_api.create_conformance_test_memory(
+        console.info(
+            f"Consolidating what fixing the conformance tests for functionality {ctx.current_testing_frid} "
+            f"in module {ctx.current_testing_module_name} has taught."
+        )
+
+        response_files = render_context.codeplain_api.consolidate_conformance_test_lessons(
             render_context.frid_context.frid,
             render_context.plain_source_tree,
             render_context.frid_context.linked_resources,
-            existing_files_content,
             memory_files_content,
             render_context.module_name,
             render_context.get_required_modules_functionalities(),
-            code_diff_files,
-            existing_conformance_test_files_content,
-            acceptance_tests,
-            conformance_tests_issue,
+            conformance_tests_files_content,
+            ctx.get_current_acceptance_tests(),
             conformance_tests_folder_name,
-            old_conformance_tests_issue,
+            previous_attempts,
             run_state=render_context.run_state,
         )
-        if len(response_files) > 0:
+
+        if response_files:
             memory_folder_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
             file_utils.store_response_files(memory_folder_path, response_files, memory_files)
 
-    def delete_unresolved_memory_files(self):
-        """Delete memory files whose resolution_status is not 'RESOLVED'."""
-        memory_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
-        if not os.path.exists(memory_path):
-            return
-
-        memory_files = file_utils.list_all_text_files(memory_path)
-        for file_name in memory_files:
-            file_path = os.path.join(memory_path, file_name)
-            try:
-                with open(file_path, "r") as f:
-                    content = json.load(f)
-                if content.get("resolution_status") == "RESOLVED":
-                    continue
-                else:
-                    os.remove(file_path)
-            except (json.JSONDecodeError, OSError):
-                # Not a valid JSON file, unlikely to be a valid memory file, delete it
-                console.error(f"Memory file is not a valid JSON file: {file_name}. Deleting it.")
-                os.remove(file_path)
-
-            console.debug(f"Deleted temporary memory file: {file_name}")
+        # The journal has served its purpose for this functionality; anything worth keeping is now a lesson.
+        journal.delete(self.memory_folder)
