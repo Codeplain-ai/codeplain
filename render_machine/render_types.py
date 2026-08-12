@@ -90,6 +90,12 @@ class ConformanceTestsRunningContext:
         self.regenerating_conformance_tests: bool = False
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
+        # Consecutive fix rounds in which the API reported that the expected value asserted by the failing
+        # conformance test is contradicted by the specifications. Once it reaches the API's threshold, the API
+        # amends the conformance tests plan instead of attempting another fix.
+        self.expectation_contradiction_count: int = 0
+        self.expectation_contradiction_module: Optional[str] = None
+        self.expectation_contradiction_frid: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
         self.previous_conformance_tests_issue_frid: Optional[str] = None
         self.previous_conformance_tests_issue_module: Optional[str] = None

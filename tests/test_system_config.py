@@ -2,13 +2,7 @@
 
 import pytest
 
-from system_config import (
-    DEVELOPMENT_ENV,
-    ENVIRONMENT_VAR,
-    PRODUCTION_ENV,
-    _resolve_environment,
-    system_config,
-)
+from system_config import DEVELOPMENT_ENV, ENVIRONMENT_VAR, PRODUCTION_ENV, _resolve_environment, system_config
 
 # An arbitrary environment name, deliberately neither production nor development.
 EXPLICIT_ENV = "staging"

@@ -26,6 +26,45 @@ class FixConformanceTest(BaseAction):
     ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS = 2
     ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS = 3
 
+    @staticmethod
+    def _unpack_fix_conformance_tests_issue_result(result):
+        """Unpacks the fix_conformance_tests_issue response.
+
+        API versions that predate the conformance tests plan amendment return only the reason code and the files.
+        """
+        if len(result) == 2:
+            issue_reason_code, response_files = result
+            return issue_reason_code, response_files, {}
+
+        issue_reason_code, response_files, issue_analysis = result
+        return issue_reason_code, response_files, issue_analysis or {}
+
+    @staticmethod
+    def _track_expectation_contradiction(render_context: RenderContext, issue_analysis: dict):
+        """Counts consecutive rounds blamed on an expectation the specifications contradict.
+
+        The count is sent back to the API, which amends the conformance tests plan once it is high enough. An amended
+        plan replaces the pinned plan so that later fix rounds are held to the corrected expectations.
+        """
+        ctx = render_context.conformance_tests_running_context
+
+        if issue_analysis.get("expectation_contradicts_spec"):
+            ctx.expectation_contradiction_count += 1
+            ctx.expectation_contradiction_module = ctx.current_testing_module_name
+            ctx.expectation_contradiction_frid = ctx.current_testing_frid
+        else:
+            ctx.expectation_contradiction_count = 0
+
+        amended_conformance_tests_plan = issue_analysis.get("amended_conformance_tests_plan")
+        if amended_conformance_tests_plan:
+            ctx.current_testing_frid_high_level_implementation_plan = amended_conformance_tests_plan
+            ctx.expectation_contradiction_count = 0
+            console.info(
+                f"↻ Amended the conformance tests plan for functionality {ctx.current_testing_frid} in module "
+                f"{ctx.current_testing_module_name} because the specifications contradicted its expectations.",
+                color=RETRY_COLOR,
+            )
+
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         ctx = render_context.conformance_tests_running_context
         ctx.fix_attempts += 1
@@ -90,6 +129,14 @@ class FixConformanceTest(BaseAction):
         if conflicting_module_name != current_testing_module_name or conflicting_frid != current_testing_frid:
             render_context.conformance_tests_running_context.conflicting_requirement_count = 0
 
+        # The same applies to the expectation contradiction count: contradictions reported for one functionality must
+        # not add up towards amending the conformance tests plan of another one.
+        if (
+            ctx.expectation_contradiction_module != current_testing_module_name
+            or ctx.expectation_contradiction_frid != current_testing_frid
+        ):
+            ctx.expectation_contradiction_count = 0
+
         tmp_resources_list = []
         plain_spec.collect_linked_resources(
             render_context.plain_source_tree,
@@ -114,7 +161,7 @@ class FixConformanceTest(BaseAction):
             style=console.INPUT_STYLE,
         )
 
-        [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
+        fix_conformance_tests_issue_result = render_context.codeplain_api.fix_conformance_tests_issue(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
             render_context.plain_source_tree,
@@ -132,8 +179,13 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
             render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
             render_context.conformance_tests_running_context.conflicting_requirement_count,
+            render_context.conformance_tests_running_context.expectation_contradiction_count,
             run_state=render_context.run_state,
         )
+        issue_reason_code, response_files, issue_analysis = self._unpack_fix_conformance_tests_issue_result(
+            fix_conformance_tests_issue_result
+        )
+        self._track_expectation_contradiction(render_context, issue_analysis)
         code_diff_files_content = {}
 
         if (
