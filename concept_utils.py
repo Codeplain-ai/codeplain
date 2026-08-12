@@ -13,7 +13,13 @@ DEFAULT_CONCEPTS = {
     ":ConformanceTests:",
     ":UnitTests:",
     ":AcceptanceTests:",
+    ":AcceptanceTests:",
     ":Implementation:",
+    ":plainDefinitions:",
+    ":plainImplementationReqs:",
+    ":plainFunctionality:",
+    ":plainTestReqs:",
+    ":plainImplementationCode:",
 }
 
 
