@@ -1,5 +1,6 @@
 """Unit tests for cli_output module."""
 
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from cli_output.status import (
@@ -9,6 +10,14 @@ from cli_output.status import (
     _display_status_message,
     print_status,
 )
+
+FROZEN_NOW = datetime(2025, 6, 15, 12, 0, tzinfo=timezone.utc)
+
+
+class FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return FROZEN_NOW if tz is None else FROZEN_NOW.astimezone(tz)
 
 
 class TestProgressBar:
@@ -52,6 +61,7 @@ class TestProgressBar:
         assert bar == "█" * 5 + "░" * 5
 
 
+@patch("cli_output.status.datetime", FrozenDatetime)
 class TestDisplayCreditLine:
     """Tests for _display_credit_line function."""
 
@@ -132,6 +142,7 @@ class TestDisplayCreditLine:
         mock_console.print.assert_called_once()
 
 
+@patch("cli_output.status.datetime", FrozenDatetime)
 class TestDisplayBucketCreditLine:
     """Tests for _display_bucket_credit_line function."""
 
@@ -192,6 +203,7 @@ class TestDisplayBucketCreditLine:
         mock_console.print.assert_called_once()
 
 
+@patch("cli_output.status.datetime", FrozenDatetime)
 class TestDisplayStatusMessage:
     """Tests for _display_status_message function."""
 
@@ -271,6 +283,7 @@ class TestDisplayStatusMessage:
         assert "No rendering credits remaining" in call_args
 
 
+@patch("cli_output.status.datetime", FrozenDatetime)
 class TestPrintStatus:
     """Tests for print_status function."""
 
