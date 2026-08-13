@@ -36,7 +36,7 @@ def test_unknown_section():
     with pytest.raises(
         Exception,
         match=re.escape(
-            "Syntax error at line 3: Invalid specification heading (`Unknown Section:`). Allowed headings: definitions, implementation reqs, test reqs, functional specs, acceptance tests"
+            "Syntax error at line 4: Invalid specification heading (`Unknown Section:`). Allowed headings: definitions, implementation reqs, test reqs, functional specs, acceptance tests"
         ),
     ):
         plain_file.parse_plain_source(plain_source, {}, [], [], [])
@@ -50,7 +50,7 @@ def test_duplicate_section():
 """
     with pytest.raises(
         Exception,
-        match=re.escape("Syntax error at line 3: Duplicate specification heading (`definitions`)"),
+        match=re.escape("Syntax error at line 4: Duplicate specification heading (`definitions`)"),
     ):
         plain_file.parse_plain_source(plain_source, {}, [], [], [])
 
@@ -64,9 +64,46 @@ code block
 """
     with pytest.raises(
         Exception,
-        match=re.escape("Syntax error at line 2: Invalid source structure  (`code block`)"),
+        match=re.escape("Syntax error at line 3: Invalid source structure  (`code block`)"),
     ):
         plain_file.parse_plain_source(plain_source, {}, [], [], [])
+
+
+def test_syntax_error_line_number_accounts_for_frontmatter():
+    plain_source = """---
+description: 'Plain file with frontmatter'
+---
+
+***definitions***
+
+***Unknown Section:***
+"""
+    with pytest.raises(
+        Exception,
+        match=re.escape("Syntax error at line 7: Invalid specification heading (`Unknown Section:`)"),
+    ):
+        plain_file.parse_plain_source(plain_source, {}, [], [], [])
+
+
+def test_syntax_error_line_number_with_windows_line_endings():
+    plain_source = (
+        "---\r\n"
+        "description: 'Plain file with frontmatter'\r\n"
+        "---\r\n"
+        "\r\n"
+        "***definitions***\r\n"
+        "\r\n"
+        "***Unknown Section:***\r\n"
+    )
+    with pytest.raises(
+        Exception,
+        match=re.escape("Syntax error at line 7: Invalid specification heading (`Unknown Section:`)"),
+    ):
+        plain_file.parse_plain_source(plain_source, {}, [], [], [])
+
+
+def test_normalize_line_endings_does_not_duplicate_newlines():
+    assert plain_file.normalize_line_endings("a\r\nb\rc\nd") == "a\nb\nc\nd"
 
 
 def test_plain_file_parser_with_comments(get_test_data_path):
@@ -423,7 +460,7 @@ def test_acceptance_tests_top_level_rejected():
     with pytest.raises(
         PlainSyntaxError,
         match=re.escape(
-            "Syntax error at line 1: acceptance tests heading should be nested under specific functional spec."
+            "Syntax error at line 2: acceptance tests heading should be nested under specific functional spec."
         ),
     ):
         plain_file.parse_plain_source(plain_source, {}, [], [], [])

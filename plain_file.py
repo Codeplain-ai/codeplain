@@ -455,6 +455,19 @@ def process_imports(
     return required_concepts
 
 
+def normalize_line_endings(plain_source_text: str) -> str:
+    return plain_source_text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def restore_stripped_lines(plain_source_text: str, content: str) -> str:
+    stripped_source = plain_source_text.rstrip()
+    if not content or not stripped_source.endswith(content):
+        return content
+
+    stripped_line_count = stripped_source[: len(stripped_source) - len(content)].count("\n")
+    return "\n" * stripped_line_count + content
+
+
 def read_plain_source_metadata(plain_source_text):
     try:
         plain_source_obj = frontmatter.loads(plain_source_text)
@@ -490,6 +503,8 @@ def parse_plain_source(  # noqa: C901
     imported_modules: list[str],
     modules_trace: list[str],
 ) -> PlainFileParseResult:
+    plain_source_text = normalize_line_endings(plain_source_text)
+
     plain_source_obj = read_plain_source_metadata(plain_source_text)
 
     plain_source = PLAIN_SOURCE_TEMPLATE.copy()
@@ -508,7 +523,9 @@ def parse_plain_source(  # noqa: C901
 
     [_, loaded_templates] = file_utils.get_loaded_templates(template_dirs, plain_source_text)
 
-    plain_source_full_text = render_plain_source(plain_source_obj.content, loaded_templates, code_variables)
+    plain_source_content = restore_stripped_lines(plain_source_text, plain_source_obj.content)
+
+    plain_source_full_text = render_plain_source(plain_source_content, loaded_templates, code_variables)
 
     plain_file = mistletoe.Document(io.StringIO(plain_source_full_text))
 
