@@ -71,12 +71,14 @@ def test_a_passing_run_leaves_no_failure_to_journal(render_context):
     assert render_context.conformance_tests_running_context.last_failure_signature is None
 
 
-def test_a_failing_run_leaves_a_readable_excerpt_even_before_the_profile_matures(render_context):
+def test_the_very_first_failing_run_is_both_readable_and_identified(render_context):
+    """No profile, no passing run, first run of the first functionality - and still identified."""
     RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
     ctx = render_context.conformance_tests_running_context
 
     assert "AssertionError: expected exact, got nodata" in ctx.last_failure_excerpt
-    assert ctx.last_failure_signature is None
+    assert ctx.last_failure_signature is not None
+    assert ctx.last_failure_distinctive_signature is None
 
 
 def test_the_same_failure_is_fingerprinted_alike_once_a_run_has_passed(render_context):
@@ -151,20 +153,54 @@ def test_a_recurring_failure_is_reported_back_to_the_fixer_as_a_repeat(render_co
 
     rendered = _journal(render_context).render_for_prompt()
 
-    assert "same one already seen in attempt 1" in rendered
+    assert "prompted by the same failure as attempt 1" in rendered
     assert rendered.count("expected exact, got nodata") == 1
 
 
-def test_without_a_passing_run_the_failure_text_is_still_kept_for_every_round(render_context):
-    """No passing run means no signature, so no repeat detection - but never a lost failure."""
-    for _ in range(3):
-        RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
+def test_repeats_are_detected_with_no_passing_run_and_one_functionality(render_context):
+    """The case that produced 35 unannotated rows: a module's first functionality, never green.
+
+    There is no boilerplate profile to be had here and there never will be, so identity has to come from the
+    text itself.
+    """
+    for _ in range(6):
+        RunConformanceTests._fingerprint_run(render_context, 1, _rerun(FAILURE_OUTPUT))
         FixConformanceTest._record_attempt(render_context, TARGET_IMPLEMENTATION, {"handler.py": "d"})
 
     rendered = _journal(render_context).render_for_prompt()
 
-    assert "same one already seen" not in rendered
-    assert rendered.count("expected exact, got nodata") == 3
+    assert "The failure has not changed for 6 attempts" in rendered
+    assert rendered.count("prompted by the same failure as attempt 1") == 5
+    assert rendered.count("expected exact, got nodata") == 1
+    assert "no longer retained" not in rendered
+
+
+def test_a_long_stalled_loop_does_not_grow_the_journal_by_repeating_itself(render_context):
+    """Thirty-five rounds on one failure should cost one copy of it, not thirty-five."""
+    for _ in range(35):
+        RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
+        FixConformanceTest._record_attempt(render_context, TARGET_IMPLEMENTATION, {"handler.py": "d"})
+
+    journal = _journal(render_context)
+    rendered = journal.render_for_prompt()
+
+    assert len(journal.issues) == 1
+    assert rendered.count("expected exact, got nodata") == 1
+    assert "The failure has not changed for 35 attempts" in rendered
+
+
+def test_a_failure_that_changes_ends_the_reported_stall(render_context):
+    for _ in range(4):
+        RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
+        FixConformanceTest._record_attempt(render_context, TARGET_IMPLEMENTATION, {"handler.py": "d"})
+
+    RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT.replace("nodata", "unknown"))
+    FixConformanceTest._record_attempt(render_context, TARGET_IMPLEMENTATION, {"handler.py": "d"})
+
+    rendered = _journal(render_context).render_for_prompt()
+
+    assert "The failure has not changed" not in rendered
+    assert "got unknown" in rendered and "got nodata" in rendered
 
 
 def test_journals_of_different_functionalities_stay_separate(render_context):

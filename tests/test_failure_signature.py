@@ -18,7 +18,8 @@ from failure_signature import (
     PROFILE_FILE_NAME,
     LineFrequencyProfile,
     build_excerpt,
-    compute_signature,
+    compute_distinctive_signature,
+    compute_exact_signature,
     mask_volatile,
     normalize_output,
 )
@@ -260,16 +261,16 @@ def test_profile_is_written_outside_the_folder_memory_files_are_read_from(tmp_pa
     assert not os.path.exists(os.path.join(str(tmp_path), "conformance_test_memory", PROFILE_FILE_NAME))
 
 
-# --- the signature -------------------------------------------------------------------------------------
+# --- the distinctive signature (needs the boilerplate profile) -------------------------------------------------------------------------------------
 
 
 def test_the_same_failure_with_fresh_noise_keeps_its_signature(jest_output, passing_output):
     rerun = _rerun_with_fresh_noise(jest_output)
     profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output), _failing(rerun))
 
-    first = compute_signature(jest_output, 1, profile)
+    first = compute_distinctive_signature(jest_output, 1, profile)
     assert first is not None
-    assert first == compute_signature(rerun, 1, profile)
+    assert first == compute_distinctive_signature(rerun, 1, profile)
 
 
 def test_a_genuinely_different_failure_gets_a_different_signature(jest_output, passing_output):
@@ -279,43 +280,45 @@ def test_a_genuinely_different_failure_gets_a_different_signature(jest_output, p
     )
     profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output), _failing(other_failure))
 
-    assert compute_signature(jest_output, 1, profile) != compute_signature(other_failure, 1, profile)
+    assert compute_distinctive_signature(jest_output, 1, profile) != compute_distinctive_signature(
+        other_failure, 1, profile
+    )
 
 
 def test_a_different_exit_code_is_a_different_failure(jest_output, passing_output):
     """Identical text with a different exit code is a different outcome - a timeout kill, say, not a failure."""
     profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output))
 
-    failed = compute_signature(jest_output, 1, profile)
+    failed = compute_distinctive_signature(jest_output, 1, profile)
     assert failed is not None
-    assert failed != compute_signature(jest_output, 137, profile)
+    assert failed != compute_distinctive_signature(jest_output, 137, profile)
 
 
 def test_line_order_does_not_affect_the_signature():
     """Parallel runners interleave output differently between runs."""
     profile = _profile(_passing("common\n", "module:0"), _failing("common\nfailure A\nfailure B\n"))
 
-    forwards = compute_signature("common\nfailure A\nfailure B\n", 1, profile)
-    backwards = compute_signature("common\nfailure B\nfailure A\n", 1, profile)
+    forwards = compute_distinctive_signature("common\nfailure A\nfailure B\n", 1, profile)
+    backwards = compute_distinctive_signature("common\nfailure B\nfailure A\n", 1, profile)
     assert forwards is not None and forwards == backwards
 
 
-def test_signature_is_unknown_while_the_profile_is_young(jest_output):
-    assert compute_signature(jest_output, 1, _profile(_failing(jest_output))) is None
+def test_distinctive_signature_is_unknown_while_the_profile_is_young(jest_output):
+    assert compute_distinctive_signature(jest_output, 1, _profile(_failing(jest_output))) is None
 
 
-def test_signature_is_unknown_when_every_line_is_boilerplate():
+def test_distinctive_signature_is_unknown_when_every_line_is_boilerplate():
     """With nothing distinctive left there is no honest identity to report."""
     profile = _profile(_passing("same\n", "module:0"))
 
-    assert compute_signature("same\n", 1, profile) is None
+    assert compute_distinctive_signature("same\n", 1, profile) is None
 
 
-def test_signature_is_unknown_for_empty_output():
+def test_distinctive_signature_is_unknown_for_empty_output():
     profile = _profile(_passing("a\n", "module:0"))
 
-    assert compute_signature("", 1, profile) is None
-    assert compute_signature("   \n", 1, profile) is None
+    assert compute_distinctive_signature("", 1, profile) is None
+    assert compute_distinctive_signature("   \n", 1, profile) is None
 
 
 # --- the excerpt ---------------------------------------------------------------------------------------
@@ -447,3 +450,46 @@ def test_boilerplate_needs_a_clear_majority_of_functionalities():
     assert BOILERPLATE_FREQUENCY_THRESHOLD > 0.5
     assert profile.is_boilerplate("common")
     assert not profile.is_boilerplate("sometimes")
+
+
+# --- the exact signature (needs nothing) -----------------------------------------------------------------
+
+
+def test_the_exact_signature_is_available_with_no_profile_at_all(jest_output):
+    """The case that matters: a module's first functionality, no passing run, a loop grinding on one failure."""
+    assert compute_exact_signature(jest_output, 1) is not None
+
+
+def test_a_verbatim_rerun_keeps_its_exact_signature(jest_output):
+    assert compute_exact_signature(jest_output, 1) == compute_exact_signature(jest_output, 1)
+
+
+def test_incidental_drift_does_not_change_the_exact_signature(jest_output):
+    """Timings and pids move between runs without the run meaning anything different."""
+    assert compute_exact_signature(jest_output, 1) == compute_exact_signature(_rerun_with_fresh_noise(jest_output), 1)
+
+
+def test_a_changed_failure_changes_the_exact_signature(jest_output):
+    other = jest_output.replace("ECONNREFUSED", "ETIMEDOUT")
+
+    assert compute_exact_signature(jest_output, 1) != compute_exact_signature(other, 1)
+
+
+def test_a_changed_exit_code_changes_the_exact_signature(jest_output):
+    assert compute_exact_signature(jest_output, 1) != compute_exact_signature(jest_output, 137)
+
+
+def test_line_order_does_not_change_the_exact_signature():
+    assert compute_exact_signature("a\nb\n", 1) == compute_exact_signature("b\na\n", 1)
+
+
+def test_the_exact_signature_is_unknown_for_empty_output():
+    assert compute_exact_signature("", 1) is None
+    assert compute_exact_signature("  \n\n", 1) is None
+
+
+def test_the_two_signatures_never_collide(jest_output, passing_output):
+    """They are stored side by side, so one must not be mistaken for the other."""
+    profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output))
+
+    assert compute_exact_signature(jest_output, 1) != compute_distinctive_signature(jest_output, 1, profile)

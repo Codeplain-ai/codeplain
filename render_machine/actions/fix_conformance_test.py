@@ -60,6 +60,7 @@ class FixConformanceTest(BaseAction):
             diff_text="\n".join(code_diff_files_content.values()) if code_diff_files_content else None,
             issue_signature=ctx.last_failure_signature,
             issue_excerpt=ctx.last_failure_excerpt,
+            distinctive_signature=ctx.last_failure_distinctive_signature,
         )
         journal.save(render_context.memory_manager.memory_folder)
 

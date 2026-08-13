@@ -282,26 +282,41 @@ class LineFrequencyProfile:
         return [line for line in normalize_output(output) if not self.is_boilerplate(line)]
 
 
-def compute_signature(output: str, exit_code: int, profile: LineFrequencyProfile) -> Optional[str]:
-    """Identity key for a failure, or None when no honest answer is available.
+def compute_exact_signature(output: str, exit_code: int) -> Optional[str]:
+    """Identity of a run's text, needing no profile and therefore available from the very first run.
 
-    None is returned when the profile is too young to tell boilerplate from signal, or when every line of the
-    run is boilerplate and there is therefore nothing to identify the failure by. Callers treat None as
-    "unknown" and skip the comparison rather than assuming the failure is new or unchanged.
+    Two runs whose normalized text matches are the same failure - there is nothing to infer. This answers the
+    common and important case directly: a fix loop grinding on one unchanged failure. It cannot report two
+    runs as the same when they differ; at worst it reports two as different when only some volatile token no
+    masking rule anticipated separates them, which is the harmless direction.
+
+    Gating this behind the boilerplate profile was a mistake. A module's first functionality has no passing run
+    to learn boilerplate from, and that is precisely where a fix loop is most likely to grind.
     """
-    if not output or not output.strip():
+    normalized = normalize_output(output)
+    if not normalized:
         return None
 
-    if not profile.is_mature:
+    # Sorted, so that a runner which interleaves output differently between runs still lands on one signature.
+    return _hash(f"exact:{exit_code}:{'|'.join(sorted(_hash(line) for line in normalized))}")
+
+
+def compute_distinctive_signature(output: str, exit_code: int, profile: LineFrequencyProfile) -> Optional[str]:
+    """Identity of a failure once the project's boilerplate is known, or None while it is not.
+
+    Where the exact signature only recognises a failure that repeats verbatim, this recognises the same
+    failure surfacing amid text that has moved on around it. It needs the profile, so it is an addition to the
+    exact signature rather than a replacement: callers keep both and treat a match on either as a repeat.
+    """
+    if not output or not output.strip() or not profile.is_mature:
         return None
 
     distinctive = profile.distinctive_lines(output)
     if not distinctive:
         return None
 
-    # Sorted, so that a runner which interleaves output differently between runs still lands on one signature.
     line_hashes = sorted({_hash(line) for line in distinctive})
-    return _hash(f"{exit_code}:{'|'.join(line_hashes)}")
+    return _hash(f"distinctive:{exit_code}:{'|'.join(line_hashes)}")
 
 
 def build_excerpt(output: str, max_lines: int = EXCERPT_MAX_LINES, max_chars: int = EXCERPT_MAX_CHARS) -> Optional[str]:

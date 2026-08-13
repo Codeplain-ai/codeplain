@@ -8,6 +8,7 @@ import pytest
 from conformance_test_journal import (
     DIFF_MAX_CHARS,
     MAX_DISTINCT_ISSUES,
+    MIN_REPEATS_TO_REPORT_A_STALL,
     ROUNDS_WITH_FULL_DIFF,
     TARGET_CONFORMANCE_TESTS,
     TARGET_IMPLEMENTATION,
@@ -100,14 +101,13 @@ def test_distinct_failures_are_each_kept(journal):
     assert journal.issues == {"sig-a": "failure A", "sig-b": "failure B"}
 
 
-def test_an_unidentified_failure_still_has_its_text_kept(journal):
-    """A young profile yields no signature, but losing the failure text would defeat the point."""
+def test_a_failure_with_no_identity_at_all_still_has_its_text_kept(journal):
+    """Only a run that produced no usable output has no identity, and losing its text would defeat the point."""
     journal.record_attempt(TARGET_IMPLEMENTATION, ["a.py"], issue_signature=None, issue_excerpt="failure text")
     journal.record_attempt(TARGET_IMPLEMENTATION, ["b.py"], issue_signature=None, issue_excerpt="failure text")
 
     assert len(journal.issues) == 2
     assert all(text == "failure text" for text in journal.issues.values())
-    assert [attempt["issue_identified"] for attempt in journal.attempts] == [False, False]
 
 
 def test_the_number_of_retained_failures_is_capped(journal):
@@ -119,15 +119,16 @@ def test_the_number_of_retained_failures_is_capped(journal):
     assert len(journal.issues) == MAX_DISTINCT_ISSUES
 
 
-def test_capping_keeps_the_failures_still_in_play(journal):
+def test_capping_keeps_the_failures_still_in_play_and_the_one_it_started_on(journal):
+    """The most recent failures are what is live; the first is what says where the loop went wrong."""
     for index in range(MAX_DISTINCT_ISSUES + 3):
         journal.record_attempt(
             TARGET_IMPLEMENTATION, ["a.py"], issue_signature=f"sig-{index}", issue_excerpt=f"failure {index}"
         )
 
-    newest = f"sig-{MAX_DISTINCT_ISSUES + 2}"
-    assert newest in journal.issues
-    assert "sig-0" not in journal.issues
+    assert f"sig-{MAX_DISTINCT_ISSUES + 2}" in journal.issues
+    assert "sig-0" in journal.issues
+    assert "sig-2" not in journal.issues
 
 
 def test_a_repeat_of_an_earlier_failure_is_traced_back_to_it(journal):
@@ -135,17 +136,73 @@ def test_a_repeat_of_an_earlier_failure_is_traced_back_to_it(journal):
     journal.record_attempt(TARGET_IMPLEMENTATION, ["b.py"], issue_signature="sig-b", issue_excerpt="failure B")
     journal.record_attempt(TARGET_IMPLEMENTATION, ["c.py"], issue_signature="sig-a", issue_excerpt="failure A")
 
-    assert journal.first_round_with_issue("sig-a", before_round=3) == 1
-    assert journal.first_round_with_issue("sig-b", before_round=3) == 2
-    assert journal.first_round_with_issue("sig-a", before_round=1) is None
+    assert journal.first_round_with_same_failure(journal.attempts[0]) is None
+    assert journal.first_round_with_same_failure(journal.attempts[1]) is None
+    assert journal.first_round_with_same_failure(journal.attempts[2]) == 1
 
 
-def test_an_unidentified_failure_is_never_reported_as_a_repeat(journal):
-    """Without a signature there is no basis for claiming two failures are the same."""
+def test_a_failure_recognised_only_by_its_distinctive_lines_still_counts_as_a_repeat(journal):
+    """Same failure, text moved on around it - which is what the boilerplate profile buys."""
+    journal.record_attempt(
+        TARGET_IMPLEMENTATION, ["a.py"], issue_signature="sig-a", issue_excerpt="A", distinctive_signature="d-1"
+    )
+    journal.record_attempt(
+        TARGET_IMPLEMENTATION, ["b.py"], issue_signature="sig-b", issue_excerpt="B", distinctive_signature="d-1"
+    )
+
+    assert journal.first_round_with_same_failure(journal.attempts[1]) == 1
+
+
+def test_a_failure_with_no_identity_is_never_reported_as_a_repeat(journal):
+    """A run with no usable output gives no basis for claiming two failures are the same."""
     journal.record_attempt(TARGET_IMPLEMENTATION, ["a.py"], issue_signature=None, issue_excerpt="failure")
     journal.record_attempt(TARGET_IMPLEMENTATION, ["b.py"], issue_signature=None, issue_excerpt="failure")
 
-    assert journal.first_round_with_issue(journal.attempts[1]["issue"], before_round=2) is None
+    assert journal.first_round_with_same_failure(journal.attempts[1]) is None
+
+
+def test_an_unchanged_failure_is_reported_as_a_stall_naming_where_it_started(journal):
+    for _ in range(6):
+        journal.record_attempt(TARGET_IMPLEMENTATION, ["a.py"], issue_signature="sig-a", issue_excerpt="A")
+
+    assert journal.unbroken_repeat_run() == (1, 6)
+
+
+def test_a_failure_that_has_since_moved_on_is_not_reported_as_a_stall(journal):
+    for _ in range(5):
+        journal.record_attempt(TARGET_IMPLEMENTATION, ["a.py"], issue_signature="sig-a", issue_excerpt="A")
+    journal.record_attempt(TARGET_IMPLEMENTATION, ["b.py"], issue_signature="sig-b", issue_excerpt="B")
+
+    first_seen, consecutive = journal.unbroken_repeat_run()
+    assert consecutive == 1
+    assert "The failure has not changed" not in journal.render_for_prompt()
+
+
+def test_the_stall_is_stated_before_the_attempts_so_it_cannot_be_missed(journal):
+    for _ in range(4):
+        journal.record_attempt(TARGET_IMPLEMENTATION, ["a.py"], issue_signature="sig-a", issue_excerpt="A")
+
+    rendered = journal.render_for_prompt()
+
+    assert "The failure has not changed for 4 attempts" in rendered
+    assert rendered.index("has not changed") < rendered.index("## Attempt 1")
+
+
+def test_a_stall_is_not_declared_on_a_single_recurrence(journal):
+    """Two in a row is noise, not a pattern."""
+    for _ in range(MIN_REPEATS_TO_REPORT_A_STALL - 1):
+        journal.record_attempt(TARGET_IMPLEMENTATION, ["a.py"], issue_signature="sig-a", issue_excerpt="A")
+
+    assert "The failure has not changed" not in journal.render_for_prompt()
+
+
+def test_a_row_whose_failure_text_was_evicted_says_so_rather_than_reading_as_blank(journal):
+    for index in range(MAX_DISTINCT_ISSUES + 4):
+        journal.record_attempt(
+            TARGET_IMPLEMENTATION, ["a.py"], issue_signature=f"sig-{index}", issue_excerpt=f"failure {index}"
+        )
+
+    assert "no longer retained" in journal.render_for_prompt()
 
 
 # --- diffs -----------------------------------------------------------------------------------------------
@@ -220,7 +277,7 @@ def test_a_repeated_failure_is_spelled_out_instead_of_being_pasted_again(journal
     rendered = journal.render_for_prompt()
 
     assert rendered.count("E assert 3 == 4") == 1
-    assert "same one already seen in attempt 1" in rendered
+    assert "prompted by the same failure as attempt 1" in rendered
 
 
 def test_the_rendered_journal_tells_the_reader_not_to_repeat_what_failed(journal):

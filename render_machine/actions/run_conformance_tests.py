@@ -38,10 +38,14 @@ class RunConformanceTests(BaseAction):
 
         if exit_code == 0:
             ctx.last_failure_signature = None
+            ctx.last_failure_distinctive_signature = None
             ctx.last_failure_excerpt = None
             return
 
-        ctx.last_failure_signature = failure_signature.compute_signature(conformance_tests_issue, exit_code, profile)
+        ctx.last_failure_signature = failure_signature.compute_exact_signature(conformance_tests_issue, exit_code)
+        ctx.last_failure_distinctive_signature = failure_signature.compute_distinctive_signature(
+            conformance_tests_issue, exit_code, profile
+        )
         ctx.last_failure_excerpt = conformance_test_journal.build_issue_excerpt(conformance_tests_issue)
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
