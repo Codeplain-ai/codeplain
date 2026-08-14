@@ -6,18 +6,20 @@ import tempfile
 import zipfile
 from functools import cached_property
 
+# GitPython probes for the git executable when it is first imported and reports a
+# missing or broken one by raising from module scope, which would crash the CLI
+# with a traceback before main() could explain it. Diagnose git ourselves first.
+from git_preflight import require_git
 from plain2code_exceptions import (
-    GitNotInstalledError,
     InvalidModuleArchiveError,
     MissingPreviousFunctionalitiesError,
     ModuleDoesNotExistError,
 )
 
-try:
-    from git import Repo
-    from git.exc import NoSuchPathError
-except ImportError:
-    raise GitNotInstalledError("git is not installed. Please install git and try again.")
+require_git()
+
+from git import Repo
+from git.exc import NoSuchPathError
 
 import file_utils
 import git_utils
