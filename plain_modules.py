@@ -4,12 +4,15 @@ import os
 import shutil
 from functools import cached_property
 
-from plain2code_exceptions import GitNotInstalledError, MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
+# GitPython probes for the git executable when it is first imported and reports a
+# missing or broken one by raising from module scope, which would crash the CLI
+# with a traceback before main() could explain it. Diagnose git ourselves first.
+from git_preflight import require_git
+from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
 
-try:
-    from git.exc import NoSuchPathError
-except ImportError:
-    raise GitNotInstalledError("git is not installed. Please install git and try again.")
+require_git()
+
+from git.exc import NoSuchPathError
 
 import git_utils
 import metadata_utils
