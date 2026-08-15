@@ -155,9 +155,13 @@ class TerminalProcess:
 
 
 def create_terminal_process() -> TerminalProcess:
-    """Returns the backend for the running platform."""
+    """The one construction site: returns the backend this execution runs on."""
     if sys.platform == "win32":
-        raise TerminalEnvironmentError("The ConPTY backend is not implemented yet.")
+        # Interim: Windows has no PTY backend yet, so it stays on the documented legacy
+        # pipe path until the ConPTY backend lands (ENG-34, Phase 6).
+        from render_machine._legacy_pipe import LegacyPipeProcess
+
+        return LegacyPipeProcess()
 
     from render_machine._posix_pty import PosixPtyProcess
 
@@ -166,4 +170,4 @@ def create_terminal_process() -> TerminalProcess:
 
 def available_backends() -> List[str]:
     """Names the backends this build can construct. Used by diagnostics and tests."""
-    return [] if sys.platform == "win32" else ["posix-pty"]
+    return ["legacy-pipe"] if sys.platform == "win32" else ["posix-pty", "legacy-pipe"]
