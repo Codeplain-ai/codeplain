@@ -1505,12 +1505,17 @@ def test_the_final_drain_is_bounded_against_a_continuously_writing_escapee(tmp_p
     try:
         process.spawn([script])
         escapee_pid = reported_pid(process, "escapee")
+        # Both channels clear on read; accumulate so the assertions see the whole
+        # transcript. Waiting for the flood also guarantees the escapee is still
+        # writing while close() drains, which is the bound under test.
+        decoded = wait_for_output(process, "x")
+        raw = process.read_raw_output()
         process.terminate_tree(grace=0.1)  # the escapee left the group and survives
         started = time.monotonic()
         process.close()
         elapsed = time.monotonic() - started
-        decoded = process.read_output()
-        raw = process.read_raw_output()
+        decoded += process.read_output()
+        raw += process.read_raw_output()
     finally:
         process.close()
         if escapee_pid is not None and not wait_until_gone(escapee_pid, timeout=0.5):

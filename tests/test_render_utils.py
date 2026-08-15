@@ -380,7 +380,9 @@ def test_script_stdin_is_a_terminal_of_its_own_and_never_the_renderers(tmp_path,
 # the cases are driven through an injected backend rather than through a real script:
 # the point is which condition wins, not how it arose.
 
-FAKE_SCRIPT = "arbiter.sh"
+# execute_script() accepts only .ps1 on Windows, and that check runs before the
+# injected backend is reached, so the fake name has to match the platform.
+FAKE_SCRIPT = "arbiter.ps1" if sys.platform == "win32" else "arbiter.sh"
 FAKE_OUTPUT = "fake transcript\n"
 READER_FAILURE = RuntimeError("the master descriptor went away")
 REPLY_DETAIL = "cursor-position reply discarded before delivery"

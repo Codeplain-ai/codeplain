@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
 from textwrap import dedent
@@ -18,6 +19,14 @@ from git_utils import (
     revert_to_commit_with_frid,
 )
 from plain2code_exceptions import InvalidGitRepositoryError
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Text files land on disk with CRLF and GitPython keeps repository handles open, so diff "
+        "assertions and temp-dir teardown both break; native Windows runs via WSL."
+    ),
+)
 
 
 @pytest.fixture
