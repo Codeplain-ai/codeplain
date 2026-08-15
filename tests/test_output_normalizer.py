@@ -5,9 +5,10 @@ escape soup: each one is the verbatim byte stream a real tool wrote to the maste
 a pseudoterminal allocated by this project's own PTY backend, at 120x40 under
 `TERM=xterm-256color`.
 
-Every fixture case asserts the rendered result *and* the compression ratio, so a
-regression that reintroduces noise shows up as a number rather than as a diff nobody
-reads.
+Every fixture case asserts the rendered result against a committed golden file *and* the
+compression ratio, so a regression that reintroduces noise shows up as a number, and one
+that deletes output shows up as a diff — needles and an upper ratio bound alone would pass
+for a normalizer that dropped nearly everything.
 """
 
 import re
@@ -16,6 +17,8 @@ from pathlib import Path
 import pytest
 
 from render_machine.output_normalizer import (
+    MAX_COMBINING_MARKS,
+    MAX_SEQUENCE_BYTES,
     QUERY_CURSOR_POSITION,
     QUERY_DEVICE_ATTRIBUTES,
     QUERY_DEVICE_STATUS,
@@ -42,6 +45,11 @@ def normalize(raw: bytes, chunk_size: int = 512, **kwargs) -> OutputNormalizer:
 
 def read_fixture(name: str) -> bytes:
     return (FIXTURES / name).read_bytes()
+
+
+def read_golden(name: str) -> str:
+    """The rendering committed alongside the recording, byte for byte."""
+    return (FIXTURES / name).with_suffix(".normalized").read_text(encoding="utf-8")
 
 
 # name, max compression ratio, expected present, expected absent
@@ -100,9 +108,16 @@ def test_recorded_output_renders_to_plain_text(name, max_ratio, present, absent)
 
 
 @pytest.mark.parametrize("name, max_ratio, present, absent", FIXTURE_CASES)
+def test_recorded_output_matches_the_committed_rendering(name, max_ratio, present, absent):
+    """Equality, because an upper ratio bound alone rewards deleting output."""
+    assert normalize(read_fixture(name)).text() == read_golden(name)
+
+
+@pytest.mark.parametrize("name, max_ratio, present, absent", FIXTURE_CASES)
 def test_recorded_output_is_compressed_to_what_a_terminal_would_show(name, max_ratio, present, absent):
     raw = read_fixture(name)
-    ratio = len(normalize(raw).text()) / len(raw)
+    rendered = normalize(raw).text().encode("utf-8")  # bytes to bytes, so the ratio is one unit
+    ratio = len(rendered) / len(raw)
     assert ratio <= max_ratio, f"{name} normalized to {ratio:.3f} of its raw size, above {max_ratio}"
 
 
@@ -260,26 +275,117 @@ def test_a_private_device_status_request_is_not_answered():
     assert normalizer.text() == "x\n"
 
 
-def test_a_parser_failure_is_counted_and_rendering_continues(monkeypatch):
-    """A malformed stream must cost a chunk, never the reader that feeds it."""
-    normalizer = OutputNormalizer(columns=20, lines=5)
-    normalizer.feed(b"before\r\n")
+POISON_SEQUENCE = b"\x1b[1;2;3z"  # the one sequence the parser is made to reject below
 
+
+def render_with_a_rejected_sequence(monkeypatch, raw: bytes, chunk_size: int) -> OutputNormalizer:
+    normalizer = OutputNormalizer(columns=40, lines=5)
     original = normalizer._stream.feed
-    calls = []
 
-    def failing_feed(data):
-        calls.append(data)
-        raise ValueError("malformed")
+    def feed(data):
+        if data == POISON_SEQUENCE:
+            raise ValueError("malformed")
+        original(data)
 
-    monkeypatch.setattr(normalizer._stream, "feed", failing_feed)
-    normalizer.feed(b"poison")
-    monkeypatch.setattr(normalizer._stream, "feed", original)
-    normalizer.feed(b"after\r\n")
+    monkeypatch.setattr(normalizer._stream, "feed", feed)
+    for offset in range(0, len(raw), chunk_size):
+        normalizer.feed(raw[offset : offset + chunk_size])
+    return normalizer
 
-    assert calls == [b"poison"]
+
+def test_a_parser_failure_costs_one_sequence_and_rendering_continues(monkeypatch):
+    """A malformed sequence must cost itself, never the reader that feeds it."""
+    raw = b"before " + POISON_SEQUENCE + b"after\r\n"
+    normalizer = render_with_a_rejected_sequence(monkeypatch, raw, chunk_size=len(raw))
+
     assert normalizer.parse_failures == 1
-    assert normalizer.text() == "before\nafter\n"
+    assert normalizer.text() == "before after\n"
+
+
+def test_parser_failure_recovery_does_not_depend_on_the_read_boundaries(monkeypatch):
+    """The reader feeds whatever `read()` returns, so recovery cannot cost the rest of it."""
+    raw = b"before " + POISON_SEQUENCE + b"after\r\n"
+    whole = render_with_a_rejected_sequence(monkeypatch, raw, chunk_size=len(raw))
+    split = render_with_a_rejected_sequence(monkeypatch, raw, chunk_size=1)
+    mid = render_with_a_rejected_sequence(monkeypatch, raw, chunk_size=9)
+
+    assert whole.text() == split.text() == mid.text()
+    assert whole.parse_failures == split.parse_failures == mid.parse_failures == 1
+
+
+def test_an_unterminated_osc_string_is_bounded_and_draining_continues():
+    """pyte would hold every byte of it; the guard holds a capped buffer instead."""
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b]0;")
+    for _ in range(200):
+        normalizer.feed(b"A" * 4096)  # a title that never terminates
+    normalizer.feed(b"\x07after\r\n")
+
+    assert normalizer._guard.pending_bytes <= MAX_SEQUENCE_BYTES
+    assert normalizer.bounded_sequences == 1
+    assert normalizer.text() == "after\n"
+    assert len(normalizer._screen.title) <= MAX_SEQUENCE_BYTES
+
+
+def test_an_unterminated_csi_parameter_is_bounded_and_draining_continues():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b[")
+    for _ in range(200):
+        normalizer.feed(b"9" * 4096)  # a parameter no terminal would ever finish reading
+    normalizer.feed(b"m")
+    normalizer.feed(b"still here\r\n")
+
+    assert normalizer._guard.pending_bytes <= MAX_SEQUENCE_BYTES
+    assert normalizer.bounded_sequences == 1
+    assert normalizer.parse_failures == 0
+    assert normalizer.text() == "still here\n"
+
+
+def test_a_completed_oversized_osc_string_is_dropped_rather_than_kept_as_metadata():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b]0;short title\x07")
+    normalizer.feed(b"\x1b]0;" + b"B" * (MAX_SEQUENCE_BYTES * 4) + b"\x07")
+    normalizer.feed(b"work goes on\r\n")
+
+    assert normalizer._screen.title == "short title"
+    assert normalizer.bounded_sequences == 1
+    assert normalizer.text() == "work goes on\n"
+
+
+def test_repeated_combining_marks_do_not_grow_one_cell_without_bound():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    marks = ("́" * 200).encode("utf-8")  # combining acute accents, one cell's worth of state
+    normalizer.feed(b"a")
+    for _ in range(500):
+        normalizer.feed(marks)
+    normalizer.feed(b"\r\nsecond line\r\n")
+
+    first_line = normalizer.text().splitlines()[0]
+    assert len(first_line) <= MAX_COMBINING_MARKS + 1
+    assert first_line.startswith("á")  # the first mark still composes with the letter
+    assert normalizer.text().splitlines()[1] == "second line"
+
+
+def test_a_trailing_partial_utf8_sequence_is_finalized_as_a_replacement_character():
+    normalizer = OutputNormalizer(columns=20, lines=3)
+    normalizer.feed("hé".encode("utf-8")[:-1])  # the stream ends mid-character
+
+    assert normalizer.text() == "h\n"
+
+    normalizer.finalize()
+    normalizer.finalize()  # idempotent: shutdown paths can overlap
+
+    assert normalizer.text() == "h�\n"
+
+
+def test_finalizing_a_complete_stream_changes_nothing():
+    normalizer = OutputNormalizer(columns=20, lines=3)
+    normalizer.feed("héllo\r\n".encode("utf-8"))
+    before = normalizer.text()
+
+    normalizer.finalize()
+
+    assert normalizer.text() == before == "héllo\n"
 
 
 def test_fed_bytes_counts_every_byte_handed_to_the_parser():

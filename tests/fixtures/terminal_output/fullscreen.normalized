@@ -1,0 +1,13 @@
+  BUILD DASHBOARD                       frame 11
+  ----------------------------------------------
+  suite-01  running  1/10 cases
+  suite-02  running  2/10 cases
+  suite-03  running  3/10 cases
+  suite-04  running  4/10 cases
+  suite-05  running  5/10 cases
+  suite-06  running  6/10 cases
+  suite-07  passed  7/10 cases
+  suite-08  passed  8/10 cases
+  ----------------------------------------------
+  elapsed 11s
+BUILD FAILED: suite-03 case 7 timed out

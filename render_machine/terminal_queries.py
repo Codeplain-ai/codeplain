@@ -16,6 +16,9 @@ The responder owns the obligation that admission creates, for the item's whole l
   records nothing: there is no client left whose query can be answered.
 * Obligations registered while `ACTIVE` keep reporting, even when teardown is what
   discovers the failure.
+* Every failure is counted, but only a bounded sample is retained — one record per distinct
+  kind and reason. A target that queries in a loop against a closed channel fails a reply
+  per query, and a diagnostic must not grow with it.
 
 One lock linearizes the query callback with the `ACTIVE -> QUIESCED` transition, so a
 callback either admits while active or observes quiescence — never both, and never neither.
@@ -31,12 +34,16 @@ import functools
 import threading
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, List, Optional, Set
+from typing import Callable, List, Optional, Set, Tuple
 
 # Reasons a reply can fail to reach the target.
 REASON_ADMISSION_RAISED = "admission raised"
 REASON_DISCARDED = "discarded before delivery"
 REASON_WRITE_FAILED = "write failed"
+
+# How many distinct failures are kept. A target that queries in a loop against a closed
+# channel fails one reply per query, so the history is a sample plus a count, never a log.
+MAX_TRACKED_FAILURES = 16
 
 # A backend admission: hands the reply over without blocking, then resolves the completion
 # callback with None when the last native byte lands, or with a reason when it cannot.
@@ -81,8 +88,10 @@ class TerminalQueryResponder:
         self._state = ResponderState.ACTIVE if active and admit is not None else ResponderState.QUIESCED
         self._outstanding: Set[_Obligation] = set()
         self._failures: List[TerminalReplyFailure] = []
+        self._recorded_kinds: Set[Tuple[str, str]] = set()
         self.admitted = 0
         self.render_only = 0
+        self.failures_recorded = 0
 
     @property
     def state(self) -> ResponderState:
@@ -92,10 +101,11 @@ class TerminalQueryResponder:
     @property
     def reply_failed(self) -> bool:
         with self._lock:
-            return bool(self._failures)
+            return self.failures_recorded > 0
 
     @property
     def failures(self) -> List[TerminalReplyFailure]:
+        """The retained sample: distinct kind and reason pairs, capped."""
         with self._lock:
             return list(self._failures)
 
@@ -105,7 +115,14 @@ class TerminalQueryResponder:
             return len(self._outstanding)
 
     def failure_detail(self) -> str:
-        return "; ".join(str(failure) for failure in self.failures)
+        """The sample, then how many failures it does not name. Bounded by construction."""
+        with self._lock:
+            detail = "; ".join(str(failure) for failure in self._failures)
+            omitted = self.failures_recorded - len(self._failures)
+        if omitted <= 0:
+            return detail
+        summary = f"...[{omitted} further reply failures]..."
+        return f"{detail}; {summary}" if detail else summary
 
     def quiesce(self) -> None:
         """Idempotent, foreground-triggered. Outstanding obligations keep reporting."""
@@ -133,4 +150,15 @@ class TerminalQueryResponder:
             obligation.resolved = True
             self._outstanding.discard(obligation)
             if reason is not None:
-                self._failures.append(TerminalReplyFailure(obligation.kind, reason))
+                self._record_failure(obligation.kind, reason)
+
+    def _record_failure(self, kind: str, reason: str) -> None:
+        """Counts every failure; retains one record per distinct kind and reason, capped."""
+        self.failures_recorded += 1
+        if len(self._failures) >= MAX_TRACKED_FAILURES:
+            return  # the counter carries the rest, so neither list nor index can grow
+        key = (kind, reason)
+        if key in self._recorded_kinds:
+            return
+        self._recorded_kinds.add(key)
+        self._failures.append(TerminalReplyFailure(kind, reason))

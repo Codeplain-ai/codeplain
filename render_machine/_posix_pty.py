@@ -880,6 +880,7 @@ class PosixPtyProcess(TerminalProcess):
                 for fd in (self._bundle.take_master(), self._bundle.take_wakeup_r()):
                     _close_quietly(fd)  # independent: one failing close cannot skip the rest
                 self._flush_decoder(decoder)
+                self.normalizer.finalize()  # the same end-of-stream flush, on the rendered channel
             except BaseException as exc:  # finalization can fail too
                 reader_exc = reader_exc or exc
             finally:

@@ -6,6 +6,7 @@ driven through a hook, never through a sleep.
 """
 
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import pytest
 
 from render_machine.output_normalizer import QUERY_CURSOR_POSITION, QUERY_DEVICE_ATTRIBUTES, QUERY_DEVICE_STATUS
 from render_machine.terminal_process import InputDisposition, InputWriteResult
-from render_machine.terminal_queries import ResponderState, TerminalQueryResponder
+from render_machine.terminal_queries import MAX_TRACKED_FAILURES, ResponderState, TerminalQueryResponder
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="The POSIX PTY backend is not built on Windows.")
 
@@ -166,6 +167,101 @@ def test_failure_detail_names_every_query_kind_and_reason():
     assert detail.count("backpressure") == 2
 
 
+def test_a_repeated_failure_is_counted_once_and_summarized():
+    """A target that queries in a loop against a closed channel must not grow the history."""
+    admissions = _Admissions(immediate_reason="discarded before delivery (closed)")
+    responder = TerminalQueryResponder(admissions)
+
+    for _ in range(5000):
+        responder.answer(QUERY_CURSOR_POSITION, b"\x1b[1;1R")
+
+    assert responder.failures_recorded == 5000
+    assert len(responder.failures) == 1  # one kind, one reason
+    detail = responder.failure_detail()
+    assert "4999 further reply failures" in detail
+    assert len(detail) < 200
+
+
+def test_distinct_failure_reasons_are_sampled_rather_than_accumulated():
+    """Reasons carry exception text, so distinctness cannot be an excuse to keep them all."""
+    admissions = _Admissions()
+    responder = TerminalQueryResponder(admissions)
+
+    for _ in range(2000):
+        responder.answer(QUERY_DEVICE_STATUS, b"\x1b[0n")
+    for index, complete in enumerate(admissions.completions):
+        complete(f"write failed: OSError({index})")
+
+    assert responder.failures_recorded == 2000
+    assert len(responder.failures) == MAX_TRACKED_FAILURES
+    assert responder.outstanding == 0
+    assert len(responder.failure_detail()) < 2000
+
+
+def run_racing(first, second, reversed_order: bool) -> None:
+    """Releases both threads together, from a third one, so neither is ahead by construction."""
+    go = threading.Event()
+    threads = [threading.Thread(target=lambda call=call: (go.wait(), call())) for call in (first, second)]
+    if reversed_order:  # started in both orders, since the starter is itself a head start
+        threads.reverse()
+    for thread in threads:
+        thread.start()
+    go.set()
+    for thread in threads:
+        thread.join(SPAWN_TIMEOUT)
+        assert not thread.is_alive()
+
+
+def test_a_query_racing_quiescence_is_admitted_or_render_only_but_never_both():
+    """Two threads, one lock: the callback either admits while active or observes the switch."""
+    outcomes = {"admitted": 0, "render_only": 0}
+    for attempt in range(200):
+        admissions = _Admissions()
+        responder = TerminalQueryResponder(admissions)
+
+        run_racing(
+            lambda: responder.answer(QUERY_CURSOR_POSITION, b"\x1b[1;1R"),
+            responder.quiesce,
+            reversed_order=bool(attempt % 2),
+        )
+
+        assert responder.state is ResponderState.QUIESCED
+        assert responder.admitted + responder.render_only == 1
+        assert responder.outstanding == responder.admitted
+        for complete in admissions.completions:
+            complete("discarded before delivery (closed)")
+        assert responder.outstanding == 0
+        assert responder.reply_failed is bool(responder.admitted)
+        outcomes["admitted"] += responder.admitted
+        outcomes["render_only"] += responder.render_only
+
+    assert min(outcomes.values()) > 0, f"the race never went both ways: {outcomes}"
+
+
+def test_a_completion_racing_teardown_resolves_its_obligation_exactly_once():
+    """Teardown discards while the backend reports the write: one obligation, one record."""
+    for attempt in range(200):
+        admissions = _Admissions()
+        responder = TerminalQueryResponder(admissions)
+        responder.answer(QUERY_CURSOR_POSITION, b"\x1b[1;1R")
+        complete = admissions.completions[0]
+
+        def teardown():
+            responder.quiesce()
+            complete("discarded before delivery (closed)")
+
+        run_racing(
+            lambda: complete("write failed: OSError(5)"),
+            teardown,
+            reversed_order=bool(attempt % 2),
+        )
+
+        assert responder.failures_recorded == 1
+        assert len(responder.failures) == 1
+        assert responder.failures[0].kind == QUERY_CURSOR_POSITION
+        assert responder.outstanding == 0
+
+
 # --------------------------------------------------------------- backend integration
 
 
@@ -301,9 +397,19 @@ def test_immediate_reply_pressure_is_recorded_without_stalling_the_reader(tmp_pa
 def test_a_reply_discarded_at_teardown_still_records_a_failure(tmp_path):
     """Admitted while ACTIVE, so the obligation survives the transition teardown makes."""
     script = write_target(tmp_path, "abandons_the_reply.py", ABANDONS_THE_REPLY)
-    process = run_target(script)
-    process._flush_input = lambda master_fd, budget: None  # the reply never reaches the fd
+    process = _posix_pty.PosixPtyProcess()
+    original_flush = process._flush_input
+
+    def stall_replies(master_fd, budget):
+        item = process._input_queue.current()
+        if item is not None and item.data.startswith(b"\x1b"):
+            return  # a reply never reaches the fd; the spawn-time EOF still does
+        original_flush(master_fd, budget)
+
+    # Installed before the spawn, so no reply can complete before the stall is in place.
+    process._flush_input = stall_replies
     try:
+        process.spawn([sys.executable, script])
         drain_to_exit(process)
         assert process.query_responder.admitted == 1
     finally:

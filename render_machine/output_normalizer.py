@@ -18,6 +18,7 @@ receives those replies; a normalizer constructed without one simply renders.
 
 import collections
 import threading
+import unicodedata
 from typing import Callable, Deque, Dict, List, Optional
 
 import pyte
@@ -29,6 +30,11 @@ from render_machine.terminal_process import TERMINAL_COLUMNS, TERMINAL_ROWS
 # happens to matter; a failing run needs its invocation (head) and its error (tail).
 SCROLLBACK_HEAD_LINES = 300
 SCROLLBACK_TAIL_LINES = 1700
+
+# Caps on the parser state a target can grow. Both are far above anything a terminal
+# renders and far below anything that costs the reader its memory.
+MAX_SEQUENCE_BYTES = 4096
+MAX_COMBINING_MARKS = 8
 
 # Private DEC modes that swap in the alternate screen buffer.
 ALTERNATE_SCREEN_MODES = (47, 1047, 1049)
@@ -77,6 +83,109 @@ class _RetainedLines:
         return self._head + [f"...[{omitted} lines omitted]..."] + list(self._tail)
 
 
+# Framing states, and the bytes that move between them.
+_GROUND, _ESCAPE, _INTERMEDIATE, _CSI, _STRING = range(5)
+_ESC = 0x1B
+_BEL = 0x07
+_STRING_INTRODUCERS = frozenset(b"]PX^_")  # OSC, DCS, SOS, PM, APC
+_ESCAPE_INTERMEDIATES = frozenset(b"#%()")  # each takes exactly one more byte
+
+
+class _SequenceGuard:
+    """Frames a byte stream into plain runs and whole escape sequences, with a size cap.
+
+    pyte 0.8.2 accumulates an unterminated OSC string or CSI parameter inside its parser
+    coroutine without any bound, so a target that writes `ESC ] 0 ;` and then never
+    terminates it grows the reader's memory for as long as it runs. An in-progress sequence
+    is held here instead: the buffer is this class's own, it is capped, and the remainder of
+    an oversized sequence is dropped rather than parsed.
+
+    Framing never changes what the parser sees — the same bytes arrive in the same order.
+    It only decides where one `feed()` call ends, which is what makes a parse failure cost
+    one sequence instead of the rest of an OS-sized read.
+    """
+
+    def __init__(self, max_sequence_bytes: int = MAX_SEQUENCE_BYTES) -> None:
+        self._max_sequence_bytes = max_sequence_bytes
+        self._state = _GROUND
+        self._pending = bytearray()
+        self._dropping = False
+        self._after_escape = False
+        self.dropped = 0
+
+    @property
+    def pending_bytes(self) -> int:
+        return len(self._pending)
+
+    def frame(self, data: bytes) -> List[bytes]:
+        """The units to hand the parser: plain runs and complete escape sequences."""
+        units: List[bytes] = []
+        index = 0
+        length = len(data)
+        while index < length:
+            if self._state == _GROUND:
+                start = data.find(_ESC, index)
+                if start < 0:
+                    units.append(data[index:])
+                    break
+                if start > index:
+                    units.append(data[index:start])
+                self._state = _ESCAPE
+                self._pending += b"\x1b"
+                index = start + 1
+            else:
+                index = self._consume(data, index, units)
+        return units
+
+    def _consume(self, data: bytes, index: int, units: List[bytes]) -> int:
+        length = len(data)
+        while index < length and self._state != _GROUND:
+            byte = data[index]
+            index += 1
+            if not self._dropping and len(self._pending) >= self._max_sequence_bytes:
+                # Nothing renders a sequence this long, so the rest of it is parsed by
+                # nobody and the buffer that held it is released here.
+                self._dropping = True
+                self.dropped += 1
+                self._pending.clear()
+            if not self._dropping:
+                self._pending.append(byte)
+            if self._ends_sequence(byte):
+                if not self._dropping:
+                    units.append(bytes(self._pending))
+                self._reset()
+        return index
+
+    def _ends_sequence(self, byte: int) -> bool:
+        if self._state == _ESCAPE:
+            if byte == 0x5B:  # [
+                self._state = _CSI
+            elif byte in _STRING_INTRODUCERS:
+                self._state = _STRING
+            elif byte in _ESCAPE_INTERMEDIATES:
+                self._state = _INTERMEDIATE
+            else:
+                return True
+            return False
+        if self._state == _INTERMEDIATE:
+            return True
+        if self._state == _CSI:
+            return 0x40 <= byte <= 0x7E  # the final byte; parameters and controls are lower
+        if self._after_escape:  # only ESC \ terminates a string; ESC anything else does not
+            self._after_escape = False
+            return byte == 0x5C
+        if byte == _ESC:
+            self._after_escape = True
+            return False
+        return byte == _BEL
+
+    def _reset(self) -> None:
+        self._state = _GROUND
+        self._pending.clear()
+        self._dropping = False
+        self._after_escape = False
+
+
 class _RenderingScreen(pyte.Screen):
     """A pyte screen that retains what scrolls off and answers device queries.
 
@@ -90,13 +199,45 @@ class _RenderingScreen(pyte.Screen):
         lines: int,
         scrollback: _RetainedLines,
         reply_handler: Optional[Callable[[str, bytes], None]],
+        max_combining_marks: int = MAX_COMBINING_MARKS,
     ) -> None:
         # Set before super().__init__, which resets the screen and can reach these.
         self._scrollback = scrollback
         self._reply_handler = reply_handler
         self._alternate = False
         self._query_kind = QUERY_DEVICE_ATTRIBUTES
+        self._max_combining_marks = max_combining_marks
+        self._combining_run = 0
         super().__init__(columns, lines)
+
+    # -------------------------------------------------------------------- drawing
+
+    def draw(self, data: str) -> None:
+        """Caps how many combining marks one cell can accumulate.
+
+        pyte appends every zero-width combining mark to the previous cell's string, so a
+        target emitting them in a loop grows one cell without bound. A run past the cap is
+        dropped: no terminal renders it, and nothing else bounds it.
+        """
+        if data.isascii():  # the common case, and no combining mark is ASCII
+            self._combining_run = 0
+            super().draw(data)
+            return
+        super().draw(self._cap_combining_marks(data))
+
+    def _cap_combining_marks(self, data: str) -> str:
+        kept: List[str] = []
+        run = self._combining_run
+        for char in data:
+            if unicodedata.combining(char):
+                run += 1
+                if run > self._max_combining_marks:
+                    continue
+            else:
+                run = 0  # a character that advances the cursor starts the next cell's run
+            kept.append(char)
+        self._combining_run = run
+        return "".join(kept)
 
     # ------------------------------------------------------------------ scrollback
 
@@ -165,7 +306,9 @@ class OutputNormalizer:
     """Renders a target's terminal output and answers the queries it emits.
 
     Fed by the reader thread and read by the foreground, so both entry points take one
-    lock. `feed()` never raises: a malformed sequence must not take the reader down.
+    lock. `feed()` never raises: a malformed sequence must not take the reader down. Every
+    piece of parser state a target can grow — an unterminated sequence, one cell's
+    combining marks — is capped, because the reader is the process's only drainer.
     """
 
     def __init__(
@@ -180,8 +323,15 @@ class OutputNormalizer:
         self._scrollback = _RetainedLines(head_lines, tail_lines)
         self._screen = _RenderingScreen(columns, lines, self._scrollback, reply_handler)
         self._stream = pyte.ByteStream(self._screen)
+        self._guard = _SequenceGuard()
+        self._finalized = False
         self.parse_failures = 0
         self.fed_bytes = 0
+
+    @property
+    def bounded_sequences(self) -> int:
+        """Escape sequences dropped for exceeding the size cap."""
+        return self._guard.dropped
 
     def resize(self, columns: int, lines: int) -> None:
         """Matches the parser to the terminal the target was actually given."""
@@ -193,12 +343,36 @@ class OutputNormalizer:
             return
         with self._lock:
             self.fed_bytes += len(data)
+            for unit in self._guard.frame(data):
+                try:
+                    self._stream.feed(unit)
+                except Exception:
+                    # pyte reinitializes its parser before propagating, so the next unit is
+                    # parsed from a clean state. The guard hands over one sequence at a
+                    # time, so a malformed one costs itself rather than the rest of the
+                    # read — and never the reader that feeds it.
+                    self.parse_failures += 1
+
+    def finalize(self) -> None:
+        """Ends the stream: flushes the parser's decoder. Idempotent.
+
+        A trailing incomplete UTF-8 sequence sits in pyte's incremental decoder until it is
+        finalized, so without this it never reaches the screen and vanishes from the
+        transcript instead of rendering as U+FFFD. `utf8_decoder` is pyte 0.8.2's decoder
+        attribute and is reached defensively.
+        """
+        with self._lock:
+            if self._finalized:
+                return
+            self._finalized = True
+            decoder = getattr(self._stream, "utf8_decoder", None)
+            if decoder is None:
+                return
             try:
-                self._stream.feed(data)
+                tail = decoder.decode(b"", final=True)
+                if tail:
+                    pyte.Stream.feed(self._stream, tail)  # already text, so not ByteStream.feed
             except Exception:
-                # pyte reinitializes its parser before propagating, so the next chunk is
-                # parsed from a clean state. Rendering continues with what was already
-                # drawn rather than costing the reader its life.
                 self.parse_failures += 1
 
     def text(self) -> str:
