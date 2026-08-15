@@ -55,6 +55,7 @@ from render_machine.terminal_process import (
     TerminalLaunchError,
     TerminalProcess,
     TerminalReaderError,
+    child_environment,
 )
 from render_machine.terminal_queries import REASON_DISCARDED, REASON_WRITE_FAILED, TerminalQueryResponder
 
@@ -717,7 +718,7 @@ class PosixPtyProcess(TerminalProcess):
             self._pending_slave_fd = None
 
     def _child_env(self, env: Optional[dict]) -> dict:
-        child_env = dict(os.environ if env is None else env)
+        child_env = child_environment(env)
         term = child_env.get("TERM")
         child_env["TERM"] = term if term else DEFAULT_TERM
         # git reads /dev/tty directly, so neither the VEOF nor a redirected stdin can

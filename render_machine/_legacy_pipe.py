@@ -37,6 +37,7 @@ from render_machine.terminal_process import (
     InputWriteResult,
     TerminalLaunchError,
     TerminalProcess,
+    child_environment,
 )
 from render_machine.terminal_queries import TerminalQueryResponder
 
@@ -175,7 +176,7 @@ class LegacyPipeProcess(TerminalProcess):
     # -------------------------------------------------------------------- internals
 
     def _child_env(self, env: Optional[dict]) -> dict:
-        return dict(os.environ if env is None else env)
+        return child_environment(env)
 
     def _widen_pipe(self) -> None:
         """Best-effort 1MB pipe buffer, so bursts of output need fewer reader wakeups."""

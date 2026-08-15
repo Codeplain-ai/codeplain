@@ -6,13 +6,23 @@ in `render_machine._posix_pty`; the Windows ConPTY implementation will live in
 `render_machine._conpty`. Only this module is imported by callers.
 """
 
+import os
 import sys
 import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Sequence, Tuple
 
+from plain2code_console import console
 from render_machine.terminal_queries import TerminalQueryResponder
+
+# Break-glass override, not a tuning knob: set CODEPLAIN_NO_PTY=1 to run scripts on the
+# legacy pipe backend when PTY allocation fails in an environment. It is never selected
+# automatically — a failed openpty() is an environment error, because a silent downgrade
+# would make execution behaviour machine-dependent again. Every use is a bug report worth
+# filing; the variable goes away with the legacy path (ENG-34).
+NO_PTY_ENV_VAR = "CODEPLAIN_NO_PTY"
+NO_PTY_ENABLED_VALUE = "1"
 
 # Launch, reader, and writer infrastructure failures surface on the renderer's existing
 # environment-error channel rather than being handed to the LLM patcher as a test failure.
@@ -154,8 +164,39 @@ class TerminalProcess:
         self.close()
 
 
+def pty_disabled_by_environment() -> bool:
+    """Reads the override from Codeplain's own environment, once per spawn.
+
+    Only the exact value "1" selects the pipe backend; unset, empty, or anything else
+    leaves the PTY in place. Env-only, so it stays a break-glass control rather than a
+    configuration axis a workflow can be built on.
+    """
+    return os.environ.get(NO_PTY_ENV_VAR) == NO_PTY_ENABLED_VALUE
+
+
+def child_environment(env: Optional[dict]) -> dict:
+    """The environment a target runs in, minus the controls it must not observe.
+
+    A rendered script that could see the override could branch on it, which would turn a
+    support control into part of the contract.
+    """
+    child_env = dict(os.environ if env is None else env)
+    child_env.pop(NO_PTY_ENV_VAR, None)
+    return child_env
+
+
 def create_terminal_process() -> TerminalProcess:
     """The one construction site: returns the backend this execution runs on."""
+    if pty_disabled_by_environment():
+        console.warning(
+            f"{NO_PTY_ENV_VAR}={NO_PTY_ENABLED_VALUE} is set, so this script runs on the legacy pipe "
+            "backend: terminal semantics are disabled and isatty() will be false in the script. "
+            "Unset it once the environment problem that needed it is resolved, and please report that problem."
+        )
+        from render_machine._legacy_pipe import LegacyPipeProcess
+
+        return LegacyPipeProcess()
+
     if sys.platform == "win32":
         # Interim: Windows has no PTY backend yet, so it stays on the documented legacy
         # pipe path until the ConPTY backend lands (ENG-34, Phase 6).
