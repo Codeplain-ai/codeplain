@@ -12,13 +12,16 @@ from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
     TerminalProcess,
     TerminalProcessError,
-    TerminalReaderError,
     create_terminal_process,
 )
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
 POLL_INTERVAL_SECONDS = 0.2
+
+# The raw transcript is written beside the published one under this suffix, so it is
+# discoverable from the returned path and cleanable by the same convention.
+RAW_OUTPUT_SUFFIX = ".raw"
 
 # The `codeplain-tty` broker that would drive a script's terminal input is deferred, so no
 # input driver is ever attached. The timeout diagnostic is keyed on this declaration rather
@@ -88,6 +91,10 @@ class _ScriptOutcome:
         self.exit_code: Optional[int] = None
         self.detail = ""
 
+    def decided(self) -> bool:
+        """True once any condition has been observed, whatever its rank."""
+        return self.exit_code is not None or self.condition != CONDITION_EXIT
+
     def target_exited(self, exit_code: int) -> None:
         self.exit_code = exit_code
 
@@ -104,7 +111,11 @@ class _ScriptOutcome:
         if _CONDITION_RANK[condition] < _CONDITION_RANK[self.condition]:
             return
         if condition == self.condition and self.detail:
-            return  # the first evidence of a condition is the one that explains it
+            # The first evidence of a condition is the one that explains it; later
+            # evidence — a teardown diagnostic, say — is kept after it, never instead.
+            if detail and detail not in self.detail:
+                self.detail = f"{self.detail} (also: {detail})"
+            return
         self.condition = condition
         self.detail = detail
 
@@ -120,28 +131,37 @@ class _ScriptExecution:
         self.reply_detail = ""
 
 
+def _reader_failure_detail(process: TerminalProcess) -> str:
+    return f"the terminal output reader failed: {process.reader_exc!r}"
+
+
 def _await_target(
     process: TerminalProcess,
     script_timeout: float,
     stop_event: Optional[threading.Event],
     outcome: _ScriptOutcome,
 ) -> None:
-    """Waits for the target, recording whichever condition ends the wait."""
+    """Waits for the target, recording every condition each poll can observe.
+
+    No fact ends the wait before the others have been recorded: a target that exits after
+    its deadline, or while a cancellation is already set, races with the condition it
+    coincides with, and only the rank table decides which of them is published.
+    """
     deadline = time.monotonic() + script_timeout
     while True:
         returncode = process.poll()
         if returncode is not None:
             outcome.target_exited(returncode)
-            return
-        if process.reader_failed.is_set():
-            raise TerminalReaderError(f"the terminal output reader failed: {process.reader_exc!r}")
+        if stop_event is not None and stop_event.is_set():
+            outcome.cancelled()
         if time.monotonic() >= deadline:
             outcome.timed_out()
+        if process.reader_failed.is_set():
+            outcome.infrastructure_failed(_reader_failure_detail(process))
+        if outcome.decided():
             return
         if stop_event is not None:
             stop_event.wait(timeout=POLL_INTERVAL_SECONDS)
-            if stop_event.is_set():
-                raise RenderCancelledError()
         else:
             time.sleep(POLL_INTERVAL_SECONDS)
 
@@ -161,36 +181,75 @@ def _teardown(process: TerminalProcess, outcome: _ScriptOutcome) -> None:
     # died independently is an environment failure even when it surfaces while a timeout
     # or a cancellation is being cleaned up.
     if process.reader_failed.is_set():
-        outcome.infrastructure_failed(f"the terminal output reader failed: {process.reader_exc!r}")
+        outcome.infrastructure_failed(_reader_failure_detail(process))
 
 
-def _run_script(cmd: list[str], script_timeout: float, stop_event: Optional[threading.Event]) -> _ScriptExecution:
-    execution = _ScriptExecution()
-    process: Optional[TerminalProcess] = None
+def _record_backend_failure(outcome: _ScriptOutcome, exc: Exception, phase: str) -> None:
+    """Classifies anything the backend raises, not only what it declares.
+
+    The tuple contract holds for every failure of the machinery around the script: a
+    backend that raises something unforeseen is still an environment failure, never an
+    exception the callers have to unwind.
+    """
+    if isinstance(exc, TerminalProcessError):
+        outcome.infrastructure_failed(str(exc))
+    else:
+        outcome.infrastructure_failed(f"the terminal backend failed {phase}: {exc!r}")
+
+
+def _collect_backend_state(process: TerminalProcess, execution: _ScriptExecution) -> None:
+    """Reads everything publication needs off the torn-down backend."""
     try:
-        process = create_terminal_process()
-        try:
-            process.spawn(cmd, stop_event=stop_event, input_driver=INPUT_DRIVER)
-            _await_target(process, script_timeout, stop_event, execution.outcome)
-        finally:
-            _teardown(process, execution.outcome)
-    except RenderCancelledError:
-        execution.outcome.cancelled()
-    except TerminalProcessError as exc:
-        execution.outcome.infrastructure_failed(str(exc))
-    if process is not None:
         execution.output = process.normalized_output()
         execution.raw_output = process.read_raw_output()
         execution.reply_failed = process.terminal_reply_failed
         execution.reply_detail = process.terminal_reply_detail()
+    except Exception as exc:
+        _record_backend_failure(execution.outcome, exc, "while reporting its result")
+
+
+def _run_script(cmd: list[str], script_timeout: float, stop_event: Optional[threading.Event]) -> _ScriptExecution:
+    execution = _ScriptExecution()
+    outcome = execution.outcome
+    process: Optional[TerminalProcess] = None
+    try:
+        process = create_terminal_process()
+    except Exception as exc:
+        _record_backend_failure(outcome, exc, "while being created")
+    if process is None:
+        return execution
+    try:
+        process.spawn(cmd, stop_event=stop_event, input_driver=INPUT_DRIVER)
+        _await_target(process, script_timeout, stop_event, outcome)
+    except RenderCancelledError:
+        outcome.cancelled()
+    except Exception as exc:
+        # Recorded here rather than around the teardown, so the failure that ended the run
+        # is the one that explains the outcome and a teardown diagnostic can only follow it.
+        _record_backend_failure(outcome, exc, "while running the script")
+    finally:
+        _teardown(process, outcome)
+    _collect_backend_state(process, execution)
     return execution
 
 
-def _store_raw_output(script_type: str, raw_output: bytes) -> None:
-    """Keeps the unrendered bytes next to the transcript, for diagnosing the renderer."""
-    with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".script_output.raw") as raw_file:
-        raw_file.write(raw_output)
-        console.debug(f"{script_type} script raw output stored in: {raw_file.name}", color=MUTED_COLOR)
+def _store_raw_output(script_type: str, raw_output: bytes, output_file_path: Optional[str]) -> None:
+    """Keeps the unrendered bytes next to the transcript, for diagnosing the renderer.
+
+    A derived sibling of the published artifact rather than a temp file of its own: the
+    raw bytes are only useful beside the transcript they explain, and a caller holding the
+    path it was handed can find and remove this one by convention.
+    """
+    if output_file_path is None:
+        return
+    raw_file_path = output_file_path + RAW_OUTPUT_SUFFIX
+    try:
+        with open(raw_file_path, "wb") as raw_file:
+            raw_file.write(raw_output)
+    except OSError as exc:  # a diagnostic artifact never changes the published outcome
+        console.debug(f"could not store the {script_type} script raw output: {exc}", color=MUTED_COLOR)
+        return
+    console.debug(f"{script_type} script raw output stored in: {raw_file_path}", color=MUTED_COLOR)
 
 
 def _publish_exit(
@@ -313,29 +372,33 @@ def execute_script(
     execution = _run_script(cmd, script_timeout, stop_event)
     elapsed_time = time.time() - start_time
     outcome = execution.outcome
-    _store_raw_output(script_type, execution.raw_output)
 
     # The outcome arbiter, in precedence order.
     if outcome.condition == CONDITION_INFRASTRUCTURE:
-        return _publish_environment_error(script, script_type, outcome.detail, execution.output)
-    if outcome.condition == CONDITION_CANCELLED:
+        result = _publish_environment_error(script, script_type, outcome.detail, execution.output)
+    elif outcome.condition == CONDITION_CANCELLED:
+        # A cancelled run publishes nothing, so it leaves no artifact behind either.
         raise RenderCancelledError()
-    if outcome.condition == CONDITION_TIMEOUT:
-        return _publish_timeout(
+    elif outcome.condition == CONDITION_TIMEOUT:
+        result = _publish_timeout(
             script, script_type, script_timeout, execution.output, execution.reply_failed, execution.reply_detail
         )
-    if outcome.exit_code is None:
-        return _publish_environment_error(
+    elif outcome.exit_code is None:
+        result = _publish_environment_error(
             script, script_type, "the script's exit status was never observed", execution.output
         )
-    if execution.reply_failed:
+    elif execution.reply_failed:
         # The pumps were healthy and the script exited normally, but a reply it was
         # waiting for never reached it — so its exit status describes a run that did not
         # get the terminal it asked for.
-        return _publish_environment_error(
+        result = _publish_environment_error(
             script,
             script_type,
             f"terminal replies the script asked for could not be delivered: {execution.reply_detail}",
             execution.output,
         )
-    return _publish_exit(script, script_type, outcome.exit_code, execution.output, elapsed_time, frid, module)
+    else:
+        result = _publish_exit(script, script_type, outcome.exit_code, execution.output, elapsed_time, frid, module)
+
+    _store_raw_output(script_type, execution.raw_output, result[2])
+    return result

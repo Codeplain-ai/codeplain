@@ -22,6 +22,7 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
 import textwrap
 import threading
 import time
@@ -33,8 +34,10 @@ from plain2code_exceptions import RenderCancelledError
 from render_machine import render_utils
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
+    READER_STALL_DETAIL,
     TerminalLaunchError,
     TerminalProcess,
+    TerminalProcessError,
 )
 
 posix_only = pytest.mark.skipif(
@@ -72,6 +75,25 @@ def _make_python_script(directory: Path, name: str, program: str) -> str:
     return str(script_path)
 
 
+RAW_ARTIFACT_GLOB = f"*.script_*{render_utils.RAW_OUTPUT_SUFFIX}"
+
+
+@pytest.fixture(autouse=True)
+def no_orphaned_raw_transcripts():
+    """Every raw transcript must be reachable from the path execute_script() returned.
+
+    Runs around every case in this module, including the ones that never call the
+    `run_script` fixture, so an artifact nobody can name shows up as a failure here.
+    """
+    temp_dir = Path(tempfile.gettempdir())
+    before = set(temp_dir.glob(RAW_ARTIFACT_GLOB))
+
+    yield
+
+    orphaned = set(temp_dir.glob(RAW_ARTIFACT_GLOB)) - before
+    assert not orphaned, f"raw transcripts left behind: {sorted(str(path) for path in orphaned)}"
+
+
 @pytest.fixture
 def run_script():
     """Calls execute_script() and removes the output files it leaves behind."""
@@ -86,8 +108,10 @@ def run_script():
     yield _run
 
     for output_file in output_files:
-        with contextlib.suppress(OSError):
-            os.remove(output_file)
+        # The raw transcript is a derived sibling, so the returned path names both.
+        for path in (output_file, output_file + render_utils.RAW_OUTPUT_SUFFIX):
+            with contextlib.suppress(OSError):
+                os.remove(path)
 
 
 @posix_only
@@ -99,6 +123,18 @@ def test_successful_script_returns_zero_with_its_output(tmp_path, run_script):
     assert exit_code == 0
     assert "ran with first second" in output
     assert os.path.isfile(output_file)
+
+
+@posix_only
+def test_the_raw_transcript_is_a_named_sibling_of_the_published_output(tmp_path, run_script):
+    """The unrendered bytes are findable from the returned path, so they can be cleaned up."""
+    script = _make_shell_script(tmp_path, "coloured", 'printf "\\033[31mred\\033[0m\\n"\n')
+
+    exit_code, _, output_file = run_script(script, [], SCRIPT_TYPE, timeout=30)
+
+    raw_file = Path(output_file + render_utils.RAW_OUTPUT_SUFFIX)
+    assert exit_code == 0
+    assert b"\033[31m" in raw_file.read_bytes()
 
 
 @posix_only
@@ -328,23 +364,48 @@ REPLY_DETAIL = "cursor-position reply discarded before delivery"
 
 
 class _FakeTerminalProcess(TerminalProcess):
-    """A backend whose outcome is scripted, including failures discovered during teardown."""
+    """A backend whose outcome is scripted, including failures discovered during teardown.
 
-    def __init__(self, exit_code=None, spawn_error=None, reader_fails_on_close=False, reply_failed=False):
+    Its reader is modelled rather than assumed: `reader_running` stays true until a
+    `close()` that actually joined it, so a case can leave a reader alive past the join
+    bound and the barrier has something real to hold.
+    """
+
+    def __init__(
+        self,
+        exit_code=None,
+        spawn_error=None,
+        poll_error=None,
+        reader_fails_while_running=False,
+        reader_fails_on_close=False,
+        reader_outlives_close=False,
+        teardown_error=None,
+        reply_failed=False,
+    ):
         self.reader_failed = threading.Event()
         self.reader_exc = None
         self.exit_code = exit_code
         self.spawn_error = spawn_error
+        self.poll_error = poll_error
+        self.reader_fails_while_running = reader_fails_while_running
         self.reader_fails_on_close = reader_fails_on_close
+        self.reader_outlives_close = reader_outlives_close
+        self.teardown_error = teardown_error
         self._reply_failed = reply_failed
         self.terminated = False
         self.closed = False
+        self.reader_running = True
 
     def spawn(self, command, cwd=None, env=None, terminal_size=(80, 24), stop_event=None, input_driver=None):
         if self.spawn_error is not None:
             raise self.spawn_error
 
     def poll(self):
+        if self.poll_error is not None:
+            raise self.poll_error
+        if self.reader_fails_while_running:  # an independent failure, while the target runs
+            self.reader_exc = READER_FAILURE
+            self.reader_failed.set()
         return self.exit_code
 
     def read_output(self):
@@ -371,9 +432,14 @@ class _FakeTerminalProcess(TerminalProcess):
         if self.reader_fails_on_close:  # discovered while the grace period runs
             self.reader_exc = READER_FAILURE
             self.reader_failed.set()
+        if self.teardown_error is not None:
+            raise self.teardown_error
 
     def close(self):
         self.closed = True
+        if self.reader_outlives_close:
+            self._publish_reader_stall()  # the join bound expired with the reader alive
+        self.reader_running = False
 
 
 @pytest.fixture
@@ -392,13 +458,19 @@ def injected_backend(monkeypatch):
 
 RAISES_CANCELLED = "raises RenderCancelledError"
 
+# Every case is decided within a single poll: a zero timeout makes the deadline already
+# expired when it is first read, and the stop event is set before the call. Nothing waits
+# on the clock, so the racing pairs below are as deterministic as the single conditions.
 ARBITER_CASES = [
     # name, backend kwargs, stop_event set, timeout, expected exit code
     ("the deadline alone", {}, False, 0, render_utils.TIMEOUT_ERROR_EXIT_CODE),
     ("the deadline with a reader failure", {"reader_fails_on_close": True}, False, 0, ENVIRONMENT_ERROR_EXIT_CODE),
+    ("the deadline with an exit observed in the same poll", {"exit_code": 3}, False, 0, 124),
     ("a cancellation alone", {}, True, 30, RAISES_CANCELLED),
     ("a cancellation with a query failure", {"reply_failed": True}, True, 30, RAISES_CANCELLED),
     ("a cancellation with a reader failure", {"reader_fails_on_close": True}, True, 30, ENVIRONMENT_ERROR_EXIT_CODE),
+    ("a cancellation with the deadline expired", {}, True, 0, RAISES_CANCELLED),
+    ("a cancellation with an exit observed in the same poll", {"exit_code": 3}, True, 30, RAISES_CANCELLED),
     ("a nonzero exit alone", {"exit_code": 3}, False, 30, 3),
     (
         "a nonzero exit with a query failure",
@@ -444,7 +516,10 @@ def test_the_arbiter_ranks_every_condition_that_can_race(
         exit_code, _, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=timeout, stop_event=stop_event)
         assert exit_code == expected
 
-    assert process.closed  # teardown runs before publication on every path
+    # Teardown runs before publication on every path, and it joined the reader: nothing
+    # can append to the transcript or publish a failure after the outcome was decided.
+    assert process.closed
+    assert process.reader_running is False
 
 
 def test_a_reader_failure_during_teardown_names_the_reader(injected_backend, run_script):
@@ -463,6 +538,60 @@ def test_an_undeliverable_reply_names_the_query_that_went_unanswered(injected_ba
 
     assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
     assert REPLY_DETAIL in issue
+
+
+def test_a_reader_failure_while_the_target_runs_is_an_environment_error(injected_backend, run_script):
+    """An active reader that dies is infrastructure, not the exit status it coincides with."""
+    injected_backend(exit_code=0, reader_fails_while_running=True)
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "reader" in issue
+
+
+def test_a_reader_that_outlives_the_join_bound_is_an_environment_error(injected_backend, run_script):
+    """close() cannot report a released backend while its reader is still running."""
+    process = injected_backend(exit_code=0, reader_outlives_close=True)
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert READER_STALL_DETAIL in issue
+    assert process.reader_running is True  # exactly the state the barrier has to catch
+
+
+def test_a_backend_that_raises_something_unforeseen_on_spawn_still_returns_69(injected_backend, run_script):
+    """Thread.start() failing is a RuntimeError, and must not escape the tuple contract."""
+    injected_backend(spawn_error=RuntimeError("can't start new thread"))
+
+    exit_code, issue, output_file = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "can't start new thread" in issue
+    assert os.path.isfile(output_file)
+
+
+def test_a_backend_that_raises_while_polling_still_returns_69(injected_backend, run_script):
+    injected_backend(poll_error=OSError("the child could not be waited on"))
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "the child could not be waited on" in issue
+
+
+def test_a_teardown_failure_does_not_displace_the_launch_failure_it_followed(injected_backend, run_script):
+    injected_backend(
+        spawn_error=TerminalLaunchError("openpty failed"),
+        teardown_error=TerminalProcessError("the process group could not be signalled"),
+    )
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "could not be executed: openpty failed" in issue  # the launch failure leads
+    assert issue.index("openpty failed") < issue.index("could not be signalled")
 
 
 def test_a_launch_failure_is_reported_on_the_environment_channel_and_never_as_127(injected_backend, run_script):

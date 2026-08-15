@@ -9,18 +9,20 @@ Scripts are executed for real, so every case that runs one is POSIX-only.
 """
 
 import contextlib
+import errno
 import json
 import os
 import stat
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from render_machine.terminal_process import InputDisposition
+from render_machine.terminal_process import READER_STALL_DETAIL, InputDisposition, TerminalReaderError
 from render_machine.terminal_queries import ResponderState
 
 posix_only = pytest.mark.skipif(
@@ -31,6 +33,7 @@ posix_only = pytest.mark.skipif(
 pytestmark = posix_only
 
 if sys.platform != "win32":
+    from render_machine import _legacy_pipe
     from render_machine._legacy_pipe import LegacyPipeProcess
 
 SPAWN_TIMEOUT = 20.0
@@ -225,6 +228,51 @@ def test_a_command_that_cannot_be_started_is_an_environment_error(tmp_path, back
         backend.spawn([missing])
 
     assert failure.value.exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+
+
+def test_a_read_failure_while_the_backend_is_active_is_published(tmp_path, backend):
+    """An OSError from the read path is expected closure only once the pipe is gone."""
+    script = make_shell_script(tmp_path, "chatty", "while true; do printf tick; sleep 0.05; done\n")
+
+    def failing_feed(chunk, decoder):
+        raise OSError(errno.EIO, "injected reader failure")
+
+    backend._feed_output = failing_feed
+    backend.spawn([script])
+
+    deadline = time.monotonic() + SPAWN_TIMEOUT
+    while not backend.reader_failed.is_set() and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert backend.reader_failed.is_set()
+    assert isinstance(backend.reader_exc, OSError)
+
+
+def test_a_reader_that_outlives_its_join_bound_is_published_as_a_reader_failure(tmp_path, backend, monkeypatch):
+    """close() must not report a released backend while the reader still holds the pipe."""
+    monkeypatch.setattr(_legacy_pipe, "DRAIN_DEADLINE_SECONDS", 0.05)
+    monkeypatch.setattr(_legacy_pipe, "CLOSE_JOIN_SECONDS", 0.05)
+    script = make_shell_script(tmp_path, "prints_then_waits", 'echo "hello"\nsleep 30\n')
+    reading = threading.Event()
+    release = threading.Event()
+    real_feed = backend._feed_output
+
+    def stalling_feed(chunk, decoder):
+        reading.set()
+        release.wait(SPAWN_TIMEOUT)  # holds the reader past both joins in close()
+        real_feed(chunk, decoder)
+
+    backend._feed_output = stalling_feed
+    backend.spawn([script])
+    assert reading.wait(SPAWN_TIMEOUT)
+
+    try:
+        with pytest.raises(TerminalReaderError) as failure:
+            backend.close()
+        assert READER_STALL_DETAIL in str(failure.value)
+        assert backend.reader_failed.is_set()
+    finally:
+        release.set()
 
 
 # --- The terminal-isolation guard ------------------------------------------------

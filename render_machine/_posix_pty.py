@@ -599,8 +599,10 @@ class PosixPtyProcess(TerminalProcess):
         self._drain_deadline = time.monotonic() + DRAIN_DEADLINE_SECONDS
         self._input_queue.stop_accepting(self._closing)
         self._ring_doorbell()
+        stalled = False
         if self._reader is not None and self._reader.ident is not None:  # None when it never started
             self._reader.join(timeout=DRAIN_DEADLINE_SECONDS + REAP_DEADLINE_SECONDS)
+            stalled = self._reader.is_alive()
         self._close_owned("_wakeup_w")
         self._close_owned("_err_r")
         self._close_owned("_status_r")
@@ -609,6 +611,8 @@ class PosixPtyProcess(TerminalProcess):
             self._proc.stderr.close()
         if self._bundle is not None and self._bundle.owner == _OWNER_PARENT:
             self._bundle.close_all()  # no reader ever took them
+        if stalled:  # every handle this side owns is released first
+            self._publish_reader_stall()
 
     # ------------------------------------------------------------- spawn helpers
 
@@ -994,8 +998,15 @@ class PosixPtyProcess(TerminalProcess):
                 return  # nothing more is in flight
             try:
                 chunk = self._read_master(master_fd, READ_CHUNK_BYTES)
-            except (BlockingIOError, OSError):
+            except BlockingIOError:
                 return
+            except OSError as exc:
+                # Only the two ways a drain legitimately ends: the PTY reached EOF, or the
+                # master was released under a backend that is already closing. Anything
+                # else is an independent read failure and is published like one.
+                if exc.errno == errno.EIO or (exc.errno == errno.EBADF and self._closing.is_set()):
+                    return
+                raise
             if not chunk:
                 return
             # The same feed path as the loop: drained output belongs on the decoded

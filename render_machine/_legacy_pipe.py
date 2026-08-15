@@ -69,6 +69,7 @@ class LegacyPipeProcess(TerminalProcess):
         self._reader: Optional[threading.Thread] = None
         self._spawned = False
         self._closed = False
+        self._closing = threading.Event()
         self._reaped = False
 
         self._output_lock = threading.Lock()
@@ -163,6 +164,8 @@ class LegacyPipeProcess(TerminalProcess):
         if self._closed:
             return
         self._closed = True
+        self._closing.set()  # from here a failing read is expected closure, not a fault
+        stalled = False
         if self._reader is not None and self._reader.ident is not None:
             self._reader.join(timeout=DRAIN_DEADLINE_SECONDS)
             if self._reader.is_alive():
@@ -170,8 +173,11 @@ class LegacyPipeProcess(TerminalProcess):
                 # broken rather than waited out.
                 self._close_stdout()
                 self._reader.join(timeout=CLOSE_JOIN_SECONDS)
+            stalled = self._reader.is_alive()
         self._close_stdout()
         self.normalizer.finalize()
+        if stalled:
+            self._publish_reader_stall()
 
     # -------------------------------------------------------------------- internals
 
@@ -221,8 +227,12 @@ class LegacyPipeProcess(TerminalProcess):
                 if not chunk:
                     break
                 self._feed_output(chunk, decoder)
-        except (OSError, ValueError):
-            pass  # expected: close() breaks a parked read by closing the pipe underneath it
+        except (OSError, ValueError) as exc:
+            # Expected only once the pipe is gone: close() breaks a parked read by closing
+            # it underneath the reader. The same error while the backend is still active
+            # is an independent reader failure and has to be published like any other.
+            if not (self._closing.is_set() or stream.closed):
+                reader_exc = exc
         except BaseException as exc:  # nothing here reaches threading.excepthook
             reader_exc = exc
         finally:

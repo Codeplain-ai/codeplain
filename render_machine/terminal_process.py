@@ -64,6 +64,11 @@ INPUT_WRITE_BUDGET_BYTES = 64 * 1024
 # the parent an unbounded buffer while the reads continue.
 LAUNCHER_STDERR_CAP_BYTES = 16 * 1024
 
+# Published when close() has waited out its bound and the reader is still running: such a
+# reader can still append output or fail afterwards, so the transcript it produced cannot
+# be trusted and the execution is an environment failure.
+READER_STALL_DETAIL = "the terminal output reader did not terminate within its shutdown bound"
+
 
 class InputDisposition(Enum):
     """Immediate whole-item backend admission — never a delivery receipt."""
@@ -156,6 +161,19 @@ class TerminalProcess:
 
     def close(self) -> None:
         raise NotImplementedError
+
+    def _publish_reader_stall(self) -> None:
+        """Publishes a reader that close() could not join, and refuses to return quietly.
+
+        A backend whose reader is still running owns handles it has not released and can
+        still append output, so close() must not report a released backend: the stall is
+        published on the reader's own channel and raised.
+        """
+        error = TerminalReaderError(READER_STALL_DETAIL)
+        if self.reader_exc is None:
+            self.reader_exc = error
+        self.reader_failed.set()
+        raise error
 
     def __enter__(self) -> "TerminalProcess":
         return self
