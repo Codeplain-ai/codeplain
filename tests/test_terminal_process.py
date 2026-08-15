@@ -18,9 +18,10 @@ from pathlib import Path
 
 import pytest
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="The POSIX PTY backend is not built on Windows.")
-
-pytestmark = posix_only
+if sys.platform == "win32":
+    # Parametrize lists below reference the POSIX-only modules at import time, so a
+    # skipif mark is not enough — collection itself must stop here.
+    pytest.skip("The POSIX PTY backend is not built on Windows.", allow_module_level=True)
 
 if sys.platform != "win32":
     import termios
