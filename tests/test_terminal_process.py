@@ -5,11 +5,13 @@ is POSIX-only. Each helper is responsible for leaving no descriptor and no proce
 behind — the suite runs against a bounded system PTY limit.
 """
 
+import errno
 import os
 import select
 import signal
 import subprocess
 import sys
+import termios
 import threading
 import time
 from contextlib import contextmanager
@@ -341,6 +343,7 @@ def test_launcher_runs_no_startup_customization(tmp_path):
 # --------------------------------------------------------------------- backend
 
 if sys.platform != "win32":
+    from plain2code_exceptions import RenderCancelledError
     from render_machine import _posix_pty
     from render_machine.terminal_process import (
         InputDisposition,
@@ -561,3 +564,907 @@ def test_write_input_reports_backpressure_for_an_oversized_item():
         result = process.write_input(b"x" * (_posix_pty.MAX_INPUT_ITEM_BYTES + 1))
         assert result.disposition is InputDisposition.BACKPRESSURE
         assert result.accepted_bytes == 0
+
+
+# ------------------------------------------------------------------- lifecycle
+
+
+def make_script(directory, name, body):
+    """Writes an executable /bin/sh script and returns its absolute path."""
+    path = Path(directory) / f"{name}.sh"
+    path.write_text("#!/bin/sh\n" + body)
+    path.chmod(0o755)
+    return str(path)
+
+
+def wait_until_gone(pid, timeout=SPAWN_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def reported_pid(process, label, timeout=SPAWN_TIMEOUT):
+    collected = wait_for_output(process, f"{label}:", timeout)
+    for line in collected.replace("\r", "").splitlines():
+        if line.startswith(f"{label}:"):
+            return int(line.split(":", 1)[1])
+    raise AssertionError(f"no {label} pid in {collected!r}")
+
+
+def test_close_returns_while_the_reader_is_parked_and_a_descendant_holds_the_slave(tmp_path):
+    """The regression guard for the verified macOS close()-on-a-blocked-read hang.
+
+    The failure mode is a hang rather than an exception, so the assertion is on elapsed
+    time: `close()` must return and the reader must join while both the leader and a
+    descendant still hold the slave open.
+    """
+    script = make_script(tmp_path, "holder", "sleep 20 &\nprintf 'descendant:%s\\n' \"$!\"\nsleep 20\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+        descendant = reported_pid(process, "descendant")
+        assert process.poll() is None
+        assert process._reader is not None and process._reader.is_alive()
+
+        started = time.monotonic()
+        process.close()
+        elapsed = time.monotonic() - started
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert elapsed < _posix_pty.DRAIN_DEADLINE_SECONDS + SHORT_TIMEOUT
+    assert not process._reader.is_alive()
+    assert process.reader_exc is None
+    assert wait_until_gone(descendant)
+
+
+def test_reader_exits_cleanly_when_the_leader_exits_with_a_descendant_on_the_slave(tmp_path):
+    """Either the hangup or the last slave close ends the stream; neither may raise."""
+    script = make_script(tmp_path, "leaver", "sleep 20 &\nprintf 'descendant:%s\\n' \"$!\"\nexit 0\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+        descendant = reported_pid(process, "descendant")
+        assert wait_for_exit(process) == 0
+        started = time.monotonic()
+        process.close()
+        elapsed = time.monotonic() - started
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+        if not wait_until_gone(descendant, timeout=0.5):
+            os.kill(descendant, signal.SIGKILL)
+
+    assert elapsed < _posix_pty.DRAIN_DEADLINE_SECONDS + SHORT_TIMEOUT
+    assert process.reader_exc is None
+
+
+def test_cancellation_inside_the_ack_window_leaves_nothing_behind():
+    """Deterministic through the delayed-ack hook: the window is opened, not raced."""
+    stop_event = threading.Event()
+    process = _posix_pty.PosixPtyProcess()
+    threading.Timer(0.2, stop_event.set).start()
+    try:
+        with pytest.raises(RenderCancelledError):
+            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event, pre_ack_delay=5.0)
+    finally:
+        process.close()
+
+    launcher_pid = process._proc.pid
+    assert process._proc.returncode is not None
+    assert wait_until_gone(launcher_pid)
+
+
+def test_cancellation_after_the_ack_reaps_a_forked_descendant(tmp_path):
+    script = make_script(
+        tmp_path,
+        "forker",
+        "sleep 30 &\nprintf 'descendant:%s\\n' \"$!\"\nsleep 30\n",
+    )
+    stop_event = threading.Event()
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script], stop_event=stop_event)
+        descendant = reported_pid(process, "descendant")
+        stop_event.set()
+        process.terminate_tree(grace=0.2)
+    finally:
+        process.close()
+
+    assert wait_until_gone(descendant)
+
+
+def test_launcher_ack_timeout_beats_the_parents_ack():
+    """The parent's write hits a closed pipe; the launcher's own reason must surface."""
+    env = dict(os.environ, **{pty_exec.ACK_TIMEOUT_ENV: "0.2"})
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(TerminalLaunchError) as failure:
+            process.spawn(["/bin/sh", "-c", "exit 0"], env=env, pre_ack_delay=2.0, handshake_timeout=10.0)
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert "did not acknowledge" in str(failure.value)
+
+
+def test_codeplains_own_process_group_is_never_signalled(tmp_path, monkeypatch):
+    signalled = []
+    real_killpg = os.killpg
+
+    def recording_killpg(pgid, sig):
+        signalled.append(pgid)
+        return real_killpg(pgid, sig)
+
+    monkeypatch.setattr(_posix_pty.os, "killpg", recording_killpg)
+    own_pgid = os.getpgrp()
+
+    # Cancellation before the handshake completes, where no group has been recorded yet.
+    hanging = write_launcher(tmp_path, "hang.py", "import time\ntime.sleep(120)\n")
+    monkeypatch.setattr(_posix_pty, "_LAUNCHER", hanging)
+    stop_event = threading.Event()
+    threading.Timer(0.2, stop_event.set).start()
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(RenderCancelledError):
+            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event, handshake_timeout=10.0)
+    finally:
+        process.close()
+
+    # Cancellation inside the ack window, and termination after a normal spawn.
+    monkeypatch.undo()
+    monkeypatch.setattr(_posix_pty.os, "killpg", recording_killpg)
+    stop_event = threading.Event()
+    threading.Timer(0.2, stop_event.set).start()
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(RenderCancelledError):
+            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event, pre_ack_delay=5.0)
+    finally:
+        process.close()
+
+    with terminal(command=["/bin/sh", "-c", "sleep 30"]) as running:
+        running.terminate_tree(grace=0.1)
+
+    assert own_pgid not in signalled
+    assert signalled, "the recorded group should still be signalled on the ordinary path"
+
+
+def test_killpg_has_exactly_one_call_site():
+    """A bare os.killpg(os.getpgid(...)) anywhere is the F1 defect returning."""
+    source = Path(_posix_pty.__file__).read_text()
+    assert source.count("os.killpg(") == 1
+    assert "getpgid" not in source
+
+
+def test_spawn_without_a_stop_event_runs_end_to_end():
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn(["/bin/sh", "-c", "printf done; exit 0"])
+        wait_for_output(process, "done")
+        assert wait_for_exit(process) == 0
+    finally:
+        process.close()
+
+
+def test_spawn_time_veof_lets_a_single_read_script_exit_promptly(tmp_path):
+    script = make_script(tmp_path, "single_read", "read line\nprintf 'read-returned:%s\\n' \"$?\"\nexit 0\n")
+    started = time.monotonic()
+    with terminal(command=[script]) as process:
+        wait_for_output(process, "read-returned:")
+        assert wait_for_exit(process) == 0
+    assert time.monotonic() - started < SHORT_TIMEOUT
+
+
+def test_spawn_time_veof_leaves_no_trace(tmp_path):
+    """Echo is disabled around the injection, so a silent command stays byte-empty."""
+    script = make_script(tmp_path, "silent", "exit 0\n")
+    with terminal(command=[script]) as process:
+        assert wait_for_exit(process) == 0
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            time.sleep(0.05)
+        raw = process.read_raw_output()
+        decoded = process.read_output()
+
+    assert raw == b""
+    assert decoded == ""
+
+
+def test_a_slow_silent_script_runs_to_completion_untouched(tmp_path):
+    """The regression guard against the rejected silence timer."""
+    script = make_script(tmp_path, "slow_silent", "sleep 1.5\nprintf finished\nexit 0\n")
+    with terminal(command=[script]) as process:
+        wait_for_output(process, "finished")
+        assert wait_for_exit(process) == 0
+
+
+def arm_fault(process, method, error=None):
+    """Wraps one reader entry point so a failure can be injected at a chosen moment."""
+    real = getattr(process, method)
+    state = {"armed": False, "calls": 0}
+
+    def faulty(*args, **kwargs):
+        state["calls"] += 1
+        if state["armed"]:
+            raise error if error is not None else OSError(errno.EBADF, "injected reader failure")
+        return real(*args, **kwargs)
+
+    setattr(process, method, faulty)
+    return state
+
+
+def open_fd_count():
+    return len(os.listdir("/dev/fd"))
+
+
+def test_close_is_idempotent_and_survives_a_partial_spawn(monkeypatch):
+    baseline = open_fd_count()
+
+    monkeypatch.setattr(
+        _posix_pty.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError(2, "no interpreter"))
+    )
+    process = _posix_pty.PosixPtyProcess()
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(["/bin/sh", "-c", "exit 0"])
+    process.close()
+    process.close()
+
+    assert open_fd_count() == baseline
+
+
+def test_failure_before_the_reader_starts_closes_the_parent_owned_descriptors(monkeypatch):
+    """No reader exists to close them, so spawn()'s except path has to."""
+    baseline = open_fd_count()
+    monkeypatch.setattr(
+        _posix_pty.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError(2, "no interpreter"))
+    )
+    process = _posix_pty.PosixPtyProcess()
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(["/bin/sh", "-c", "exit 0"])
+
+    assert process._bundle is not None
+    assert process._bundle.owner == "parent"
+    assert process._bundle.master_fd is None
+    assert process._bundle.wakeup_r is None
+    assert process._bundle.err_w is None
+    assert open_fd_count() == baseline
+
+
+def test_closing_err_r_transfers_ownership_rather_than_sharing_it(tmp_path):
+    """A descriptor number is reusable the instant it is freed, so the field is swapped
+    to None before the close and only what the swap returned is closed."""
+    process = _posix_pty.PosixPtyProcess()
+    unrelated = None
+    unrelated_path = tmp_path / "unrelated.txt"
+    try:
+        process.spawn(["/bin/sh", "-c", "sleep 5"])
+        process._close_owned("_err_r")  # the transfer the handshake performs on a reader edge
+        unrelated = os.open(str(unrelated_path), os.O_CREAT | os.O_RDWR, 0o600)
+        process.terminate_tree(grace=0.05)
+        process.close()
+        process.close()
+        os.write(unrelated, b"still mine")  # close() must not have taken this number
+    finally:
+        if unrelated is not None:
+            os.close(unrelated)
+        process.close()
+
+    assert unrelated_path.read_bytes() == b"still mine"
+
+
+def test_descriptor_counts_are_stable_across_failing_spawns(tmp_path, monkeypatch):
+    """Covers the ack pair and the launcher's stderr as well as the reader bundle."""
+    hanging = write_launcher(tmp_path, "hang_fd.py", "import time\ntime.sleep(120)\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn(["/bin/sh", "-c", "exit 0"])
+        wait_for_exit(process)
+    finally:
+        process.close()
+
+    baseline = open_fd_count()
+    for _ in range(2):
+        failing = _posix_pty.PosixPtyProcess()
+        with pytest.raises(TerminalLaunchError):
+            failing.spawn(["/nonexistent/command/for/tests"])
+        failing.close()
+        assert open_fd_count() == baseline
+
+        monkeypatch.setattr(_posix_pty, "_LAUNCHER", hanging)
+        hung = _posix_pty.PosixPtyProcess()
+        with pytest.raises(TerminalLaunchError):
+            hung.spawn(["/bin/sh", "-c", "exit 0"], handshake_timeout=0.5)
+        hung.close()
+        monkeypatch.undo()
+        assert open_fd_count() == baseline
+
+
+def test_a_launcher_that_floods_stderr_does_not_stall_the_handshake(tmp_path, monkeypatch):
+    flood = write_launcher(
+        tmp_path,
+        "flood.py",
+        "import os\n"
+        "payload = b'HEAD' + b'x' * (512 * 1024) + b'TAIL'\n"
+        "while payload:\n"
+        "    payload = payload[os.write(2, payload):]\n"
+        "os._exit(3)\n",
+    )
+    monkeypatch.setattr(_posix_pty, "_LAUNCHER", flood)
+
+    process = _posix_pty.PosixPtyProcess()
+    started = time.monotonic()
+    try:
+        with pytest.raises(TerminalLaunchError) as failure:
+            process.spawn(["/bin/sh", "-c", "exit 0"], handshake_timeout=SPAWN_TIMEOUT)
+    finally:
+        process.close()
+
+    assert time.monotonic() - started < SPAWN_TIMEOUT
+    assert "the interpreter died before running the launcher" in str(failure.value)
+    diagnostic = process.launcher_stderr
+    assert diagnostic.total > 512 * 1024, "the flood was not read to completion"
+    text = diagnostic.text()
+    assert text.startswith("HEAD") and text.endswith("TAIL")
+    assert len(text) < 2 * _posix_pty.LAUNCHER_STDERR_CAP_BYTES + 128
+
+
+def test_escalation_is_driven_by_the_clock_not_by_the_leaders_exit(tmp_path):
+    """The leader dies on SIGTERM at once; the descendant that ignores it must still go."""
+    script = make_script(
+        tmp_path,
+        "escalation",
+        "( trap '' TERM; printf 'descendant:%s\\n' \"$$\"; sleep 30 ) &\nsleep 30\n",
+    )
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+        descendant = reported_pid(process, "descendant")
+        process.terminate_tree(grace=0.3)
+    finally:
+        process.close()
+
+    assert wait_until_gone(descendant)
+
+
+def test_teardown_tolerates_a_zombie_only_group(tmp_path):
+    """The graceful path: the leader has exited and only our unreaped zombie remains."""
+    script = make_script(tmp_path, "quick", "printf bye\nexit 0\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+        wait_for_output(process, "bye")
+        time.sleep(0.3)  # let the leader exit without reaping it through poll()
+        process.terminate_tree(grace=0.1)
+    finally:
+        process.close()
+
+    assert process._proc.returncode is not None  # reaped despite the EPERM answer
+
+
+def test_teardown_tolerates_a_permission_error_from_killpg(tmp_path, monkeypatch):
+    """macOS answers EPERM, not ESRCH, for a group holding only our zombie leader."""
+    script = make_script(tmp_path, "quick_eperm", "sleep 30\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+
+        def denying_killpg(pgid, sig):
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr(_posix_pty.os, "killpg", denying_killpg)
+        process.terminate_tree(grace=0.05)
+        monkeypatch.undo()
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert process._reaped
+
+
+def test_the_grace_period_survives_cancellation(tmp_path):
+    """stop_event is already set when teardown begins, so the grace runs off its own clock."""
+    script = make_script(
+        tmp_path,
+        "graceful",
+        "trap 'printf handled; exit 0' TERM\nprintf ready\nwhile true; do sleep 0.05; done\n",
+    )
+    stop_event = threading.Event()
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script], stop_event=stop_event)
+        wait_for_output(process, "ready")
+        stop_event.set()
+        process.terminate_tree(grace=2.0)
+        collected = process.read_output()
+    finally:
+        process.close()
+
+    assert "handled" in collected
+    assert process._proc.returncode == 0
+
+
+def test_an_exception_mid_grace_still_escalates(tmp_path):
+    script = make_script(
+        tmp_path,
+        "interrupted_grace",
+        "( trap '' TERM; printf 'descendant:%s\\n' \"$$\"; sleep 30 ) &\nsleep 30\n",
+    )
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+        descendant = reported_pid(process, "descendant")
+
+        def interrupting_tick():
+            raise KeyboardInterrupt()
+
+        process._grace_tick = interrupting_tick
+        with pytest.raises(KeyboardInterrupt):
+            process.terminate_tree(grace=1.0)
+    finally:
+        process.close()
+
+    assert wait_until_gone(descendant)
+    assert process._proc.returncode is not None
+
+
+def test_a_reader_failure_during_teardown_still_escalates(tmp_path):
+    """Teardown records the error and runs the sequence to completion before reporting."""
+    script = make_script(
+        tmp_path,
+        "reader_fault_grace",
+        "trap '' TERM\n( trap '' TERM; printf 'descendant:%s\\n' \"$$\"; sleep 30 ) &\nsleep 30\n",
+    )
+    process = _posix_pty.PosixPtyProcess()
+    fault = arm_fault(process, "_select")
+    try:
+        process.spawn([script])
+        descendant = reported_pid(process, "descendant")
+
+        real_tick = process._grace_tick
+
+        def failing_tick():
+            fault["armed"] = True
+            real_tick()
+
+        process._grace_tick = failing_tick
+        process.terminate_tree(grace=0.5)
+    finally:
+        process.close()
+
+    assert wait_until_gone(descendant)
+    assert process.reader_failed.is_set()
+    with pytest.raises(_posix_pty.TerminalReaderError) as failure:
+        process._check_reader_failed()
+    assert failure.value.exit_code == 69
+
+
+def test_a_reader_failure_during_the_handshake_aborts_it_promptly():
+    process = _posix_pty.PosixPtyProcess()
+    fault = arm_fault(process, "_select")
+    fault["armed"] = True
+    started = time.monotonic()
+    try:
+        with pytest.raises(_posix_pty.TerminalReaderError) as failure:
+            process.spawn(["/bin/sh", "-c", "sleep 30"], handshake_timeout=SPAWN_TIMEOUT)
+    finally:
+        process.close()
+
+    assert time.monotonic() - started < SPAWN_TIMEOUT  # not at the deadline
+    assert failure.value.exit_code == 69
+    assert process._bundle.master_fd is None and process._bundle.wakeup_r is None
+    assert process._bundle.err_w is None
+    assert process._proc.returncode is not None  # the child was terminated
+
+
+def test_a_failing_read_closes_the_descriptors_and_is_classified(tmp_path):
+    script = make_script(tmp_path, "chatty", "while true; do printf tick; sleep 0.05; done\n")
+    process = _posix_pty.PosixPtyProcess()
+    fault = arm_fault(process, "_read_master")
+    try:
+        process.spawn([script])
+        wait_for_output(process, "tick")
+        fault["armed"] = True
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while not process.reader_failed.is_set() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert process.reader_failed.is_set()
+        with pytest.raises(_posix_pty.TerminalReaderError) as failure:
+            process._check_reader_failed()
+        process.terminate_tree(grace=0.05)
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert process._bundle.master_fd is None and process._bundle.wakeup_r is None
+    assert process._bundle.err_w is None
+    assert process._proc.returncode is not None
+
+
+def test_a_failing_final_flush_is_published_with_err_w_closed_last(tmp_path):
+    script = make_script(tmp_path, "brief", "printf bye\nexit 0\n")
+    process = _posix_pty.PosixPtyProcess()
+    process._flush_decoder = lambda decoder: (_ for _ in ()).throw(RuntimeError("injected flush failure"))
+    try:
+        process.spawn([script])
+        wait_for_output(process, "bye")
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while not process.reader_failed.is_set() and time.monotonic() < deadline:
+            time.sleep(0.02)
+    finally:
+        process.close()
+
+    assert process.reader_failed.is_set()
+    assert isinstance(process.reader_exc, RuntimeError)
+    assert process._bundle.err_w is None  # closed last, after everything else was released
+
+
+def test_the_veof_transaction_runs_on_the_reader_and_restores_the_terminal_mode(tmp_path):
+    script = make_script(tmp_path, "veof_owner", "sleep 5\n")
+    process = _posix_pty.PosixPtyProcess()
+    threads = []
+    receipts = []
+    real_prepare = process._veof_prepare
+    real_submit = process._input_queue.submit
+
+    def recording_prepare():
+        threads.append(threading.current_thread().name)
+        real_prepare()
+
+    def recording_submit(*args, **kwargs):
+        result, receipt = real_submit(*args, **kwargs)
+        receipts.append(receipt)
+        return result, receipt
+
+    process._veof_prepare = recording_prepare
+    process._input_queue.submit = recording_submit
+    try:
+        process.spawn([script])
+        attributes = termios.tcgetattr(process._bundle.master_fd)  # read-only probe
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert threads == ["codeplain-pty-reader"], "no parent helper may touch the raw master"
+    assert receipts and receipts[0].resolutions == 1
+    assert attributes[3] & termios.ECHO, "the snapshot was not restored"
+
+
+def test_a_failing_veof_snapshot_prevents_the_ack():
+    process = _posix_pty.PosixPtyProcess()
+    process._veof_prepare = lambda: (_ for _ in ()).throw(OSError(errno.EIO, "injected snapshot failure"))
+    try:
+        with pytest.raises(TerminalEnvironmentError) as failure:
+            process.spawn(["/bin/sh", "-c", "printf ran"])
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert not process._acked
+    assert process.read_raw_output() == b""  # the target never ran
+
+
+def test_a_failing_veof_restore_is_attempted_and_reported():
+    process = _posix_pty.PosixPtyProcess()
+    attempts = []
+
+    def failing_restore():
+        attempts.append("restore")
+        raise OSError(errno.EIO, "injected restore failure")
+
+    process._veof_restore = failing_restore
+    try:
+        with pytest.raises(TerminalEnvironmentError) as failure:
+            process.spawn(["/bin/sh", "-c", "printf ran"])
+    finally:
+        process.close()
+
+    assert attempts == ["restore"]  # every path that changed the mode attempts the restore
+    assert failure.value.exit_code == 69
+    assert not process._acked
+
+
+def test_the_veof_survives_an_eagain_mid_item(tmp_path):
+    script = make_script(tmp_path, "veof_eagain", "read line\nprintf 'read-returned:%s\\n' \"$?\"\n")
+    process = _posix_pty.PosixPtyProcess()
+    real_write = process._write_master
+    state = {"blocked": False}
+
+    def blocking_once(fd, data):
+        if not state["blocked"]:
+            state["blocked"] = True
+            raise BlockingIOError(errno.EAGAIN, "injected EAGAIN")
+        return real_write(fd, data)
+
+    process._write_master = blocking_once
+    try:
+        process.spawn([script])
+        wait_for_output(process, "read-returned:")
+        assert wait_for_exit(process) == 0
+    finally:
+        process.close()
+
+    assert state["blocked"]
+
+
+def test_close_during_an_in_flight_fragmented_item_fails_its_receipt_once(tmp_path):
+    script = make_script(tmp_path, "fragmented_close", "sleep 10\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script], input_driver=object())
+        real_write = process._write_master
+        state = {"calls": 0}
+
+        def stalling_write(fd, data):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                return real_write(fd, data[:1])
+            raise BlockingIOError(errno.EAGAIN, "held mid-item")
+
+        process._write_master = stalling_write
+        payload = b"abcdef"
+        result, receipt = process._input_queue.submit(payload)
+        assert result.disposition is InputDisposition.ACCEPTED
+        process._ring_doorbell()
+
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while state["calls"] < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert state["calls"] >= 2
+        # Dequeue is not completion: the retained cursor still counts against the cap.
+        assert process._input_queue.pending_bytes() == len(payload)
+
+        process.close()
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert receipt.resolutions == 1
+    assert receipt.disposition is InputDisposition.CLOSED
+    assert process._input_queue.pending_bytes() == 0
+
+
+def test_a_saturated_doorbell_is_only_a_coalesced_notification(tmp_path):
+    script = make_script(tmp_path, "doorbell", "sleep 10\n")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script], input_driver=object())
+        while True:  # fill the doorbell to EAGAIN
+            try:
+                os.write(process._wakeup_w, b"\x01" * 4096)
+            except BlockingIOError:
+                break
+
+        result = process.write_input(b"after saturation\n")
+        assert result.disposition is InputDisposition.ACCEPTED
+
+        started = time.monotonic()
+        process.close()
+        elapsed = time.monotonic() - started
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert elapsed < _posix_pty.DRAIN_DEADLINE_SECONDS + SHORT_TIMEOUT
+    assert process._input_queue.pending_bytes() == 0
+
+
+def test_a_fragmented_logical_write_keeps_its_suffix_ahead_of_later_items(tmp_path):
+    """The public result stays whole-item; no PARTIAL and no interleaving escape."""
+    script = make_script(tmp_path, "ordering", "sleep 10\n")
+    process = _posix_pty.PosixPtyProcess()
+    written = []
+    released = threading.Event()
+    try:
+        process.spawn([script], input_driver=object())
+        real_write = process._write_master
+        state = {"held": False}
+
+        def fragmenting_write(fd, data):
+            count = real_write(fd, data[:2])
+            written.append(data[:count])
+            if not state["held"]:
+                state["held"] = True
+                released.wait(SHORT_TIMEOUT)  # hold the reader inside the first item
+            return count
+
+        process._write_master = fragmenting_write
+        first = process.write_input(b"AAAAAAAA")
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while not state["held"] and time.monotonic() < deadline:
+            time.sleep(0.02)
+        second = process.write_input(b"BBBB")
+        third = process.write_input(b"CCCC")
+        released.set()
+
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while process._input_queue.has_pending() and time.monotonic() < deadline:
+            time.sleep(0.02)
+    finally:
+        released.set()
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert [r.disposition for r in (first, second, third)] == [InputDisposition.ACCEPTED] * 3
+    assert [r.accepted_bytes for r in (first, second, third)] == [8, 4, 4]
+    assert b"".join(written) == b"AAAAAAAABBBBCCCC"
+
+
+def test_the_final_drain_is_bounded_against_a_continuously_writing_escapee(tmp_path):
+    escapee = tmp_path / "escapee.py"
+    escapee.write_text(
+        "import os, sys, time\n"
+        "os.setpgid(0, 0)\n"
+        "sys.stdout.write('escapee:%d\\n' % os.getpid())\n"
+        "sys.stdout.flush()\n"
+        "end = time.monotonic() + 30\n"
+        "while time.monotonic() < end:\n"
+        "    sys.stdout.write('x' * 4096)\n"
+        "    sys.stdout.flush()\n"
+    )
+    script = make_script(tmp_path, "escaper", f'"{sys.executable}" "{escapee}" &\nsleep 30\n')
+
+    process = _posix_pty.PosixPtyProcess()
+    escapee_pid = None
+    try:
+        process.spawn([script])
+        escapee_pid = reported_pid(process, "escapee")
+        process.terminate_tree(grace=0.1)  # the escapee left the group and survives
+        started = time.monotonic()
+        process.close()
+        elapsed = time.monotonic() - started
+    finally:
+        process.close()
+        if escapee_pid is not None and not wait_until_gone(escapee_pid, timeout=0.5):
+            os.kill(escapee_pid, signal.SIGKILL)
+
+    assert elapsed < _posix_pty.DRAIN_DEADLINE_SECONDS + SHORT_TIMEOUT
+
+
+def test_write_input_after_the_reader_closed_the_master_touches_nothing(tmp_path):
+    unrelated_path = tmp_path / "unrelated.txt"
+    process = _posix_pty.PosixPtyProcess()
+    unrelated = None
+    try:
+        process.spawn(["/bin/sh", "-c", "printf bye"], input_driver=object())
+        assert wait_for_exit(process) == 0
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while process._bundle.master_fd is not None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert process._bundle.master_fd is None
+        process.close()
+
+        unrelated = os.open(str(unrelated_path), os.O_CREAT | os.O_RDWR, 0o600)
+        result = process.write_input(b"nowhere")
+        os.write(unrelated, b"untouched")
+    finally:
+        if unrelated is not None:
+            os.close(unrelated)
+        process.close()
+
+    assert result.disposition is InputDisposition.CLOSED
+    assert result.accepted_bytes == 0
+    assert unrelated_path.read_bytes() == b"untouched"
+
+
+def test_a_jumping_wall_clock_changes_nothing(monkeypatch, tmp_path):
+    """Every budget is monotonic; wall time is only ever a human timestamp."""
+    assert "time.time(" not in Path(_posix_pty.__file__).read_text()
+
+    jumps = iter([10_000.0, -10_000.0])
+    real_time = time.time
+
+    def jumping_time():
+        try:
+            return real_time() + next(jumps)
+        except StopIteration:
+            return real_time()
+
+    monkeypatch.setattr(time, "time", jumping_time)
+    script = make_script(tmp_path, "clock", "printf steady\nsleep 30\n")
+    started = time.monotonic()
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn([script])
+        wait_for_output(process, "steady")
+        assert process.poll() is None  # not terminated early
+        process.terminate_tree(grace=0.2)
+    finally:
+        process.close()
+
+    assert time.monotonic() - started < SPAWN_TIMEOUT
+    assert process._proc.returncode is not None
+
+
+def test_the_interpreter_exits_while_the_reader_and_the_reaper_are_still_blocked(tmp_path):
+    """Every thread this design starts is a daemon; a non-daemon one hangs shutdown."""
+    driver = tmp_path / "daemon_threads.py"
+    driver.write_text(
+        "import subprocess, sys, threading\n"
+        f"sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+        "from render_machine import _posix_pty\n"
+        "never_set = threading.Event()\n"
+        "class StuckProc:\n"
+        "    pid = -1\n"
+        "    def wait(self, timeout=None):\n"
+        "        if timeout is not None:\n"
+        "            raise subprocess.TimeoutExpired('stuck', timeout)\n"
+        "        never_set.wait()\n"
+        "process = _posix_pty.PosixPtyProcess()\n"
+        "process.spawn(['/bin/sh', '-c', 'sleep 5'])\n"
+        "_posix_pty._reap(StuckProc(), 0.01)\n"
+        "assert process._reader.is_alive()\n"
+        "sys.stdout.write('ready\\n')\n"
+        "sys.stdout.flush()\n"
+    )
+    started = time.monotonic()
+    completed = subprocess.run([sys.executable, str(driver)], capture_output=True, text=True, timeout=SPAWN_TIMEOUT)
+    elapsed = time.monotonic() - started
+
+    assert "ready" in completed.stdout, completed.stderr
+    assert completed.returncode == 0
+    assert elapsed < SPAWN_TIMEOUT
+
+
+def framed(kind, payload=b""):
+    return bytes([kind]) + len(payload).to_bytes(4, "big") + payload
+
+
+def test_the_handshake_parser_accepts_only_started_then_session_ready_then_eof():
+    parser = _posix_pty._HandshakeParser()
+    parser.feed(framed(pty_exec.STARTED))
+    parser.feed(framed(pty_exec.SESSION_READY))
+    assert parser.session_ready
+    parser.eof()  # the only success case
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        [bytes([0x7F]) + (0).to_bytes(4, "big")],  # unknown record type
+        [bytes([pty_exec.STARTED]) + (pty_exec.MAX_PAYLOAD + 1).to_bytes(4, "big")],  # oversized length
+        [framed(pty_exec.STARTED, b"payload")],  # a marker carrying a payload
+        [framed(pty_exec.SESSION_READY)],  # SESSION_READY before STARTED
+        [framed(pty_exec.STARTED), framed(pty_exec.STARTED)],  # duplicate marker
+        [framed(pty_exec.STARTED), framed(pty_exec.SESSION_READY), framed(pty_exec.SESSION_READY)],
+        [framed(pty_exec.STARTED), framed(pty_exec.FAILED, b"boom"), b"trailing"],
+    ],
+)
+def test_the_handshake_parser_rejects_malformed_frames(chunks):
+    """An oversized length is rejected before its body is allocated or waited for."""
+    parser = _posix_pty._HandshakeParser()
+    with pytest.raises(_posix_pty._ProtocolError):
+        for chunk in chunks:
+            parser.feed(chunk)
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        [framed(pty_exec.STARTED), b"\x02\x00"],  # truncated header at EOF
+        [framed(pty_exec.STARTED), bytes([pty_exec.FAILED]) + (8).to_bytes(4, "big") + b"half"],
+        [framed(pty_exec.STARTED)],  # EOF after only STARTED
+        [],  # EOF with no marker at all
+    ],
+)
+def test_the_handshake_parser_rejects_incomplete_streams_at_eof(chunks):
+    parser = _posix_pty._HandshakeParser()
+    for chunk in chunks:
+        parser.feed(chunk)
+    with pytest.raises(_posix_pty._ProtocolError):
+        parser.eof()
+
+
+def test_the_handshake_parser_reassembles_fragmented_records():
+    parser = _posix_pty._HandshakeParser()
+    stream = framed(pty_exec.STARTED) + framed(pty_exec.SESSION_READY)
+    for index in range(len(stream)):
+        parser.feed(stream[index : index + 1])
+    assert parser.started and parser.session_ready
+    parser.eof()

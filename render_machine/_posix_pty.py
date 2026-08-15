@@ -521,7 +521,7 @@ class PosixPtyProcess(TerminalProcess):
         self._drain_deadline = time.monotonic() + DRAIN_DEADLINE_SECONDS
         self._input_queue.stop_accepting(self._closing)
         self._ring_doorbell()
-        if self._reader is not None:
+        if self._reader is not None and self._reader.ident is not None:  # None when it never started
             self._reader.join(timeout=DRAIN_DEADLINE_SECONDS + REAP_DEADLINE_SECONDS)
         self._close_owned("_wakeup_w")
         self._close_owned("_err_r")
@@ -725,7 +725,7 @@ class PosixPtyProcess(TerminalProcess):
         if receipt.disposition is not InputDisposition.ACCEPTED:
             # Teardown resolves receipts before it publishes the reader's failure, so a
             # discarded item usually means the reader died; let it publish, then classify.
-            if self._reader is not None:
+            if self._reader is not None and self._reader.ident is not None:
                 self._reader.join(timeout=POLL_INTERVAL_SECONDS * 4)
             self._check_reader_failed()
             raise TerminalEnvironmentError("The spawn-time EOF was discarded before delivery")
