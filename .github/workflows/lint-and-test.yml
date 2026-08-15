@@ -114,21 +114,28 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Configure git for tests
-        run: |
-          git config --global user.email "test@example.com"
-          git config --global user.name "Test Runner"
-          git config --global init.defaultBranch main
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install coverage
+      # Every step below runs a single command. Windows runners default to
+      # PowerShell, where a failing native command does not abort the remaining
+      # commands of a multi-command run block; one command per step makes a
+      # failure fail the job on every OS without shell-specific workarounds.
+      - name: Configure git user email
+        run: git config --global user.email "test@example.com"
+      - name: Configure git user name
+        run: git config --global user.name "Test Runner"
+      - name: Configure git default branch
+        run: git config --global init.defaultBranch main
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Install coverage
+        run: pip install coverage
       - name: Run tests with coverage
-        run: |
-          coverage run -m pytest tests/ -v
-          coverage xml
-          coverage report
+        run: coverage run -m pytest tests/ -v
+      - name: Generate coverage XML
+        run: coverage xml
+      - name: Show coverage report
+        run: coverage report
       - name: Upload coverage reports
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v3
