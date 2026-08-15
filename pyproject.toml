@@ -110,6 +110,19 @@ exclude = [
     "^examples/",
 ]
 
+# The global disable_error_code list hides every platform-symbol error, which is
+# exactly what the platform-split modules need reported: under the --platform matrix
+# a reference to a symbol the target platform lacks must fail. Per-module
+# enable_error_code takes precedence over the global disable.
+[[tool.mypy.overrides]]
+module = [
+    "render_machine.terminal_process",
+    "render_machine._posix_pty",
+    "render_machine._conpty",
+    "render_machine.pty_exec",
+]
+enable_error_code = ["attr-defined", "unreachable", "misc"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
