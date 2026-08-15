@@ -78,12 +78,18 @@ HARNESS_SOURCE = """
 import fcntl
 import json
 import os
+import signal
 import subprocess
 import sys
 import termios
 
 PROBE_TIMEOUT_SECONDS = 20
 CLEANUP_TIMEOUT_SECONDS = 10
+
+# Closing the PTY master hangs up the terminal; Linux delivers SIGHUP to this
+# process (session leader with the slave as controlling terminal) before the
+# report is written. The hangup is teardown noise, not part of the topology.
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
 
 def reap(process):

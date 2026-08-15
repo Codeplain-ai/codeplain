@@ -11,7 +11,6 @@ import select
 import signal
 import subprocess
 import sys
-import termios
 import threading
 import time
 from contextlib import contextmanager
@@ -24,6 +23,8 @@ posix_only = pytest.mark.skipif(sys.platform == "win32", reason="The POSIX PTY b
 pytestmark = posix_only
 
 if sys.platform != "win32":
+    import termios
+
     from render_machine import pty_exec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
