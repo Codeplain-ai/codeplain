@@ -44,6 +44,10 @@ READ_CHUNK_BYTES = 65536
 MAX_INPUT_ITEM_BYTES = 64 * 1024
 MAX_PENDING_INPUT_BYTES = 256 * 1024
 RESERVED_INPUT_BYTES = 8 * 1024
+# The queue is bounded in items as well as in bytes: a queue entry costs far more than
+# the bytes it carries, so the byte budget alone does not bound small items.
+MAX_PENDING_INPUT_ITEMS = 1024
+RESERVED_INPUT_ITEMS = 64
 INPUT_WRITE_BUDGET_BYTES = 64 * 1024
 
 # Head and tail retained from the launcher's stderr, so a flooding launcher cannot hand

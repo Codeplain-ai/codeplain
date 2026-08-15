@@ -550,6 +550,81 @@ def test_openpty_failure_is_an_environment_error(monkeypatch):
     assert "too many open files" in str(failure.value)
 
 
+def fail_nth_call(monkeypatch, module, name, error, nth):
+    """Lets the first `nth - 1` calls through and fails the one after them."""
+    real = getattr(module, name)
+    state = {"calls": 0}
+
+    def failing(*args, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == nth:
+            raise error
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, failing)
+    return state
+
+
+@pytest.mark.parametrize("nth", [1, 2, 3, 4])
+def test_a_failing_channel_pipe_rolls_back_the_descriptors_already_opened(monkeypatch, nth):
+    """One case per os.pipe() in _open_channels: the earlier pairs must not survive it."""
+    baseline = open_fd_count()
+    state = fail_nth_call(monkeypatch, _posix_pty.os, "pipe", OSError(errno.EMFILE, "too many open files"), nth)
+
+    process = _posix_pty.PosixPtyProcess()
+    with pytest.raises(TerminalEnvironmentError) as failure:
+        process.spawn(["/bin/sh", "-c", "exit 0"])
+    process.close()
+    monkeypatch.undo()
+
+    assert state["calls"] == nth
+    assert failure.value.exit_code == 69
+    assert "too many open files" in str(failure.value)
+    assert open_fd_count() == baseline
+
+
+@pytest.mark.parametrize("nth", [2, 3])
+def test_a_failing_doorbell_mode_change_rolls_back_every_channel(monkeypatch, nth):
+    """The doorbell's os.set_blocking() calls run with all four pipe pairs already open."""
+    baseline = open_fd_count()
+    error = OSError(errno.EBADF, "injected set_blocking failure")
+    state = fail_nth_call(monkeypatch, _posix_pty.os, "set_blocking", error, nth)
+
+    process = _posix_pty.PosixPtyProcess()
+    with pytest.raises(TerminalEnvironmentError) as failure:
+        process.spawn(["/bin/sh", "-c", "exit 0"])
+    process.close()
+    monkeypatch.undo()
+
+    assert state["calls"] == nth  # the first call belongs to the master, not to the doorbell
+    assert failure.value.exit_code == 69
+    assert "injected set_blocking failure" in str(failure.value)
+    assert open_fd_count() == baseline
+
+
+def test_a_failing_reader_thread_construction_rolls_back_every_channel(monkeypatch):
+    """The last construction step in _open_channels; nothing has an owner before it."""
+    baseline = open_fd_count()
+    real_thread = _posix_pty.threading.Thread
+
+    def failing_thread(*args, **kwargs):
+        if kwargs.get("name") == "codeplain-pty-reader":
+            raise RuntimeError("can't start new thread")
+        return real_thread(*args, **kwargs)
+
+    monkeypatch.setattr(_posix_pty.threading, "Thread", failing_thread)
+    process = _posix_pty.PosixPtyProcess()
+    with pytest.raises(TerminalEnvironmentError) as failure:
+        process.spawn(["/bin/sh", "-c", "exit 0"])
+    process.close()
+    monkeypatch.undo()
+
+    assert failure.value.exit_code == 69
+    assert "can't start new thread" in str(failure.value)
+    assert process._bundle is None and process._reader is None  # nothing was published
+    assert open_fd_count() == baseline
+
+
 def test_write_input_reports_whole_item_admission():
     with terminal(command=["/bin/sh", "-c", "read line; printf 'got:%s' \"$line\""], input_driver=object()) as process:
         result = process.write_input(b"payload\n")
@@ -564,6 +639,56 @@ def test_write_input_reports_backpressure_for_an_oversized_item():
         result = process.write_input(b"x" * (_posix_pty.MAX_INPUT_ITEM_BYTES + 1))
         assert result.disposition is InputDisposition.BACKPRESSURE
         assert result.accepted_bytes == 0
+
+
+class _OversizedItem:
+    """Reports a size but refuses to be copied, so a copy-before-validate is visible."""
+
+    def __len__(self):
+        return _posix_pty.MAX_INPUT_ITEM_BYTES + 1
+
+    def __bytes__(self):
+        raise AssertionError("the oversized item was copied before it was rejected")
+
+
+def test_an_oversized_item_is_rejected_before_it_is_copied():
+    queue = _posix_pty._InputQueue()
+    result, receipt = queue.submit(_OversizedItem())
+
+    assert result.disposition is InputDisposition.BACKPRESSURE
+    assert result.accepted_bytes == 0
+    assert receipt.resolutions == 1
+    assert queue.pending_items() == 0
+
+
+def test_an_empty_item_never_becomes_a_queue_entry():
+    """Zero-length items cost no bytes, so admitting them would grow the queue unbounded."""
+    queue = _posix_pty._InputQueue()
+    for _ in range(10_000):
+        result, receipt = queue.submit(b"")
+        assert result.disposition is InputDisposition.ACCEPTED
+        assert result.accepted_bytes == 0
+        assert receipt.resolutions == 1
+
+    assert queue.pending_items() == 0
+    assert queue.pending_bytes() == 0
+    assert not queue.has_pending()
+
+
+def test_the_input_queue_bounds_the_item_count_as_well_as_the_bytes():
+    """Single-byte items exhaust the item budget long before the byte budget."""
+    queue = _posix_pty._InputQueue()
+    accepted = 0
+    while queue.submit(b"x")[0].disposition is InputDisposition.ACCEPTED:
+        accepted += 1
+        if accepted > _posix_pty.MAX_PENDING_INPUT_ITEMS:
+            raise AssertionError("the queue admitted more items than its item budget allows")
+
+    assert accepted == _posix_pty.MAX_PENDING_INPUT_ITEMS - _posix_pty.RESERVED_INPUT_ITEMS
+    assert queue.pending_bytes() == accepted
+    assert queue.pending_bytes() < _posix_pty.MAX_PENDING_INPUT_BYTES, "the byte budget was not the binding limit"
+    # The reserved partition is an admission partition, so control items still fit.
+    assert queue.submit(b"x", reserved=True)[0].disposition is InputDisposition.ACCEPTED
 
 
 # ------------------------------------------------------------------- lifecycle
@@ -646,16 +771,35 @@ def test_reader_exits_cleanly_when_the_leader_exits_with_a_descendant_on_the_sla
 
 
 def test_cancellation_inside_the_ack_window_leaves_nothing_behind():
-    """Deterministic through the delayed-ack hook: the window is opened, not raced."""
+    """Deterministic through the delayed-ack hook: the window is opened, not raced.
+
+    The cancellation waits for the hook to be entered, so it can never land before
+    SESSION_READY however slowly the launcher gets there.
+    """
     stop_event = threading.Event()
     process = _posix_pty.PosixPtyProcess()
-    threading.Timer(0.2, stop_event.set).start()
+    entered = threading.Event()
+    real_wait_pre_ack = process._wait_pre_ack
+
+    def recording_wait_pre_ack(delay, deadline):
+        entered.set()
+        real_wait_pre_ack(delay, deadline)
+
+    def cancel_inside_the_window():
+        if entered.wait(SPAWN_TIMEOUT):
+            stop_event.set()
+
+    process._wait_pre_ack = recording_wait_pre_ack
+    canceller = threading.Thread(target=cancel_inside_the_window, daemon=True)
+    canceller.start()
     try:
         with pytest.raises(RenderCancelledError):
             process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event, pre_ack_delay=5.0)
     finally:
+        canceller.join(timeout=SHORT_TIMEOUT)
         process.close()
 
+    assert entered.is_set()
     launcher_pid = process._proc.pid
     assert process._proc.returncode is not None
     assert wait_until_gone(launcher_pid)
@@ -1230,6 +1374,50 @@ def test_close_during_an_in_flight_fragmented_item_fails_its_receipt_once(tmp_pa
     assert process._input_queue.pending_bytes() == 0
 
 
+def test_close_finishes_an_in_flight_compound_item_before_failing_its_receipt(tmp_path):
+    """An EAGAIN'd echo-suppressed item still has its transaction closed by teardown.
+
+    Without that, a close during the spawn-time VEOF publishes CLOSED with the terminal
+    left in the mode `prepare` put it in.
+    """
+    script = make_script(tmp_path, "compound_close", "sleep 10\n")
+    process = _posix_pty.PosixPtyProcess()
+    prepared = threading.Event()
+    finished = []
+
+    def prepare():
+        process._veof_prepare()
+        prepared.set()
+
+    def finish():
+        process._veof_restore()
+        finished.append(termios.tcgetattr(process._bundle.master_fd))  # the reader still owns it
+
+    try:
+        process.spawn([script], input_driver=object())
+
+        def held_write(fd, data):
+            raise BlockingIOError(errno.EAGAIN, "held mid-item")
+
+        process._write_master = held_write
+        result, receipt = process._input_queue.submit(b"\x04", reserved=True, prepare=prepare, finish=finish)
+        assert result.disposition is InputDisposition.ACCEPTED
+        process._ring_doorbell()
+
+        assert prepared.wait(SPAWN_TIMEOUT)
+        assert not termios.tcgetattr(process._bundle.master_fd)[3] & termios.ECHO
+        process.close()
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert len(finished) == 1, "the in-flight transaction was never closed"
+    assert finished[0][3] & termios.ECHO, "the terminal mode was not restored"
+    assert receipt.resolutions == 1
+    assert receipt.disposition is InputDisposition.CLOSED
+    assert process._input_queue.pending_bytes() == 0
+
+
 def test_a_saturated_doorbell_is_only_a_coalesced_notification(tmp_path):
     script = make_script(tmp_path, "doorbell", "sleep 10\n")
     process = _posix_pty.PosixPtyProcess()
@@ -1319,12 +1507,45 @@ def test_the_final_drain_is_bounded_against_a_continuously_writing_escapee(tmp_p
         started = time.monotonic()
         process.close()
         elapsed = time.monotonic() - started
+        decoded = process.read_output()
+        raw = process.read_raw_output()
     finally:
         process.close()
         if escapee_pid is not None and not wait_until_gone(escapee_pid, timeout=0.5):
             os.kill(escapee_pid, signal.SIGKILL)
 
     assert elapsed < _posix_pty.DRAIN_DEADLINE_SECONDS + SHORT_TIMEOUT
+    assert "x" in decoded, "what the drain retained must reach the decoded channel too"
+    assert b"x" in raw
+
+
+def test_output_in_flight_at_close_reaches_the_decoded_channel(tmp_path):
+    """The reader is parked, so the marker can only be picked up by the final drain."""
+    script = make_script(tmp_path, "inflight", "printf 'inflight-marker\\n'\nsleep 10\n")
+    process = _posix_pty.PosixPtyProcess()
+    parked = {"calls": 0}
+
+    def parked_read_once(master_fd, decoder):
+        parked["calls"] += 1  # the master is readable, but the bytes stay in the terminal
+        time.sleep(0.02)
+        return True
+
+    process._read_once = parked_read_once
+    try:
+        process.spawn([script], input_driver=object())
+        deadline = time.monotonic() + SPAWN_TIMEOUT
+        while parked["calls"] < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert parked["calls"] >= 2, "the target never wrote anything"
+        process.close()
+        decoded = process.read_output()
+        raw = process.read_raw_output()
+    finally:
+        process.terminate_tree(grace=0.05)
+        process.close()
+
+    assert "inflight-marker" in decoded
+    assert b"inflight-marker" in raw
 
 
 def test_write_input_after_the_reader_closed_the_master_touches_nothing(tmp_path):
@@ -1383,7 +1604,12 @@ def test_a_jumping_wall_clock_changes_nothing(monkeypatch, tmp_path):
 
 
 def test_the_interpreter_exits_while_the_reader_and_the_reaper_are_still_blocked(tmp_path):
-    """Every thread this design starts is a daemon; a non-daemon one hangs shutdown."""
+    """Every thread this design starts is a daemon; a non-daemon one hangs shutdown.
+
+    The target outlives the outer bound by a wide margin, so the reader is still blocked
+    on the master when the bound expires: only daemon threads let the interpreter exit
+    inside it.
+    """
     driver = tmp_path / "daemon_threads.py"
     driver.write_text(
         "import subprocess, sys, threading\n"
@@ -1397,19 +1623,26 @@ def test_the_interpreter_exits_while_the_reader_and_the_reaper_are_still_blocked
         "            raise subprocess.TimeoutExpired('stuck', timeout)\n"
         "        never_set.wait()\n"
         "process = _posix_pty.PosixPtyProcess()\n"
-        "process.spawn(['/bin/sh', '-c', 'sleep 5'])\n"
+        "process.spawn(['/bin/sh', '-c', 'sleep 300'])\n"
         "_posix_pty._reap(StuckProc(), 0.01)\n"
         "assert process._reader.is_alive()\n"
-        "sys.stdout.write('ready\\n')\n"
+        "sys.stdout.write('ready:%d\\n' % process._pgid)\n"
         "sys.stdout.flush()\n"
     )
     started = time.monotonic()
     completed = subprocess.run([sys.executable, str(driver)], capture_output=True, text=True, timeout=SPAWN_TIMEOUT)
     elapsed = time.monotonic() - started
 
-    assert "ready" in completed.stdout, completed.stderr
-    assert completed.returncode == 0
-    assert elapsed < SPAWN_TIMEOUT
+    assert "ready:" in completed.stdout, completed.stderr
+    target_pgid = int(completed.stdout.split("ready:", 1)[1].split()[0])
+    try:
+        assert completed.returncode == 0
+        assert elapsed < SPAWN_TIMEOUT
+    finally:  # the driver exits without terminating its target
+        try:
+            os.killpg(target_pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 def framed(kind, payload=b""):

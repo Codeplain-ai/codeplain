@@ -40,10 +40,12 @@ from render_machine.terminal_process import (
     LAUNCHER_STDERR_CAP_BYTES,
     MAX_INPUT_ITEM_BYTES,
     MAX_PENDING_INPUT_BYTES,
+    MAX_PENDING_INPUT_ITEMS,
     POLL_INTERVAL_SECONDS,
     READ_CHUNK_BYTES,
     REAP_DEADLINE_SECONDS,
     RESERVED_INPUT_BYTES,
+    RESERVED_INPUT_ITEMS,
     SIGTERM_GRACE_PERIOD_SECONDS,
     TERMINAL_COLUMNS,
     TERMINAL_ROWS,
@@ -170,6 +172,22 @@ class _InputItem:
         self.cursor = 0
         self.prepared = False
 
+    def finish_once(self) -> Optional[BaseException]:
+        """Closes the transaction the item opened, at most once, and never raises.
+
+        Whoever retires the item runs it — the pump on completion, teardown on a close
+        that takes the item mid-flight — so a prepared item can never be dropped with the
+        terminal left in the mode `prepare` put it in.
+        """
+        if not self.prepared or self.finish is None:
+            return None
+        self.prepared = False
+        try:
+            self.finish()
+        except BaseException as exc:
+            return exc
+        return None
+
 
 class _InputQueue:
     """Bounded, byte-accounted, ordered input queue.
@@ -185,6 +203,8 @@ class _InputQueue:
         max_item_bytes: int = MAX_INPUT_ITEM_BYTES,
         max_pending_bytes: int = MAX_PENDING_INPUT_BYTES,
         reserved_bytes: int = RESERVED_INPUT_BYTES,
+        max_pending_items: int = MAX_PENDING_INPUT_ITEMS,
+        reserved_items: int = RESERVED_INPUT_ITEMS,
     ) -> None:
         self._lock = threading.Lock()
         self._items: Deque[_InputItem] = collections.deque()
@@ -195,6 +215,8 @@ class _InputQueue:
         self._max_item_bytes = max_item_bytes
         self._max_pending_bytes = max_pending_bytes
         self._reserved_bytes = reserved_bytes
+        self._max_pending_items = max_pending_items
+        self._reserved_items = reserved_items
 
     def submit(
         self,
@@ -205,25 +227,36 @@ class _InputQueue:
         on_resolve: Optional[ResolveCallback] = None,
     ) -> Tuple[InputWriteResult, _Receipt]:
         receipt = _Receipt(on_resolve)
-        payload = bytes(data)
+        size = len(data)  # measured on the caller's view; nothing is copied until it is admitted
+        enqueued = False
         with self._lock:
+            byte_budget, item_budget = self._budget(reserved)
+            queued = len(self._items) + (0 if self._current is None else 1)
             if not self._accepting:
                 result = InputWriteResult(InputDisposition.CLOSED, 0)
-            elif len(payload) > self._max_item_bytes:
+            elif size == 0:
+                # Nothing to deliver, so it never becomes an entry: an empty item would
+                # otherwise grow the queue without ever touching the byte budget.
+                result = InputWriteResult(InputDisposition.ACCEPTED, 0)
+            elif size > self._max_item_bytes:
                 result = InputWriteResult(InputDisposition.BACKPRESSURE, 0)
-            elif self._pending_bytes + len(payload) > self._budget(reserved):
+            elif self._pending_bytes + size > byte_budget or queued >= item_budget:
                 result = InputWriteResult(InputDisposition.BACKPRESSURE, 0)
             else:
                 self._sequence += 1
-                self._items.append(_InputItem(payload, receipt, reserved, prepare, finish, self._sequence))
-                self._pending_bytes += len(payload)
-                result = InputWriteResult(InputDisposition.ACCEPTED, len(payload))
-        if result.disposition is not InputDisposition.ACCEPTED:
+                self._items.append(_InputItem(bytes(data), receipt, reserved, prepare, finish, self._sequence))
+                self._pending_bytes += size
+                result = InputWriteResult(InputDisposition.ACCEPTED, size)
+                enqueued = True
+        if not enqueued:  # nothing will retire it later, so it resolves here
             receipt.resolve(result.disposition)
         return result, receipt
 
-    def _budget(self, reserved: bool) -> int:
-        return self._max_pending_bytes if reserved else self._max_pending_bytes - self._reserved_bytes
+    def _budget(self, reserved: bool) -> Tuple[int, int]:
+        """Remaining admission budget in both dimensions, bytes first."""
+        if reserved:
+            return self._max_pending_bytes, self._max_pending_items
+        return self._max_pending_bytes - self._reserved_bytes, self._max_pending_items - self._reserved_items
 
     def has_pending(self) -> bool:
         with self._lock:
@@ -232,6 +265,10 @@ class _InputQueue:
     def pending_bytes(self) -> int:
         with self._lock:
             return self._pending_bytes
+
+    def pending_items(self) -> int:
+        with self._lock:
+            return len(self._items) + (0 if self._current is None else 1)
 
     def current(self) -> Optional[_InputItem]:
         """The item under the cursor, promoting the next waiting item when there is none."""
@@ -268,8 +305,11 @@ class _InputQueue:
                 self._current = None
             self._pending_bytes = 0
         for item in items:  # callbacks run outside the lock and cannot re-enter the queue
+            # The in-flight item may hold an open transaction; closing it is teardown's
+            # job now, and it happens before the receipt reports the item retired.
+            finish_error = item.finish_once()
             try:
-                item.receipt.resolve(InputDisposition.CLOSED, error)
+                item.receipt.resolve(InputDisposition.CLOSED, error or finish_error)
             except BaseException as exc:  # a receipt must never strand its siblings
                 console.debug(f"input receipt callback raised: {exc!r}")
         return items
@@ -600,23 +640,44 @@ class PosixPtyProcess(TerminalProcess):
         self._veof_byte = bytes([attrs[6][termios.VEOF][0]])
 
     def _open_channels(self) -> None:
-        """Pre-registers every parent-side owner before the API that fills it."""
-        status_r, status_w = os.pipe()
-        ack_r, ack_w = os.pipe()
-        wakeup_r, wakeup_w = os.pipe()
-        err_r, err_w = os.pipe()
-        os.set_blocking(wakeup_r, False)
-        os.set_blocking(wakeup_w, False)
+        """Pre-registers every parent-side owner before the API that fills it.
+
+        Nothing is published until every descriptor and both objects exist, so a failure
+        part-way through closes exactly what it opened and reports on the environment
+        channel rather than leaking ownerless descriptors behind a raw OSError.
+        """
+        opened: List[int] = []
+
+        def pipe() -> Tuple[int, int]:
+            read_fd, write_fd = os.pipe()
+            opened.extend((read_fd, write_fd))
+            return read_fd, write_fd
+
+        try:
+            status_r, status_w = pipe()
+            ack_r, ack_w = pipe()
+            wakeup_r, wakeup_w = pipe()
+            err_r, err_w = pipe()
+            os.set_blocking(wakeup_r, False)
+            os.set_blocking(wakeup_w, False)
+            master_fd = self._pending_master_fd
+            assert master_fd is not None
+            bundle = _ReaderBundle(master_fd, wakeup_r, err_w)
+            reader = threading.Thread(target=self._reader_main, name="codeplain-pty-reader", daemon=True)
+        except BaseException as exc:
+            for fd in opened:
+                _close_quietly(fd)
+            if isinstance(exc, (OSError, RuntimeError)):  # the terminal's own resources ran out
+                raise TerminalEnvironmentError(f"Could not open the terminal's control channels: {exc}") from exc
+            raise
 
         self._status_r = status_r
         self._ack_w = ack_w
         self._wakeup_w = wakeup_w
         self._err_r = err_r
-        master_fd = self._pending_master_fd
-        assert master_fd is not None
         self._pending_master_fd = None  # the bundle owns it from here
-        self._bundle = _ReaderBundle(master_fd, wakeup_r, err_w)
-        self._reader = threading.Thread(target=self._reader_main, name="codeplain-pty-reader", daemon=True)
+        self._bundle = bundle
+        self._reader = reader
         self._child_fds = (status_w, ack_r)
 
     def _start_child(self, command: Sequence[str], cwd: Optional[str], env: Optional[dict]) -> None:
@@ -840,7 +901,7 @@ class PosixPtyProcess(TerminalProcess):
                 _drain_doorbell(wakeup_r)  # bytes coalesce; state carries the meaning
             if self._closing.is_set():
                 self._input_queue.close_and_fail_all()
-                self._drain_remaining(master_fd)
+                self._drain_remaining(master_fd, decoder)
                 return
             if master_fd in readable and not self._read_once(master_fd, decoder):
                 return  # output always wins over queued input
@@ -913,15 +974,12 @@ class PosixPtyProcess(TerminalProcess):
                 raise error
 
     def _complete_item(self, item: _InputItem, error: Optional[BaseException]) -> Optional[BaseException]:
-        if item.prepared and item.finish is not None:
-            try:
-                item.finish()  # the restore is part of the item's contract, so it runs from here too
-            except BaseException as exc:
-                error = error or exc
+        finish_error = item.finish_once()  # the restore is part of the item's contract
+        error = error or finish_error
         self._input_queue.complete_current(error)
         return error
 
-    def _drain_remaining(self, master_fd: int) -> None:
+    def _drain_remaining(self, master_fd: int, decoder) -> None:
         """Catches output already in flight. Bounded by time, by bytes, and by a quiet period."""
         deadline = self._drain_deadline or (time.monotonic() + DRAIN_DEADLINE_SECONDS)
         drained = 0
@@ -938,9 +996,9 @@ class PosixPtyProcess(TerminalProcess):
                 return
             if not chunk:
                 return
-            with self._output_lock:
-                self._raw += chunk
-            self._byte_sink(chunk)  # still rendered; a query seen here is render-only
+            # The same feed path as the loop: drained output belongs on the decoded
+            # channel too. A query seen here is render-only — replies are already quiesced.
+            self._feed_output(chunk, decoder)
             drained += len(chunk)
 
     # ------------------------------------------------------------- query replies
