@@ -11,7 +11,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from plain2code_console import console
 from render_machine.terminal_queries import TerminalQueryResponder
@@ -225,8 +225,3 @@ def create_terminal_process() -> TerminalProcess:
     from render_machine._posix_pty import PosixPtyProcess
 
     return PosixPtyProcess()
-
-
-def available_backends() -> List[str]:
-    """Names the backends this build can construct. Used by diagnostics and tests."""
-    return ["legacy-pipe"] if sys.platform == "win32" else ["posix-pty", "legacy-pipe"]

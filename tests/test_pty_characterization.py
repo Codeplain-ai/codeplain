@@ -1,9 +1,10 @@
 """Characterization of the stale controlling-TTY topology described in ADR-001.
 
-The harness rebuilds the process topology that `execute_script()` produces today —
-a child spawned with `start_new_session=True` whose fd 0 still points at a terminal
-owned by the session the child has just left — without touching any production code.
-It documents the defect; it never validates a fix.
+The harness rebuilds the process topology `execute_script()` produced before this
+branch — a child spawned with `start_new_session=True` whose fd 0 still points at a
+terminal owned by the session the child has just left — without touching any
+production code. It documents the defect the terminal backend was built to remove; it
+never validates the fix.
 
 Three levels are needed. `os.openpty()` alone yields a terminal owned by no session,
 which is a weaker state than the one under study, so a middle process takes the slave
