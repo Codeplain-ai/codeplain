@@ -11,12 +11,14 @@ platform-neutral and is exercised everywhere.
 """
 
 import contextlib
+import json
 import os
-import shlex
 import stat
+import subprocess
 import sys
 import textwrap
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -46,14 +48,17 @@ def _make_shell_script(directory: Path, name: str, body: str) -> str:
 
 
 def _make_python_script(directory: Path, name: str, program: str) -> str:
-    """Writes a shell wrapper around a Python program and returns the wrapper's path."""
-    program_path = directory / f"{name}.py"
-    program_path.write_text(textwrap.dedent(program))
-    return _make_shell_script(
-        directory,
-        name,
-        f'exec {shlex.quote(sys.executable)} {shlex.quote(str(program_path))} "$@"\n',
-    )
+    """Writes an executable Python script and returns its absolute path.
+
+    The interpreter is named in the shebang rather than wrapped in a shell, so no shell
+    ever sits between the caller and the program. A shell that inherits a terminal with
+    pending input wedges on exit on macOS, which the terminal-isolation cases below rely
+    on not happening.
+    """
+    script_path = directory / f"{name}.py"
+    script_path.write_text(f"#!{sys.executable}\n" + textwrap.dedent(program))
+    script_path.chmod(script_path.stat().st_mode | stat.S_IXUSR)
+    return str(script_path)
 
 
 @pytest.fixture
@@ -187,3 +192,101 @@ def test_script_without_a_path_is_resolved_against_the_working_directory(tmp_pat
 )
 def test_sanitize_script_output_keeps_only_what_follows_the_last_screen_clear(script_output, expected):
     assert render_utils._sanitize_script_output(script_output) == expected
+
+
+# --- The terminal-isolation guard ------------------------------------------------
+#
+# A rendered script must never be able to read the terminal Codeplain itself is
+# attached to. The harness therefore has to hold a real terminal: it puts a PTY slave
+# on its own fd 0 and writes to the master, which is what a user typing into the TUI
+# does. Without that, pytest's fd 0 is not a terminal and the assertion would hold for
+# the wrong reason.
+
+KEYSTROKES = "secret-keystrokes\n"
+CONTROL_PROBE_TIMEOUT_SECONDS = 20
+STDIN_READ_LIMIT = 1024
+IMMEDIATE_EOF_SECONDS = 5
+
+# Reports what fd 0 is and what a read of it yields.
+STDIN_PROBE_PROGRAM = f"""
+import json
+import os
+import sys
+import time
+
+started = time.monotonic()
+data = os.read(0, {STDIN_READ_LIMIT})
+report = {{
+    "isatty": os.isatty(0),
+    "data": data.decode(errors="replace"),
+    "read_seconds": time.monotonic() - started,
+}}
+sys.stdout.write(json.dumps(report))
+sys.stdout.flush()
+"""
+
+
+@pytest.fixture
+def terminal_on_stdin():
+    """Puts a PTY slave on the test process's fd 0 and yields the master fd."""
+    try:
+        saved_stdin_fd = os.dup(0)
+    except OSError as exc:
+        pytest.skip(f"fd 0 cannot be duplicated in this environment: {exc}")
+
+    master_fd, slave_fd = os.openpty()
+    os.dup2(slave_fd, 0)
+    try:
+        yield master_fd
+    finally:
+        os.dup2(saved_stdin_fd, 0)
+        for fd in (saved_stdin_fd, slave_fd, master_fd):
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+
+def _probe_report(output):
+    return json.loads(output.strip())
+
+
+@posix_only
+def test_terminal_bytes_reach_a_child_that_inherits_stdin(tmp_path, terminal_on_stdin):
+    """Control case: proves the harness's terminal really does deliver keystrokes."""
+    script = _make_python_script(tmp_path, "inheriting_probe", STDIN_PROBE_PROGRAM)
+    os.write(terminal_on_stdin, KEYSTROKES.encode())
+
+    # The spawn shape execute_script() uses, minus the stdin redirection under test.
+    process = subprocess.Popen(
+        [script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        output, _ = process.communicate(timeout=CONTROL_PROBE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate(timeout=CONTROL_PROBE_TIMEOUT_SECONDS)
+        pytest.fail("the control probe never returned from its read of fd 0")
+
+    report = _probe_report(output)
+    assert report["isatty"] is True
+    assert report["data"] == KEYSTROKES
+
+
+@posix_only
+def test_script_stdin_is_at_eof_and_never_reads_the_terminal(tmp_path, run_script, terminal_on_stdin):
+    script = _make_python_script(tmp_path, "stdin_probe", STDIN_PROBE_PROGRAM)
+    os.write(terminal_on_stdin, KEYSTROKES.encode())
+
+    started = time.monotonic()
+    exit_code, output, _ = run_script(script, [], SCRIPT_TYPE, timeout=30)
+    elapsed = time.monotonic() - started
+
+    assert exit_code == 0
+    report = _probe_report(output)
+    assert report["isatty"] is False
+    assert report["data"] == ""
+    assert report["read_seconds"] < IMMEDIATE_EOF_SECONDS
+    assert elapsed < CONTROL_PROBE_TIMEOUT_SECONDS
