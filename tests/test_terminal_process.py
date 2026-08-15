@@ -336,3 +336,228 @@ def test_launcher_runs_no_startup_customization(tmp_path):
     assert [kind for kind, _ in records] == [pty_exec.STARTED, pty_exec.SESSION_READY]
     assert not sitecustomize_marker.exists()
     assert not pth_marker.exists()
+
+
+# --------------------------------------------------------------------- backend
+
+if sys.platform != "win32":
+    from render_machine import _posix_pty
+    from render_machine.terminal_process import (
+        InputDisposition,
+        TerminalEnvironmentError,
+        TerminalLaunchError,
+    )
+
+SPAWN_TIMEOUT = 10.0
+
+
+@contextmanager
+def terminal(**spawn_kwargs):
+    """Spawns a command through the backend and always tears it down."""
+    command = spawn_kwargs.pop("command")
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        process.spawn(command, **spawn_kwargs)
+        yield process
+    finally:
+        try:
+            process.terminate_tree(grace=0.05)
+        finally:
+            process.close()
+
+
+def wait_for_exit(process, timeout=SPAWN_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        returncode = process.poll()
+        if returncode is not None:
+            return returncode
+        time.sleep(0.02)
+    raise AssertionError(f"the target did not exit within {timeout}s")
+
+
+def wait_for_output(process, needle, timeout=SPAWN_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    collected = ""
+    while time.monotonic() < deadline:
+        collected += process.read_output()
+        if needle in collected:
+            return collected
+        time.sleep(0.02)
+    raise AssertionError(f"{needle!r} never appeared in {collected!r}")
+
+
+def write_launcher(tmp_path, name, source):
+    path = tmp_path / name
+    path.write_text(source)
+    return str(path)
+
+
+def stub_launcher(tmp_path, name, body):
+    """A launcher that runs the real protocol with `body` applied to the module first."""
+    source = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+        "from render_machine import pty_exec\n"
+        f"{body}\n"
+        "pty_exec._run(sys.argv[1:])\n"
+    )
+    return write_launcher(tmp_path, name, source)
+
+
+def test_spawn_runs_the_target_and_reports_its_exit_code():
+    with terminal(command=["/bin/sh", "-c", "printf hello; exit 3"]) as process:
+        wait_for_output(process, "hello")
+        assert wait_for_exit(process) == 3
+
+
+def test_read_output_round_trip():
+    with terminal(command=["/bin/sh", "-c", "printf 'one\\ntwo\\n'"]) as process:
+        collected = wait_for_output(process, "two")
+        assert wait_for_exit(process) == 0
+
+    assert "one" in collected and "two" in collected
+    # ONLCR is left at its default, so the terminal supplies the carriage returns.
+    assert "\r\n" in collected
+
+
+def test_poll_returns_none_until_the_target_exits():
+    with terminal(command=["/bin/sh", "-c", "sleep 0.3"]) as process:
+        assert process.poll() is None
+        assert wait_for_exit(process) == 0
+        assert process.poll() == 0
+
+
+def test_handshake_reports_a_launcher_that_reached_our_code_and_failed():
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(TerminalLaunchError) as failure:
+            process.spawn(["/nonexistent/command/for/tests"])
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert "the launcher failed" in str(failure.value)
+
+
+def test_handshake_reports_launcher_invariant_failures(tmp_path, monkeypatch):
+    launcher = stub_launcher(
+        tmp_path,
+        "invariant_launcher.py",
+        "def _fail():\n"
+        "    raise RuntimeError('PTY is not attached to all three descriptors')\n"
+        "pty_exec._assert_invariants = _fail",
+    )
+    monkeypatch.setattr(_posix_pty, "_LAUNCHER", launcher)
+
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(TerminalLaunchError) as failure:
+            process.spawn(["/bin/sh", "-c", "exit 0"])
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert "PTY is not attached to all three descriptors" in str(failure.value)
+
+
+def test_handshake_reports_an_interpreter_that_died_before_our_code(tmp_path, monkeypatch):
+    launcher = write_launcher(tmp_path, "unparseable_launcher.py", "def broken(:\n")
+    monkeypatch.setattr(_posix_pty, "_LAUNCHER", launcher)
+
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(TerminalLaunchError) as failure:
+            process.spawn(["/bin/sh", "-c", "exit 0"])
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert "the interpreter died before running the launcher" in str(failure.value)
+    assert "SyntaxError" in str(failure.value)
+
+
+def test_handshake_reports_a_launcher_that_hangs_before_exec(tmp_path, monkeypatch):
+    launcher = write_launcher(tmp_path, "hanging_launcher.py", "import time\ntime.sleep(120)\n")
+    monkeypatch.setattr(_posix_pty, "_LAUNCHER", launcher)
+
+    process = _posix_pty.PosixPtyProcess()
+    started = time.monotonic()
+    try:
+        with pytest.raises(TerminalLaunchError) as failure:
+            process.spawn(["/bin/sh", "-c", "exit 0"], handshake_timeout=1.0)
+    finally:
+        process.close()
+
+    assert time.monotonic() - started < SPAWN_TIMEOUT
+    assert "hung before exec" in str(failure.value)
+
+
+def test_handshake_rejects_records_whose_payload_looks_like_a_marker(tmp_path, monkeypatch):
+    """A framed error payload equal to a marker byte is still a failure, never a success."""
+    for payload in ("b'\\x02'", "b'\\x01'", "b'\\x02 looks like a marker'"):
+        launcher = write_launcher(
+            tmp_path,
+            f"marker_launcher_{abs(hash(payload))}.py",
+            "import os, sys\n"
+            f"sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+            "from render_machine import pty_exec\n"
+            "status_fd = int(sys.argv[2])\n"
+            "pty_exec._write_record(status_fd, pty_exec.STARTED)\n"
+            f"pty_exec._write_record(status_fd, pty_exec.FAILED, {payload})\n"
+            "os._exit(127)\n",
+        )
+        monkeypatch.setattr(_posix_pty, "_LAUNCHER", launcher)
+
+        process = _posix_pty.PosixPtyProcess()
+        try:
+            with pytest.raises(TerminalLaunchError) as failure:
+                process.spawn(["/bin/sh", "-c", "exit 0"])
+        finally:
+            process.close()
+
+        assert failure.value.exit_code == 69
+        assert "the launcher failed" in str(failure.value)
+
+
+def test_spawn_and_close_leak_no_descriptors():
+    def open_fd_count():
+        return len(os.listdir("/dev/fd"))
+
+    with terminal(command=["/bin/sh", "-c", "printf warmup"]) as process:
+        wait_for_exit(process)
+
+    baseline = open_fd_count()
+    for _ in range(3):
+        with terminal(command=["/bin/sh", "-c", "printf run"]) as process:
+            wait_for_exit(process)
+        assert open_fd_count() == baseline
+
+
+def test_openpty_failure_is_an_environment_error(monkeypatch):
+    monkeypatch.setattr(_posix_pty.os, "openpty", lambda: (_ for _ in ()).throw(OSError(23, "too many open files")))
+    process = _posix_pty.PosixPtyProcess()
+    try:
+        with pytest.raises(TerminalEnvironmentError) as failure:
+            process.spawn(["/bin/sh", "-c", "exit 0"])
+    finally:
+        process.close()
+
+    assert failure.value.exit_code == 69
+    assert "too many open files" in str(failure.value)
+
+
+def test_write_input_reports_whole_item_admission():
+    with terminal(command=["/bin/sh", "-c", "read line; printf 'got:%s' \"$line\""], input_driver=object()) as process:
+        result = process.write_input(b"payload\n")
+        assert result.disposition is InputDisposition.ACCEPTED
+        assert result.accepted_bytes == len(b"payload\n")
+        wait_for_output(process, "got:payload")
+        assert wait_for_exit(process) == 0
+
+
+def test_write_input_reports_backpressure_for_an_oversized_item():
+    with terminal(command=["/bin/sh", "-c", "sleep 5"], input_driver=object()) as process:
+        result = process.write_input(b"x" * (_posix_pty.MAX_INPUT_ITEM_BYTES + 1))
+        assert result.disposition is InputDisposition.BACKPRESSURE
+        assert result.accepted_bytes == 0
