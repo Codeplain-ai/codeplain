@@ -54,13 +54,18 @@ SCRIPT_TYPE = characterization.SCRIPT_TYPE
 
 NODE = shutil.which("node")
 GIT = shutil.which("git")
+NOHUP = shutil.which("nohup")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed on this machine.")
 needs_git = pytest.mark.skipif(GIT is None, reason="git is not installed on this machine.")
+needs_nohup = pytest.mark.skipif(NOHUP is None, reason="nohup is not installed on this machine.")
 
 # Every wait below is bounded. The budgets are generous relative to the work they cover,
 # so a failure means something hung rather than that the machine was busy.
 SETTLE_SECONDS = 5.0
-LIVENESS_WINDOW_SECONDS = 1.0
+# A heartbeat lands every 50ms, so both windows are orders of magnitude above the beat
+# interval: a process starved by a busy runner must not read as a dead one.
+LIVENESS_WINDOW_SECONDS = 3.0
+QUIET_WINDOW_SECONDS = 3.0
 DETACHED_TIMEOUT_SECONDS = 60.0
 
 _make_shell_script = characterization._make_shell_script
@@ -251,7 +256,18 @@ for chunk in (b"\\x1b", b"[3", b"1m", b"red text", b"\\x1b", b"[0", b"m\\n"):
 """
 
 
-def test_partial_utf8_and_split_escape_sequences_survive_the_stream(tmp_path, run_script):
+def test_partial_utf8_and_split_escape_sequences_survive_the_stream(tmp_path, run_script, monkeypatch):
+    """The child writes one byte at a time and the backend reads one byte at a time.
+
+    The child's writes alone do not guarantee fragmentation — the terminal is free to
+    hand a whole line to a single read — so the read size is pinned to a byte through the
+    backend's own read seam. Everything else is the real `execute_script()` path.
+    """
+    monkeypatch.delenv(NO_PTY_ENV_VAR, raising=False)  # the seam below belongs to the PTY backend
+    monkeypatch.setattr(
+        "render_machine._posix_pty.PosixPtyProcess._read_master",
+        lambda self, fd, size: os.read(fd, 1),
+    )
     script = _make_python_script(tmp_path, "fragmented", FRAGMENTED_OUTPUT_PROGRAM)
 
     exit_code, output, _ = run_script(script, [], SCRIPT_TYPE, timeout=30)
@@ -281,6 +297,63 @@ def test_a_stop_event_set_mid_run_cancels_the_script(tmp_path):
         canceller.cancel()
 
     assert time.monotonic() - started < 20
+
+
+STOPPED_TARGET_PROGRAM = """
+import os
+import signal
+import sys
+import time
+
+pgid_path, marker_path = sys.argv[1], sys.argv[2]
+
+def on_term(signum, frame):
+    with open(marker_path, "w") as marker:
+        marker.write("caught SIGTERM")
+    os._exit(0)
+
+signal.signal(signal.SIGTERM, on_term)
+# Renamed into place, so a reader never sees a half-written group id.
+with open(pgid_path + ".partial", "w") as pgid_file:
+    pgid_file.write(str(os.getpgrp()))
+os.rename(pgid_path + ".partial", pgid_path)
+time.sleep(60)
+"""
+
+
+def _stop_group_when_reported(pgid_path, stopped):
+    """SIGSTOPs the target's group as soon as the target has reported it."""
+    if not _wait_until(pgid_path.exists, SETTLE_SECONDS):
+        return
+    pgid = int(pgid_path.read_text())
+    os.killpg(pgid, signal.SIGSTOP)
+    stopped.append(pgid)
+
+
+def test_a_stopped_process_group_is_continued_before_it_is_terminated(tmp_path, run_script):
+    """Termination has to reach a group that was stopped while it ran.
+
+    A stopped process cannot run a handler, so the `SIGCONT` that accompanies `SIGTERM`
+    is what lets the target act on it at all. The marker the handler writes tells that
+    apart from the target merely being SIGKILLed at the end of the grace period: drop the
+    `SIGCONT` and the marker never appears.
+    """
+    pgid_path = tmp_path / "target.pgid"
+    marker = tmp_path / "caught.term"
+    script = _make_python_script(tmp_path, "stopped_target", STOPPED_TARGET_PROGRAM)
+    stopped = []
+    stopper = threading.Thread(target=_stop_group_when_reported, args=(pgid_path, stopped), daemon=True)
+    stopper.start()
+
+    started = time.monotonic()
+    exit_code, _, _ = run_script(script, [str(pgid_path), str(marker)], SCRIPT_TYPE, timeout=3)
+    elapsed = time.monotonic() - started
+    stopper.join(timeout=SETTLE_SECONDS)
+
+    assert stopped, "the target never reported the process group to stop"
+    assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
+    assert elapsed < 30  # termination completed rather than hanging on a stopped target
+    assert marker.exists(), "the stopped target was never continued, so its SIGTERM handler never ran"
 
 
 def test_repeated_executions_leak_no_descriptors_and_no_threads(tmp_path, run_script):
@@ -313,13 +386,17 @@ import signal
 import sys
 import time
 
-beats_path, mode = sys.argv[1], sys.argv[2]
+directory, mode = sys.argv[1], sys.argv[2]
 pid = os.fork()
 if pid == 0:
     if "own-group" in mode:
         os.setpgid(0, 0)
     if "ignore-hup" in mode:
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    # Written before the first beat, so the sweep reaches this process however the case ends.
+    with open(os.path.join(directory, "descendant.pid"), "w") as pid_file:
+        pid_file.write(str(os.getpid()))
+    beats_path = os.path.join(directory, "descendant.beats")
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         with open(beats_path, "a") as beats:
@@ -334,16 +411,72 @@ time.sleep(60)
 """
 
 
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _signal_quietly(pid, sig):
+    try:
+        os.kill(pid, sig)
+    except OSError:  # already gone
+        pass
+
+
+class _Survivors:
+    """Cleanup for the processes these cases deliberately leave running.
+
+    Registration is by pidfile: a process records itself the moment it starts, before it
+    does any work, so the sweep reaches it no matter where the case failed. The 60-second
+    self-expiry every one of them carries is a backstop, not the mechanism.
+    """
+
+    def __init__(self, directory):
+        self.directory = directory
+        self.directory.mkdir()
+        self._registered = []
+
+    def register(self, pid):
+        """Records a process the harness started itself, which writes no pidfile."""
+        self._registered.append(pid)
+
+    def pid(self, name):
+        return int((self.directory / f"{name}.pid").read_text())
+
+    def pids(self):
+        found = list(self._registered)
+        for pidfile in self.directory.glob("*.pid"):
+            try:
+                found.append(int(pidfile.read_text()))
+            except (OSError, ValueError):  # read while it was being written
+                pass
+        return list(dict.fromkeys(found))
+
+    def sweep(self):
+        """Signals every recorded process and waits, bounded, until none is left.
+
+        Parents are swept alongside their children, so a killed child that is briefly a
+        zombie is reaped once its parent goes too.
+        """
+        pids = self.pids()
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for pid in pids:
+                _signal_quietly(pid, sig)
+            if _wait_until(lambda: not any(_alive(pid) for pid in pids), SETTLE_SECONDS):
+                return
+        lingering = [pid for pid in pids if _alive(pid)]
+        assert not lingering, f"processes outlived the sweep: {lingering}"
+
+
 @pytest.fixture
-def descendants():
-    """Kills whatever a case deliberately left running outside the process tree."""
-    survivors = []
-    yield survivors
-    for pid in survivors:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
+def survivors(tmp_path):
+    """Sweeps whatever a case deliberately left running outside the process tree."""
+    sweeper = _Survivors(tmp_path / "survivors")
+    yield sweeper
+    sweeper.sweep()
 
 
 def _descendant_pid(output):
@@ -365,27 +498,43 @@ def _still_beating(path):
     return _wait_until(lambda: _beats(path) > before, LIVENESS_WINDOW_SECONDS)
 
 
-def test_a_descendant_that_leaves_the_process_group_survives_termination(tmp_path, run_script, descendants):
-    beats = tmp_path / "own_group.beats"
+def _went_quiet(path):
+    """True once the heartbeat stops growing and stays unchanged for a whole window.
+
+    A single silent second is not enough: a process the runner has starved of CPU would
+    look dead. Only a full window without a beat counts, and the wait for one is bounded.
+    """
+    deadline = time.monotonic() + SETTLE_SECONDS + QUIET_WINDOW_SECONDS
+    while time.monotonic() < deadline:
+        before = _beats(path)
+        if not _wait_until(lambda: _beats(path) > before, QUIET_WINDOW_SECONDS):
+            return True
+    return False
+
+
+def test_a_descendant_that_leaves_the_process_group_survives_termination(tmp_path, run_script, survivors):
+    beats = survivors.directory / "descendant.beats"
     script = _make_python_script(tmp_path, "escapes_group", DESCENDANT_PROGRAM)
 
-    exit_code, output, _ = run_script(script, [str(beats), "own-group"], SCRIPT_TYPE, timeout=2)
+    exit_code, output, _ = run_script(script, [str(survivors.directory), "own-group"], SCRIPT_TYPE, timeout=2)
 
     assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
-    descendants.append(_descendant_pid(output))
     assert _still_beating(beats), "the documented escape stopped working: the descendant was reached after all"
+    assert _descendant_pid(output) == survivors.pid("descendant")
 
 
-def test_a_sighup_ignoring_descendant_survives_a_leader_reaped_before_teardown(tmp_path, run_script, descendants):
+def test_a_sighup_ignoring_descendant_survives_a_leader_reaped_before_teardown(tmp_path, run_script, survivors):
     """Once `poll()` has reaped the leader the pgid may be recycled, so nothing is signalled."""
-    beats = tmp_path / "same_group.beats"
+    beats = survivors.directory / "descendant.beats"
     script = _make_python_script(tmp_path, "leader_exits", DESCENDANT_PROGRAM)
 
-    exit_code, output, _ = run_script(script, [str(beats), "ignore-hup,leader-exits"], SCRIPT_TYPE, timeout=30)
+    exit_code, output, _ = run_script(
+        script, [str(survivors.directory), "ignore-hup,leader-exits"], SCRIPT_TYPE, timeout=30
+    )
 
     assert exit_code == 0
-    descendants.append(_descendant_pid(output))
     assert _still_beating(beats)
+    assert _descendant_pid(output) == survivors.pid("descendant")
 
 
 HANGUP_SCRIPT_PROGRAM = """
@@ -395,6 +544,10 @@ import sys
 import time
 
 directory = sys.argv[1]
+# The parent is recorded too: sweeping it alongside its children is what lets a killed
+# child be reaped instead of lingering as a zombie.
+with open(os.path.join(directory, "parent.pid"), "w") as pid_file:
+    pid_file.write(str(os.getpid()))
 for name, ignores_hup in (("default", False), ("ignoring", True)):
     if os.fork() == 0:
         if ignores_hup:
@@ -411,7 +564,7 @@ time.sleep(60)
 """
 
 
-def test_a_dead_renderer_hangs_up_the_terminal_but_cannot_contain_the_tree(tmp_path, descendants):
+def test_a_dead_renderer_hangs_up_the_terminal_but_cannot_contain_the_tree(tmp_path, survivors):
     """Best-effort, and deliberately asserted as such.
 
     When Codeplain itself dies the master closes, the slave hangs up, and the foreground
@@ -421,25 +574,26 @@ def test_a_dead_renderer_hangs_up_the_terminal_but_cannot_contain_the_tree(tmp_p
     """
     script = _make_python_script(tmp_path, "hangup_targets", HANGUP_SCRIPT_PROGRAM)
     runner = subprocess.Popen(
-        [sys.executable, "-c", _renderer_program(script, [str(tmp_path)])],
+        [sys.executable, "-c", _renderer_program(script, [str(survivors.directory)])],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(tmp_path),
         start_new_session=True,
     )
-    default_beats, ignoring_beats = tmp_path / "default.beats", tmp_path / "ignoring.beats"
+    survivors.register(runner.pid)
+    default_beats = survivors.directory / "default.beats"
+    ignoring_beats = survivors.directory / "ignoring.beats"
     try:
         assert _wait_until(lambda: _beats(default_beats) and _beats(ignoring_beats), 30.0), "descendants never started"
-        for name in ("default", "ignoring"):
-            descendants.append(int((tmp_path / f"{name}.pid").read_text()))
         runner.kill()  # the renderer dies without ever running its teardown
-        runner.wait(timeout=SETTLE_SECONDS)
+        assert runner.wait(timeout=SETTLE_SECONDS) == -signal.SIGKILL
     finally:
         if runner.poll() is None:  # pragma: no cover - only if the kill above never landed
             runner.kill()
+            runner.wait(timeout=SETTLE_SECONDS)
 
-    assert _wait_until(lambda: not _still_beating(default_beats), SETTLE_SECONDS)
+    assert _went_quiet(default_beats), "a default-disposition descendant is expected to die of the hangup"
     assert _still_beating(ignoring_beats), "a SIGHUP-ignoring descendant is expected to survive the hangup"
 
 
@@ -676,8 +830,9 @@ def test_a_git_operation_needing_credentials_fails_instead_of_blocking_on_dev_tt
 # --- Detached ---------------------------------------------------------------------
 
 
+@needs_nohup
 def test_a_detached_renderer_still_gives_the_script_a_terminal(tmp_path):
-    """A `nohup`-style parent: its own session, no terminal anywhere, stdio redirected.
+    """The real `nohup` binary: its own session, no terminal anywhere, stdio redirected.
 
     This is the `execute_script()` half of the detached case. The full `--headless` render
     under `nohup` needs the live API, so it belongs to the e2e job rather than here.
@@ -690,8 +845,8 @@ def test_a_detached_renderer_still_gives_the_script_a_terminal(tmp_path):
 
     with open(log_path, "w") as log_file:
         runner = subprocess.Popen(
-            [sys.executable, "-c", _renderer_program(script, [], str(result_path))],
-            stdin=subprocess.DEVNULL,
+            [str(NOHUP), sys.executable, "-c", _renderer_program(script, [], str(result_path))],
+            stdin=subprocess.DEVNULL,  # `< /dev/null`, as a detached invocation is written
             stdout=log_file,
             stderr=subprocess.STDOUT,
             cwd=str(tmp_path),
@@ -703,6 +858,7 @@ def test_a_detached_renderer_still_gives_the_script_a_terminal(tmp_path):
     finally:
         if runner.poll() is None:  # pragma: no cover - only if the detached run hung
             runner.kill()
+            runner.wait(timeout=SETTLE_SECONDS)
 
     result = json.loads(result_path.read_text())
     assert result["exit_code"] == 0

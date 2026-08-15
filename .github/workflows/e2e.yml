@@ -86,5 +86,7 @@ jobs:
       - name: Report the Node under test
         run: node --version   # macos-latest ships Node preinstalled
 
+      # Under `nohup` with stdin from /dev/null: the detached shape a renderer is started
+      # in, where nothing upstream of the script has a terminal to lend it.
       - name: Run Node through the installed execute_script()
-        run: python tests/e2e/macos_node_smoke.py
+        run: nohup python tests/e2e/macos_node_smoke.py < /dev/null
