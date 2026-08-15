@@ -23,12 +23,6 @@ from plain_modules import MODULE_METADATA_FILENAME, PlainModule
 # --------------------------------------------------------------------------
 
 
-uses_git_repo = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="GitPython keeps repository handles open on Windows, so the temporary build folder cannot be removed; native Windows runs via WSL.",
-)
-
-
 @pytest.fixture
 def fixtures_dir(get_test_data_path):
     return get_test_data_path("data/partial_rendering")
@@ -254,7 +248,6 @@ def test_get_module_render_status_no_rendering(root_module):
     assert root_module.get_module_render_status() == (None, None)
 
 
-@uses_git_repo
 def test_get_module_render_status_returns_from_leaf_when_only_leaf_rendered(root_module):
     leaf = root_module.get_required_module_by_name("pr_leaf")
     _init_build_repo_with_finished_frid(leaf, "1")
@@ -264,7 +257,6 @@ def test_get_module_render_status_returns_from_leaf_when_only_leaf_rendered(root
     assert frid == "1"
 
 
-@uses_git_repo
 def test_get_module_render_status_prefers_most_progressed_module(root_module):
     """The scan walks required_modules in reverse order — the right-most
     rendered module wins."""
@@ -278,7 +270,6 @@ def test_get_module_render_status_prefers_most_progressed_module(root_module):
     assert frid == "1"
 
 
-@uses_git_repo
 def test_get_module_render_status_returns_root_when_root_has_checkpoint(root_module):
     """A checkpoint in the root's own build folder takes precedence over
     required-module checkpoints."""
@@ -300,13 +291,11 @@ def test_is_module_fully_rendered_false_when_nothing_rendered(solo_module):
     assert solo_module.is_module_fully_rendered() is False
 
 
-@uses_git_repo
 def test_is_module_fully_rendered_false_when_only_first_frid_rendered(solo_module):
     _init_build_repo_with_finished_frid(solo_module, "1")
     assert solo_module.is_module_fully_rendered() is False
 
 
-@uses_git_repo
 def test_is_module_fully_rendered_true_when_last_frid_rendered(solo_module):
     # solo module has FRIDs ["1", "2", "3"]; "3" is the last.
     _init_build_repo_with_finished_frid(solo_module, "3")
@@ -437,7 +426,6 @@ def _commit_finished_frid(module: PlainModule, frid: str) -> None:
     )
 
 
-@uses_git_repo
 def test_revert_code_to_frid_reverts_repo_and_trims_metadata(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
@@ -456,7 +444,6 @@ def test_revert_code_to_frid_reverts_repo_and_trims_metadata(solo_module):
     assert os.path.exists(solo_module.get_codeplain_folder())
 
 
-@uses_git_repo
 def test_revert_code_to_frid_none_reverts_to_initial_state(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
@@ -474,7 +461,6 @@ def test_revert_code_to_frid_none_reverts_to_initial_state(solo_module):
 # --------------------------------------------------------------------------
 
 
-@uses_git_repo
 def test_reconcile_metadata_with_git_trims_metadata_ahead_of_git(solo_module):
     # Simulates the crash window: metadata records FR 2 but git only committed FR 1.
     os.makedirs(solo_module.module_build_folder)
@@ -490,7 +476,6 @@ def test_reconcile_metadata_with_git_trims_metadata_ahead_of_git(solo_module):
     assert metadata["source_hash"] == "abc"
 
 
-@uses_git_repo
 def test_reconcile_metadata_with_git_in_sync_is_noop(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
@@ -503,7 +488,6 @@ def test_reconcile_metadata_with_git_in_sync_is_noop(solo_module):
     assert solo_module.load_module_metadata()["functionalities"] == ["fr1", "fr2"]
 
 
-@uses_git_repo
 def test_reconcile_metadata_with_git_no_finished_frid_empties_list(solo_module):
     # Only the initial commit exists (no finished FRID), so the baseline must be emptied.
     os.makedirs(solo_module.module_build_folder)
@@ -515,7 +499,6 @@ def test_reconcile_metadata_with_git_no_finished_frid_empties_list(solo_module):
     assert solo_module.load_module_metadata()["functionalities"] == []
 
 
-@uses_git_repo
 def test_reconcile_metadata_with_git_ignores_foreign_module_frid(solo_module):
     # A repo cloned from a required module carries that module's finished FRID; this
     # module has rendered none of its own, so its baseline must be emptied.
@@ -536,7 +519,6 @@ def test_reconcile_metadata_with_git_ignores_foreign_module_frid(solo_module):
     assert solo_module.load_module_metadata()["functionalities"] == []
 
 
-@uses_git_repo
 def test_reconcile_metadata_with_git_no_metadata_is_noop(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
