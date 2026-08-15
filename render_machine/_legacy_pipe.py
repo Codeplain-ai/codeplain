@@ -11,6 +11,12 @@ removes the controlling terminal whose absence makes the kernel permit the read 
 stopping it — so the child would consume the user's keystrokes. Closing that hole is the
 one thing this backend may never give back.
 
+On Windows the same hole needs a second lock, because redirecting the standard input
+handle does not stop a child from opening `CONIN$`: that opens the console input buffer of
+whatever console the child is attached to, which by default is the renderer's own. Only
+detaching the child from that console closes it, so every Windows child is created with
+`CREATE_NO_WINDOW`.
+
 There is no input channel, so `write_input()` accepts nothing and a query the target
 prints is rendered without a reply: a backend that cannot answer must not register an
 obligation it can only fail.
@@ -25,6 +31,7 @@ import threading
 from typing import List, Optional, Sequence, Tuple
 
 from plain2code_console import console
+from plain2code_exceptions import RenderCancelledError
 from render_machine.output_normalizer import OutputNormalizer
 from render_machine.terminal_process import (
     DRAIN_DEADLINE_SECONDS,
@@ -50,6 +57,14 @@ PIPE_SIZE_KB = 1024  # 1MB
 # How long close() waits for the reader before it closes the pipe under it. A descendant
 # that inherited the write end keeps the pipe open past the leader's exit.
 CLOSE_JOIN_SECONDS = 1.0
+
+# Windows gives a child the parent's console unless told otherwise, and a child on that
+# console can read the renderer's keystrokes through CONIN$ regardless of where its
+# standard input handle points. CREATE_NO_WINDOW gives it a console of its own instead.
+if sys.platform == "win32":
+    CREATION_FLAGS = subprocess.CREATE_NO_WINDOW
+else:
+    CREATION_FLAGS = 0
 
 
 class LegacyPipeProcess(TerminalProcess):
@@ -90,6 +105,10 @@ class LegacyPipeProcess(TerminalProcess):
         if self._spawned:
             raise RuntimeError("LegacyPipeProcess instances are single-use")
         self._spawned = True
+        if stop_event is not None and stop_event.is_set():
+            # A cancellation already observed must not start the target: the script would
+            # run its side effects before the wait loop could notice.
+            raise RenderCancelledError()
         columns, rows = terminal_size
         self.normalizer.resize(columns, rows)
         try:
@@ -101,6 +120,7 @@ class LegacyPipeProcess(TerminalProcess):
                 cwd=cwd,
                 env=self._child_env(env),
                 start_new_session=(sys.platform != "win32"),
+                creationflags=CREATION_FLAGS,
             )
         except OSError as exc:
             raise TerminalLaunchError(f"Could not start the script: {exc}") from exc

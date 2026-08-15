@@ -70,7 +70,9 @@ test_output_larger_than_the_pipe_buffer_is_captured_without_deadlock = (
 test_script_exceeding_the_timeout_returns_124_and_keeps_partial_output = (
     characterization.test_script_exceeding_the_timeout_returns_124_and_keeps_partial_output
 )
-test_set_stop_event_cancels_the_script = characterization.test_set_stop_event_cancels_the_script
+test_a_set_stop_event_cancels_the_script_without_ever_launching_it = (
+    characterization.test_a_set_stop_event_cancels_the_script_without_ever_launching_it
+)
 test_script_without_a_path_is_resolved_against_the_working_directory = (
     characterization.test_script_without_a_path_is_resolved_against_the_working_directory
 )

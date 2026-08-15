@@ -208,13 +208,36 @@ def test_script_exceeding_the_timeout_returns_124_and_keeps_partial_output(tmp_p
 
 
 @posix_only
-def test_set_stop_event_cancels_the_script(tmp_path):
-    script = _make_shell_script(tmp_path, "cancellable", "sleep 30\n")
+def test_a_set_stop_event_cancels_the_script_without_ever_launching_it(tmp_path, monkeypatch):
+    """Cancellation is not a race the target gets to win: it never starts.
+
+    A backend that launches first and notices the event afterwards has already let the
+    script run whatever side effects it opens with. Whether the sentinel survives that
+    depends on which of the two wins the microseconds, so the launch itself is what is
+    asserted: both backends reach the target through `subprocess.Popen`, so a call that
+    never happens is the proof, and the sentinel is the visible consequence.
+    """
+    sentinel = tmp_path / "the-target-ran"
+    script = _make_shell_script(tmp_path, "cancellable", f'touch "{sentinel}"\nsleep 30\n')
+    launched = []
+
+    def refuse_to_launch(*args, **kwargs):
+        launched.append(args[0] if args else kwargs.get("args"))
+        raise AssertionError("the target was launched after cancellation had already been observed")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse_to_launch)
     stop_event = threading.Event()
     stop_event.set()
+    cancelled = False
 
-    with pytest.raises(RenderCancelledError):
+    try:
         render_utils.execute_script(script, [], SCRIPT_TYPE, timeout=30, stop_event=stop_event)
+    except RenderCancelledError:
+        cancelled = True
+
+    assert not launched
+    assert not sentinel.exists()
+    assert cancelled
 
 
 @posix_only
