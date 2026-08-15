@@ -28,6 +28,7 @@ from typing import Callable, Deque, List, Optional, Sequence, Tuple
 from plain2code_console import console
 from plain2code_exceptions import RenderCancelledError
 from render_machine import pty_exec
+from render_machine.output_normalizer import OutputNormalizer
 from render_machine.terminal_process import (
     DEFAULT_TERM,
     DRAIN_DEADLINE_SECONDS,
@@ -53,6 +54,7 @@ from render_machine.terminal_process import (
     TerminalProcess,
     TerminalReaderError,
 )
+from render_machine.terminal_queries import REASON_DISCARDED, REASON_WRITE_FAILED, TerminalQueryResponder
 
 if sys.platform == "win32":  # pragma: no cover - the PTY backend is POSIX-only
     raise ImportError("render_machine._posix_pty is POSIX-only")
@@ -65,6 +67,9 @@ ROLLBACK_GRACE_SECONDS = 0.1
 
 _OWNER_PARENT = "parent"
 _OWNER_READER = "reader"
+
+# Completion callback for one queued input item, resolved by whoever retires it.
+ResolveCallback = Callable[[InputDisposition, Optional[BaseException]], None]
 
 
 class _ProtocolError(Exception):
@@ -113,13 +118,18 @@ def _reap(proc: subprocess.Popen, deadline_seconds: float) -> None:
 
 
 class _Receipt:
-    """Resolution of one queued input item. Resolved exactly once, by whoever retires it."""
+    """Resolution of one queued input item. Resolved exactly once, by whoever retires it.
 
-    def __init__(self) -> None:
+    `on_resolve` lets a producer observe that terminal transition without ever waiting for
+    it, which is what the reader needs when it is the producer.
+    """
+
+    def __init__(self, on_resolve: Optional[ResolveCallback] = None) -> None:
         self._event = threading.Event()
         self.error: Optional[BaseException] = None
         self.disposition: Optional[InputDisposition] = None
         self.resolutions = 0
+        self._on_resolve = on_resolve
 
     def resolve(self, disposition: InputDisposition, error: Optional[BaseException] = None) -> None:
         self.resolutions += 1
@@ -128,6 +138,11 @@ class _Receipt:
         self.disposition = disposition
         self.error = error
         self._event.set()
+        if self._on_resolve is not None:
+            try:
+                self._on_resolve(disposition, error)
+            except BaseException as exc:  # a completion callback must never strand the queue
+                console.debug(f"input completion callback raised: {exc!r}")
 
     @property
     def resolved(self) -> bool:
@@ -187,8 +202,9 @@ class _InputQueue:
         reserved: bool = False,
         prepare: Optional[Callable[[], None]] = None,
         finish: Optional[Callable[[], None]] = None,
+        on_resolve: Optional[ResolveCallback] = None,
     ) -> Tuple[InputWriteResult, _Receipt]:
-        receipt = _Receipt()
+        receipt = _Receipt(on_resolve)
         payload = bytes(data)
         with self._lock:
             if not self._accepting:
@@ -424,6 +440,12 @@ class PosixPtyProcess(TerminalProcess):
         self._raw = bytearray()
         self.launcher_stderr = _CappedDiagnostic()
 
+        # The parser runs live in the reader through this byte-feed hook, because terminals
+        # answer queries: a render-afterwards parser would leave a querying target hanging.
+        self.query_responder = TerminalQueryResponder(self._admit_reply)
+        self.normalizer = OutputNormalizer(reply_handler=self.query_responder.answer)
+        self._byte_sink: Callable[[bytes], None] = self.normalizer.feed
+
     # ---------------------------------------------------------------- public API
 
     def spawn(
@@ -469,6 +491,8 @@ class PosixPtyProcess(TerminalProcess):
             # Popen.poll() reaps, so the pgid may now be recycled; no group signal is
             # ever sent again.
             self._reaped = True
+            # The execution outcome is observed, so no client is left to answer.
+            self.query_responder.quiesce()
         return returncode
 
     def read_output(self) -> str:
@@ -489,6 +513,17 @@ class PosixPtyProcess(TerminalProcess):
             self._ring_doorbell()
         return result
 
+    def normalized_output(self) -> str:
+        """The rendered transcript so far. Cumulative, unlike `read_output()`."""
+        return self.normalizer.text()
+
+    @property
+    def terminal_reply_failed(self) -> bool:
+        return self.query_responder.reply_failed
+
+    def terminal_reply_detail(self) -> str:
+        return self.query_responder.failure_detail()
+
     def terminate_tree(self, grace: float = SIGTERM_GRACE_PERIOD_SECONDS) -> None:
         """Signals the recorded group, escalates on the clock, and reaps last.
 
@@ -496,6 +531,7 @@ class PosixPtyProcess(TerminalProcess):
         acted on: returning early would skip the SIGKILL escalation the sequence exists
         for. The caller inspects `reader_failed` afterwards.
         """
+        self.query_responder.quiesce()
         proc = self._proc
         if proc is None or self._reaped:
             return
@@ -518,6 +554,7 @@ class PosixPtyProcess(TerminalProcess):
         if self._closed:
             return
         self._closed = True
+        self.query_responder.quiesce()  # before either input pump stops
         self._drain_deadline = time.monotonic() + DRAIN_DEADLINE_SECONDS
         self._input_queue.stop_accepting(self._closing)
         self._ring_doorbell()
@@ -541,6 +578,7 @@ class PosixPtyProcess(TerminalProcess):
             raise TerminalEnvironmentError(f"Could not allocate a pseudoterminal: {exc}") from exc
         try:
             columns, rows = terminal_size
+            self.normalizer.resize(columns, rows)
             fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
             self._configure_slave(slave_fd)
             os.set_blocking(master_fd, False)
@@ -839,6 +877,7 @@ class PosixPtyProcess(TerminalProcess):
             self._raw += chunk
             if text:
                 self._decoded.append(text)
+        self._byte_sink(chunk)  # outside the output lock: parsing must not block read_output()
 
     def _flush_decoder(self, decoder) -> None:
         tail = decoder.decode(b"", final=True)  # a trailing partial sequence becomes U+FFFD
@@ -901,7 +940,22 @@ class PosixPtyProcess(TerminalProcess):
                 return
             with self._output_lock:
                 self._raw += chunk
+            self._byte_sink(chunk)  # still rendered; a query seen here is render-only
             drained += len(chunk)
+
+    # ------------------------------------------------------------- query replies
+
+    def _admit_reply(self, payload: bytes, on_complete: Callable[[Optional[str]], None]) -> None:
+        """One non-blocking whole-item admission of a terminal reply, from the reader.
+
+        Replies take the reserved partition because they are terminal protocol: a caller
+        saturating the queue with input must not be able to starve a required response.
+        They are never counted as caller input and never affect the input-driver
+        diagnostic. The queue's cursor preserves the reply across short writes.
+        """
+        result, _ = self._input_queue.submit(payload, reserved=True, on_resolve=_reply_resolution(on_complete))
+        if result.disposition is InputDisposition.ACCEPTED:
+            self._ring_doorbell()
 
     # ----------------------------------------------------------- VEOF injection
 
@@ -967,6 +1021,20 @@ class PosixPtyProcess(TerminalProcess):
 
     def _close_owned(self, name: str) -> None:
         _close_quietly(self._take_owned(name))
+
+
+def _reply_resolution(on_complete: Callable[[Optional[str]], None]) -> ResolveCallback:
+    """Maps one queue resolution onto the responder's delivered / not-delivered contract."""
+
+    def resolved(disposition: InputDisposition, error: Optional[BaseException]) -> None:
+        if error is not None:
+            on_complete(f"{REASON_WRITE_FAILED}: {error!r}")
+        elif disposition is InputDisposition.ACCEPTED:
+            on_complete(None)
+        else:
+            on_complete(f"{REASON_DISCARDED} ({disposition.value})")
+
+    return resolved
 
 
 def _drain_doorbell(fd: int) -> None:

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Sequence, Tuple
 
+from render_machine.terminal_queries import TerminalQueryResponder
+
 # Launch, reader, and writer infrastructure failures surface on the renderer's existing
 # environment-error channel rather than being handed to the LLM patcher as a test failure.
 ENVIRONMENT_ERROR_EXIT_CODE = 69
@@ -90,6 +92,7 @@ class TerminalProcess:
 
     reader_failed: threading.Event
     reader_exc: Optional[BaseException]
+    query_responder: TerminalQueryResponder
 
     def spawn(
         self,
@@ -112,6 +115,23 @@ class TerminalProcess:
 
     def read_raw_output(self) -> bytes:
         """Raw output bytes accumulated since the previous call."""
+        raise NotImplementedError
+
+    def normalized_output(self) -> str:
+        """The rendered transcript so far. Cumulative, unlike `read_output()`."""
+        raise NotImplementedError
+
+    @property
+    def terminal_reply_failed(self) -> bool:
+        """True when a reply the target was waiting for could not be delivered.
+
+        Independent of `reader_failed`: both pumps can be healthy while one required
+        protocol response was never accepted.
+        """
+        raise NotImplementedError
+
+    def terminal_reply_detail(self) -> str:
+        """Query kinds and pressure reasons behind `terminal_reply_failed`."""
         raise NotImplementedError
 
     def write_input(self, data: bytes) -> InputWriteResult:

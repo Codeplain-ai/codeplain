@@ -183,6 +183,11 @@ class OutputNormalizer:
         self.parse_failures = 0
         self.fed_bytes = 0
 
+    def resize(self, columns: int, lines: int) -> None:
+        """Matches the parser to the terminal the target was actually given."""
+        with self._lock:
+            self._screen.resize(lines, columns)
+
     def feed(self, data: bytes) -> None:
         if not data:
             return
