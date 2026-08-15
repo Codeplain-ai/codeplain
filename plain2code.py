@@ -51,12 +51,30 @@ from plain2code_logger import (
 )
 from plain2code_state import RunState
 from plain2code_telemetry import capture_crash, initialize_telemetry
+from render_machine.terminal_process import (
+    DRAIN_DEADLINE_SECONDS,
+    REAP_DEADLINE_SECONDS,
+    SIGTERM_GRACE_PERIOD_SECONDS,
+)
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 
 DEFAULT_TEMPLATE_DIRS = "standard_template_library"
-RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
+
+# The render thread is cancelled, never killed, so the wait after cancellation has to
+# outlast the teardown a script execution is entitled to: the SIGTERM grace runs to its
+# end before the SIGKILL, the killed group is then reaped, and the output reader is joined
+# on its own drain and reap budgets. A shorter wait lets the CLI exit mid-escalation and
+# leave a descendant that ignores TERM alive, so the bound is those budgets in sequence.
+RENDER_THREAD_UNWIND_MARGIN_SECONDS = 1.0
+RENDER_THREAD_SHUTDOWN_TIMEOUT = (
+    SIGTERM_GRACE_PERIOD_SECONDS
+    + REAP_DEADLINE_SECONDS
+    + DRAIN_DEADLINE_SECONDS
+    + REAP_DEADLINE_SECONDS
+    + RENDER_THREAD_UNWIND_MARGIN_SECONDS
+)
 
 # Exceptions that represent expected, user-facing error conditions. They are
 # reported to the user directly and must never be sent to Sentry as crashes.
@@ -188,6 +206,26 @@ def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> N
     )
 
 
+def shutdown_render_thread(render_thread: threading.Thread, stop_event: threading.Event) -> bool:
+    """Cancels the render and waits for the thread to finish tearing its script down.
+
+    Returns True when the thread completed within the bound. A thread still running past
+    it is reported rather than waited on further: the wait covers every budget the backend
+    can spend, so anything beyond it is unbounded and the process must not hang on it.
+    """
+    stop_event.set()
+    if render_thread.is_alive():
+        console.info("Stopping the render. Waiting for the running script to shut down...")
+    render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
+    if render_thread.is_alive():
+        console.warning(
+            f"The render did not stop within {RENDER_THREAD_SHUTDOWN_TIMEOUT:.0f} seconds. "
+            "A script it started may still be running."
+        )
+        return False
+    return True
+
+
 def render(  # noqa: C901
     plain_module: plain_modules.PlainModule,
     args,
@@ -306,8 +344,7 @@ def render(  # noqa: C901
         )
         app.run()
 
-        stop_event.set()
-        render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
+        shutdown_render_thread(render_thread, stop_event)
 
     if render_error:
         raise render_error[0]
