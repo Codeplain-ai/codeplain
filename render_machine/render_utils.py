@@ -149,7 +149,10 @@ def _await_target(
             outcome.target_exited(returncode)
         if stop_event is not None and stop_event.is_set():
             outcome.cancelled()
-        if time.monotonic() >= deadline:
+        # An exit observed by this same poll wins over the expired deadline: the target had
+        # already finished on its own before anything acted on the timeout, however late
+        # the poll that noticed it ran.
+        if returncode is None and time.monotonic() >= deadline:
             outcome.timed_out()
         pump_failure = process.infrastructure_failure()
         if pump_failure is not None:
@@ -392,10 +395,13 @@ def execute_script(
         result = _publish_environment_error(
             script, script_type, "the script's exit status was never observed", execution.output
         )
-    elif execution.reply_failed:
-        # The pumps were healthy and the script exited normally, but a reply it was
-        # waiting for never reached it — so its exit status describes a run that did not
-        # get the terminal it asked for.
+    elif outcome.exit_code != 0 and execution.reply_failed:
+        # The pumps were healthy but a reply the script asked for never reached it, so a
+        # failing exit status may describe a run that did not get the terminal it asked
+        # for — an environment failure, never handed to the patcher. A passing exit is
+        # published normally: the script succeeded without the reply, so the reply did not
+        # matter — teardown itself discards replies admitted in a final output burst, and
+        # that must not turn a green run into an aborted render.
         result = _publish_environment_error(
             script,
             script_type,
@@ -403,6 +409,12 @@ def execute_script(
             execution.output,
         )
     else:
+        if execution.reply_failed:
+            console.debug(
+                f"terminal replies the {script_type} script asked for were not delivered "
+                f"({execution.reply_detail}); the script exited 0 regardless",
+                color=MUTED_COLOR,
+            )
         result = _publish_exit(script, script_type, outcome.exit_code, execution.output, elapsed_time, frid, module)
 
     _store_raw_output(script_type, execution.raw_output, result[2])

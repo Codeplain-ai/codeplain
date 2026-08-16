@@ -491,7 +491,9 @@ ARBITER_CASES = [
     # name, backend kwargs, stop_event set, timeout, expected exit code
     ("the deadline alone", {}, False, 0, render_utils.TIMEOUT_ERROR_EXIT_CODE),
     ("the deadline with a reader failure", {"reader_fails_on_close": True}, False, 0, ENVIRONMENT_ERROR_EXIT_CODE),
-    ("the deadline with an exit observed in the same poll", {"exit_code": 3}, False, 0, 124),
+    # An exit observed in the same poll as the expired deadline wins: the target had
+    # already finished on its own before anything acted on the timeout.
+    ("the deadline with an exit observed in the same poll", {"exit_code": 3}, False, 0, 3),
     ("a cancellation alone", {}, True, 30, RAISES_CANCELLED),
     ("a cancellation with a query failure", {"reply_failed": True}, True, 30, RAISES_CANCELLED),
     ("a cancellation with a reader failure", {"reader_fails_on_close": True}, True, 30, ENVIRONMENT_ERROR_EXIT_CODE),
@@ -505,12 +507,14 @@ ARBITER_CASES = [
         30,
         ENVIRONMENT_ERROR_EXIT_CODE,
     ),
+    # A passing exit is published even when a reply failed delivery: the script succeeded
+    # without it, and teardown itself discards replies admitted in a final output burst.
     (
         "a zero exit with a query failure",
         {"exit_code": 0, "reply_failed": True},
         False,
         30,
-        ENVIRONMENT_ERROR_EXIT_CODE,
+        0,
     ),
     (
         "a launch failure",
@@ -558,7 +562,8 @@ def test_a_reader_failure_during_teardown_names_the_reader(injected_backend, run
 
 
 def test_an_undeliverable_reply_names_the_query_that_went_unanswered(injected_backend, run_script):
-    injected_backend(exit_code=0, reply_failed=True)
+    """Escalated only on a failing exit: a passing one proves the reply did not matter."""
+    injected_backend(exit_code=3, reply_failed=True)
 
     exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
 
