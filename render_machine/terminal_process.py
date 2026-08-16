@@ -6,6 +6,7 @@ in `render_machine._posix_pty` and the Windows ConPTY implementation in
 `render_machine._conpty`. Only this module is imported by callers.
 """
 
+import importlib
 import os
 import sys
 import threading
@@ -221,6 +222,17 @@ class TerminalProcess:
     def close(self) -> None:
         raise NotImplementedError
 
+    def no_input_note(self) -> str:
+        """What a timeout diagnostic says about this backend's absent input driver.
+
+        A backend that gives the target end-of-file at spawn needs nothing beyond the
+        default; one that cannot says so itself. The note belongs to the backend that ran,
+        not to the platform the renderer is on: under the escape hatch on Windows the pipe
+        backend delivers end-of-file immediately, and a note keyed on `sys.platform` would
+        describe a backend that never ran.
+        """
+        return NO_INPUT_NOTE
+
     def infrastructure_failure(self) -> Optional[str]:
         """Detail of a failed backend pump, or None while they are all healthy.
 
@@ -287,6 +299,30 @@ def terminal_child_environment(env: Optional[dict]) -> dict:
     child_env["TERM"] = term if term else DEFAULT_TERM
     child_env["GIT_TERMINAL_PROMPT"] = "0"
     return child_env
+
+
+# Every backend module, each publishing the teardown budget its own constants add up to.
+# A module whose platform this is not refuses to import, which is what keeps the budget
+# below a question about this machine rather than about the codebase.
+_BACKEND_MODULES = ("render_machine._legacy_pipe", "render_machine._posix_pty", "render_machine._conpty")
+
+
+def teardown_budget_seconds() -> float:
+    """The longest teardown any backend reachable on this platform may spend.
+
+    A caller that waits for a render to stop has to outlast it. The three pipelines are
+    different lengths — the ConPTY one is much the longest — so a wait assembled from the
+    POSIX constants would report a render that did not stop while the backend was still
+    inside the bound its own constants grant it.
+    """
+    budgets = []
+    for module_name in _BACKEND_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:  # this backend is not built on this platform
+            continue
+        budgets.append(module.TEARDOWN_BUDGET_SECONDS)
+    return max(budgets)
 
 
 def create_terminal_process() -> TerminalProcess:

@@ -348,6 +348,7 @@ if sys.platform != "win32":
     from plain2code_exceptions import RenderCancelledError
     from render_machine import _posix_pty
     from render_machine.terminal_process import (
+        SIGTERM_GRACE_PERIOD_SECONDS,
         InputDisposition,
         TerminalEnvironmentError,
         TerminalLaunchError,
@@ -824,6 +825,31 @@ def test_cancellation_after_the_ack_reaps_a_forked_descendant(tmp_path):
         process.close()
 
     assert wait_until_gone(descendant)
+
+
+# The grace is a bound, not a delay, so a tree that handled the SIGTERM must not hold the
+# teardown for the rest of it.
+GRACE_EARLY_EXIT_CEILING = 1.0
+
+
+@pytest.mark.skipif(
+    sys.platform == "linux",
+    reason="An unreaped group leader stays signallable on Linux, so the probe cannot observe the exit there.",
+)
+def test_a_tree_that_exits_on_sigterm_does_not_wait_out_the_whole_grace(tmp_path):
+    """The group is probed on every tick with signal 0; the SIGKILL and the reap still follow."""
+    script = make_script(tmp_path, "sleeper", "sleep 120\n")
+    process = _posix_pty.PosixPtyProcess()
+    process.spawn([script])
+    try:
+        started = time.monotonic()
+        process.terminate_tree(grace=SIGTERM_GRACE_PERIOD_SECONDS)
+        elapsed = time.monotonic() - started
+    finally:
+        process.close()
+
+    assert elapsed < GRACE_EARLY_EXIT_CEILING
+    assert process._proc.returncode is not None
 
 
 def test_launcher_ack_timeout_beats_the_parents_ack():

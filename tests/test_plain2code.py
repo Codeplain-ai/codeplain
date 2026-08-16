@@ -8,7 +8,7 @@ from unittest.mock import patch
 import plain2code
 import plain_spec
 from plain_modules import PlainModule
-from render_machine import terminal_process
+from render_machine import _legacy_pipe, terminal_process
 
 
 def _make_module(module_name, has_acceptance_tests, required_modules=None):
@@ -115,15 +115,22 @@ WEDGE_WAIT_CEILING = 5.0
 
 
 def test_the_shutdown_bound_covers_the_teardown_budgets_of_a_script():
-    """The wait is derived from what a backend teardown may spend, not picked."""
-    worst_case_teardown = (
+    """The wait is derived from what a backend teardown may spend, not picked.
+
+    The budget comes from the backends themselves, so the wait covers whichever one this
+    platform can reach rather than the phases of the POSIX pipeline alone.
+    """
+    budget = terminal_process.teardown_budget_seconds()
+    posix_pipeline = (
         terminal_process.SIGTERM_GRACE_PERIOD_SECONDS
         + terminal_process.REAP_DEADLINE_SECONDS
         + terminal_process.DRAIN_DEADLINE_SECONDS
         + terminal_process.REAP_DEADLINE_SECONDS
     )
 
-    assert plain2code.RENDER_THREAD_SHUTDOWN_TIMEOUT > worst_case_teardown
+    assert budget >= posix_pipeline
+    assert budget >= _legacy_pipe.TEARDOWN_BUDGET_SECONDS
+    assert plain2code.RENDER_THREAD_SHUTDOWN_TIMEOUT > budget
     assert plain2code.RENDER_THREAD_SHUTDOWN_TIMEOUT > SUPERSEDED_SHUTDOWN_TIMEOUT
 
 

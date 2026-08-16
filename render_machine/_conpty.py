@@ -56,6 +56,9 @@ from render_machine.terminal_process import (
     DRAIN_DEADLINE_SECONDS,
     GRACE_TICK_SECONDS,
     HANDSHAKE_TIMEOUT_SECONDS,
+)
+from render_machine.terminal_process import NO_INPUT_NOTE as DEFAULT_NO_INPUT_NOTE
+from render_machine.terminal_process import (
     OWNER_PARENT,
     OWNER_READER,
     POLL_INTERVAL_SECONDS,
@@ -139,10 +142,32 @@ JOB_TERMINATION_EXIT_CODE = 1
 FINALIZER_DEADLINE_SECONDS = 60.0
 FINALIZER_TICK_SECONDS = 0.5
 
+# What one full teardown of this backend may spend, phase by phase and in sequence. The
+# pipeline is longer than the POSIX one — a control byte has to be delivered before the
+# grace it earns, the job's membership is waited out, the writer is stopped, and each
+# join_reader() round is bounded twice: a join on the bound, then a cancel-and-join loop
+# under the same bound again. A caller waiting on a render derives its own bound from this,
+# so it cannot report a stuck teardown while the backend is still inside its own budget.
+TEARDOWN_BUDGET_SECONDS = (
+    CONTROL_DELIVERY_DEADLINE_SECONDS  # teardown(): delivering the graceful control byte
+    + SIGTERM_GRACE_PERIOD_SECONDS  # teardown(): the grace a delivered byte earns
+    + REAP_DEADLINE_SECONDS  # teardown(): waiting for the job's membership to reach zero
+    + WRITER_JOIN_DEADLINE_SECONDS  # teardown(): stopping the input writer
+    + 2 * DRAIN_DEADLINE_SECONDS  # teardown(): join_reader() inside _close_pseudoconsole()
+    + 2 * DRAIN_DEADLINE_SECONDS  # close(): the join_reader() that follows the stack close
+)
+
 # The graceful signal: writing 0x03 into the pseudoconsole input is how terminal emulators
 # deliver Ctrl-C to a ConPTY client. `GenerateConsoleCtrlEvent` cannot be used, because it
 # reaches only processes sharing the caller's console and the target is on the pseudoconsole.
 CONTROL_C_BYTE = b"\x03"
+
+# The absent-input note this backend adds to, stated where the asymmetry is documented: a
+# script that reads input blocks until the execution timeout rather than seeing end-of-file.
+NO_INPUT_NOTE = DEFAULT_NO_INPUT_NOTE + (
+    " On Windows the terminal carries no synthetic end-of-file, so such a script blocks until the "
+    "timeout instead of reading end-of-file."
+)
 
 
 class COORD(ctypes.Structure):
@@ -1076,6 +1101,9 @@ class ConPtyProcess(TerminalProcess):
     def write_input(self, data: bytes) -> InputWriteResult:
         result, _ = self._input_queue.submit(data)
         return result
+
+    def no_input_note(self) -> str:
+        return NO_INPUT_NOTE
 
     def infrastructure_failure(self) -> Optional[str]:
         detail = super().infrastructure_failure()

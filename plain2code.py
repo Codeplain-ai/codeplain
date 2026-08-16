@@ -51,11 +51,7 @@ from plain2code_logger import (
 )
 from plain2code_state import RunState
 from plain2code_telemetry import capture_crash, initialize_telemetry
-from render_machine.terminal_process import (
-    DRAIN_DEADLINE_SECONDS,
-    REAP_DEADLINE_SECONDS,
-    SIGTERM_GRACE_PERIOD_SECONDS,
-)
+from render_machine.terminal_process import teardown_budget_seconds
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
@@ -63,18 +59,12 @@ from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 DEFAULT_TEMPLATE_DIRS = "standard_template_library"
 
 # The render thread is cancelled, never killed, so the wait after cancellation has to
-# outlast the teardown a script execution is entitled to: the SIGTERM grace runs to its
-# end before the SIGKILL, the killed group is then reaped, and the output reader is joined
-# on its own drain and reap budgets. A shorter wait lets the CLI exit mid-escalation and
-# leave a descendant that ignores TERM alive, so the bound is those budgets in sequence.
+# outlast the teardown a script execution is entitled to. Each backend adds its own phases
+# up and publishes the total, and the longest one reachable on this platform is what has to
+# be waited out: a shorter wait lets the CLI exit mid-escalation and leave a descendant that
+# ignores TERM alive.
 RENDER_THREAD_UNWIND_MARGIN_SECONDS = 1.0
-RENDER_THREAD_SHUTDOWN_TIMEOUT = (
-    SIGTERM_GRACE_PERIOD_SECONDS
-    + REAP_DEADLINE_SECONDS
-    + DRAIN_DEADLINE_SECONDS
-    + REAP_DEADLINE_SECONDS
-    + RENDER_THREAD_UNWIND_MARGIN_SECONDS
-)
+RENDER_THREAD_SHUTDOWN_TIMEOUT = teardown_budget_seconds() + RENDER_THREAD_UNWIND_MARGIN_SECONDS
 
 # Exceptions that represent expected, user-facing error conditions. They are
 # reported to the user directly and must never be sent to Sentry as crashes.

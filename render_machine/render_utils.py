@@ -10,6 +10,7 @@ from plain2code_console import MUTED_COLOR, RETRY_COLOR, SUCCESS_COLOR, console
 from plain2code_exceptions import RenderCancelledError
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
+    NO_INPUT_NOTE,
     TerminalProcess,
     TerminalProcessError,
     create_terminal_process,
@@ -27,30 +28,6 @@ RAW_OUTPUT_SUFFIX = ".raw"
 # input driver is ever attached. The timeout diagnostic is keyed on this declaration rather
 # than on bytes written: a script that blocks on input has written nothing either way.
 INPUT_DRIVER: Optional[object] = None
-
-NO_INPUT_DIAGNOSTIC_BASE = (
-    " No input driver was attached to the script's terminal, so a script that waits for input "
-    "never receives any and runs to the timeout."
-)
-
-# A documented platform asymmetry, not an implementation detail. POSIX injects the
-# terminal's EOF byte at spawn when no input driver is attached, so a script that reads
-# input sees end-of-file at once. ConPTY has no parent-side equivalent that leaves the input
-# channel open, and the channel has to stay open for the graceful control byte and for
-# terminal-query replies, so the same script blocks until the timeout.
-WINDOWS_NO_EOF_DIAGNOSTIC = (
-    " On Windows the terminal carries no synthetic end-of-file, so such a script blocks until the "
-    "timeout instead of reading end-of-file."
-)
-
-
-def no_input_diagnostic(platform: str) -> str:
-    if platform == "win32":
-        return NO_INPUT_DIAGNOSTIC_BASE + WINDOWS_NO_EOF_DIAGNOSTIC
-    return NO_INPUT_DIAGNOSTIC_BASE
-
-
-NO_INPUT_DIAGNOSTIC = no_input_diagnostic(sys.platform)
 
 # Conditions the arbiter chooses between, highest precedence last.
 CONDITION_EXIT = "exit"
@@ -148,6 +125,9 @@ class _ScriptExecution:
         self.raw_output = b""
         self.reply_failed = False
         self.reply_detail = ""
+        # The backend that ran states this itself. Keyed on the platform it would describe
+        # the wrong backend whenever the escape hatch selected another one.
+        self.no_input_note = NO_INPUT_NOTE
 
 
 def _await_target(
@@ -221,6 +201,7 @@ def _collect_backend_state(process: TerminalProcess, execution: _ScriptExecution
         execution.raw_output = process.read_raw_output()
         execution.reply_failed = process.terminal_reply_failed
         execution.reply_detail = process.terminal_reply_detail()
+        execution.no_input_note = process.no_input_note()
     except Exception as exc:
         _record_backend_failure(execution.outcome, exc, "while reporting its result")
 
@@ -340,8 +321,9 @@ def _publish_timeout(
     output: str,
     reply_failed: bool,
     reply_detail: str,
+    no_input_note: str,
 ) -> tuple[int, str, Optional[str]]:
-    diagnostics = NO_INPUT_DIAGNOSTIC if INPUT_DRIVER is None else ""
+    diagnostics = no_input_note if INPUT_DRIVER is None else ""
     if reply_failed:
         diagnostics += f" Terminal replies the script asked for could not be delivered: {reply_detail}."
 
@@ -398,7 +380,13 @@ def execute_script(
         raise RenderCancelledError()
     elif outcome.condition == CONDITION_TIMEOUT:
         result = _publish_timeout(
-            script, script_type, script_timeout, execution.output, execution.reply_failed, execution.reply_detail
+            script,
+            script_type,
+            script_timeout,
+            execution.output,
+            execution.reply_failed,
+            execution.reply_detail,
+            execution.no_input_note,
         )
     elif outcome.exit_code is None:
         result = _publish_environment_error(

@@ -33,10 +33,12 @@ from ctypes import wintypes  # noqa: E402
 from plain2code_exceptions import RenderCancelledError  # noqa: E402
 from render_machine import _conpty  # noqa: E402
 from render_machine import render_utils  # noqa: E402
+from render_machine import terminal_process  # noqa: E402
 from render_machine._conpty import ConPtyProcess  # noqa: E402
 from render_machine._legacy_pipe import LegacyPipeProcess  # noqa: E402
 from render_machine.terminal_process import (  # noqa: E402
     ENVIRONMENT_ERROR_EXIT_CODE,
+    NO_INPUT_NOTE,
     NO_PTY_ENV_VAR,
     InputDisposition,
     TerminalEnvironmentError,
@@ -376,6 +378,21 @@ def test_windows_selects_the_conpty_backend(monkeypatch):
         assert isinstance(process, ConPtyProcess)
     finally:
         process.close()
+
+
+def test_the_backend_notes_that_it_has_no_synthetic_end_of_file():
+    """The timeout diagnostic asks the backend that ran, so this one has to state the
+    asymmetry itself: a script reading input blocks instead of seeing end-of-file."""
+    note = ConPtyProcess().no_input_note()
+
+    assert note.startswith(NO_INPUT_NOTE)
+    assert "end-of-file" in note
+
+
+def test_the_teardown_budget_covers_every_phase_the_shutdown_spends():
+    """The CLI derives its own wait from this, and the ConPTY pipeline is the longest one."""
+    assert _conpty.TEARDOWN_BUDGET_SECONDS > terminal_process.SIGTERM_GRACE_PERIOD_SECONDS
+    assert terminal_process.teardown_budget_seconds() >= _conpty.TEARDOWN_BUDGET_SECONDS
 
 
 def test_the_escape_hatch_still_selects_the_pipe_backend_on_windows(monkeypatch):

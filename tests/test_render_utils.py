@@ -31,7 +31,8 @@ from pathlib import Path
 import pytest
 
 from plain2code_exceptions import RenderCancelledError
-from render_machine import render_utils
+from render_machine import render_utils, terminal_process
+from render_machine._legacy_pipe import LegacyPipeProcess
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
     READER_STALL_DETAIL,
@@ -664,13 +665,22 @@ def test_the_timeout_message_names_the_absent_input_driver(tmp_path, run_script)
     assert "no input driver was attached" in Path(output_file).read_text().lower()
 
 
-def test_the_no_input_diagnostic_names_the_platform_asymmetry_on_windows():
-    """POSIX injects the terminal's EOF byte at spawn and ConPTY has no equivalent, so the
-    same script behaves differently and the message has to say so."""
-    posix = render_utils.no_input_diagnostic("darwin")
-    windows = render_utils.no_input_diagnostic("win32")
+def test_a_backend_that_delivers_end_of_file_states_the_default_note():
+    """POSIX injects the terminal's EOF byte at spawn and the pipe backend hands the child
+    DEVNULL, so neither has anything to add to the default note."""
+    assert LegacyPipeProcess().no_input_note() == terminal_process.NO_INPUT_NOTE
 
-    assert posix == render_utils.NO_INPUT_DIAGNOSTIC_BASE
-    assert windows.startswith(posix)
-    assert "end-of-file" in windows
-    assert render_utils.NO_INPUT_DIAGNOSTIC == render_utils.no_input_diagnostic(sys.platform)
+
+def test_the_timeout_diagnostic_carries_the_note_of_the_backend_that_ran(injected_backend, run_script):
+    """The note comes from the backend, not from sys.platform: under the escape hatch on
+    Windows the pipe backend delivers end-of-file at once, so a platform-keyed note would
+    describe a backend that never ran."""
+    note = " This backend states its own note."
+    process = injected_backend()
+    process.no_input_note = lambda: note
+
+    exit_code, output, output_file = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=0)
+
+    assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
+    assert note in output
+    assert note in Path(output_file).read_text()

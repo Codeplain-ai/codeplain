@@ -68,6 +68,16 @@ _LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pty_exec.p
 # forks, so termination is immediate and the full grace would only slow failures down.
 ROLLBACK_GRACE_SECONDS = 0.1
 
+# What one full teardown of this backend may spend, phase by phase and in sequence. A
+# caller waiting on a render derives its own bound from this, so it cannot report a stuck
+# teardown while the backend is still inside the budget its own constants grant it.
+TEARDOWN_BUDGET_SECONDS = (
+    SIGTERM_GRACE_PERIOD_SECONDS  # terminate_tree(): the grace before the SIGKILL
+    + REAP_DEADLINE_SECONDS  # terminate_tree(): reaping the killed group
+    + DRAIN_DEADLINE_SECONDS  # close(): the reader's final drain
+    + REAP_DEADLINE_SECONDS  # close(): the rest of the same reader join
+)
+
 
 class _ProtocolError(Exception):
     """The launcher's status stream did not follow the handshake protocol."""
@@ -82,20 +92,25 @@ def _close_quietly(fd: Optional[int]) -> None:
         pass
 
 
-def _signal_group(pgid: int, sig: int) -> None:
-    """The only killpg site in this module.
+def _signal_group(pgid: int, sig: int) -> bool:
+    """The only killpg site in this module. False once the group has nothing left to signal.
 
     ESRCH: the group is gone.
     EPERM: verified on macOS — killpg() returns EPERM, not ESRCH, when the group's only
     remaining member is our own unreaped zombie leader. That is the NORMAL state after a
     graceful exit, so it must not raise.
+
+    Both are terminal for the group, which is what lets signal 0 serve as a liveness probe
+    without a second killpg site.
     """
     try:
         os.killpg(pgid, sig)
     except ProcessLookupError:  # ESRCH — nothing left
-        return
+        return False
     except PermissionError:  # EPERM — zombie-only group
         console.debug(f"killpg({pgid}, {sig}): EPERM, treating as terminal")
+        return False
+    return True
 
 
 def _background_reap(proc: subprocess.Popen) -> None:
@@ -548,6 +563,8 @@ class PosixPtyProcess(TerminalProcess):
                 self._deliver(proc, pgid, signal.SIGCONT)
                 deadline = time.monotonic() + grace  # independent clock — NOT stop_event
                 while time.monotonic() < deadline:  # never waits on the leader either
+                    if self._group_spent(pgid):
+                        break  # the tree handled the SIGTERM; the escalation still follows
                     self._grace_tick()
             finally:
                 # Unconditional: an interruption mid-grace must still escalate.
@@ -997,6 +1014,17 @@ class PosixPtyProcess(TerminalProcess):
 
     def _grace_tick(self) -> None:
         time.sleep(GRACE_TICK_SECONDS)
+
+    def _group_spent(self, pgid: Optional[int]) -> bool:
+        """Signal 0 as a liveness probe: True once the group can no longer be signalled.
+
+        Only the grace loop uses it, and only to stop waiting early. Nothing is reaped here
+        — the SIGKILL and the reap that follow are unconditional — because reaping before
+        the escalation would recycle the group the escalation still has to reach.
+        """
+        if pgid is None:  # pre-ack: no group recorded, so the grace runs to its end
+            return False
+        return not _signal_group(pgid, 0)
 
     def _rollback(self) -> None:
         try:

@@ -58,6 +58,16 @@ PIPE_SIZE_KB = 1024  # 1MB
 # that inherited the write end keeps the pipe open past the leader's exit.
 CLOSE_JOIN_SECONDS = 1.0
 
+# What one full teardown of this backend may spend, phase by phase and in sequence. A
+# caller waiting on a render derives its own bound from this, so it cannot report a stuck
+# teardown while the backend is still inside the budget its own constants grant it.
+TEARDOWN_BUDGET_SECONDS = (
+    SIGTERM_GRACE_PERIOD_SECONDS  # terminate_tree(): the grace before the SIGKILL
+    + REAP_DEADLINE_SECONDS  # terminate_tree(): reaping the killed process
+    + DRAIN_DEADLINE_SECONDS  # close(): the first join, while the pipe is still open
+    + CLOSE_JOIN_SECONDS  # close(): the second, after the pipe is closed under the reader
+)
+
 # Windows gives a child the parent's console unless told otherwise, and a child on that
 # console can read the renderer's keystrokes through CONIN$ regardless of where its
 # standard input handle points. CREATE_NO_WINDOW gives it a console of its own instead.

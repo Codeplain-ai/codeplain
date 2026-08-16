@@ -331,6 +331,19 @@ def has_commit_for_frid(repo_path: Union[str, os.PathLike], frid: str, module_na
         return bool(_get_commit_with_frid(repo, frid, module_name))
 
 
+def frids_missing_commits(
+    repo_path: Union[str, os.PathLike], frids: list[str], module_name: Optional[str] = None
+) -> list[str]:
+    """The frids from `frids` with no commit in the repository, in the order given.
+
+    One Repo answers for the whole list. Asking per frid instead opens and closes a Repo
+    each time, and close() runs gc.collect() twice on win32, so a render resumed late paid
+    that for every functionality before it.
+    """
+    with Repo(repo_path) as repo:
+        return [frid for frid in frids if not _get_commit_with_frid(repo, frid, module_name)]
+
+
 def _get_base_folder_commit(repo: Repo) -> str:
     """Finds commit related to copy of the base folder."""
     return _get_commit_with_message(repo, BASE_FOLDER_COMMIT_MESSAGE)
