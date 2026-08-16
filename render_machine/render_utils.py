@@ -28,10 +28,29 @@ RAW_OUTPUT_SUFFIX = ".raw"
 # than on bytes written: a script that blocks on input has written nothing either way.
 INPUT_DRIVER: Optional[object] = None
 
-NO_INPUT_DIAGNOSTIC = (
+NO_INPUT_DIAGNOSTIC_BASE = (
     " No input driver was attached to the script's terminal, so a script that waits for input "
     "never receives any and runs to the timeout."
 )
+
+# A documented platform asymmetry, not an implementation detail. POSIX injects the
+# terminal's EOF byte at spawn when no input driver is attached, so a script that reads
+# input sees end-of-file at once. ConPTY has no parent-side equivalent that leaves the input
+# channel open, and the channel has to stay open for the graceful control byte and for
+# terminal-query replies, so the same script blocks until the timeout.
+WINDOWS_NO_EOF_DIAGNOSTIC = (
+    " On Windows the terminal carries no synthetic end-of-file, so such a script blocks until the "
+    "timeout instead of reading end-of-file."
+)
+
+
+def no_input_diagnostic(platform: str) -> str:
+    if platform == "win32":
+        return NO_INPUT_DIAGNOSTIC_BASE + WINDOWS_NO_EOF_DIAGNOSTIC
+    return NO_INPUT_DIAGNOSTIC_BASE
+
+
+NO_INPUT_DIAGNOSTIC = no_input_diagnostic(sys.platform)
 
 # Conditions the arbiter chooses between, highest precedence last.
 CONDITION_EXIT = "exit"
@@ -131,10 +150,6 @@ class _ScriptExecution:
         self.reply_detail = ""
 
 
-def _reader_failure_detail(process: TerminalProcess) -> str:
-    return f"the terminal output reader failed: {process.reader_exc!r}"
-
-
 def _await_target(
     process: TerminalProcess,
     script_timeout: float,
@@ -156,8 +171,9 @@ def _await_target(
             outcome.cancelled()
         if time.monotonic() >= deadline:
             outcome.timed_out()
-        if process.reader_failed.is_set():
-            outcome.infrastructure_failed(_reader_failure_detail(process))
+        pump_failure = process.infrastructure_failure()
+        if pump_failure is not None:
+            outcome.infrastructure_failed(pump_failure)
         if outcome.decided():
             return
         if stop_event is not None:
@@ -177,11 +193,12 @@ def _teardown(process: TerminalProcess, outcome: _ScriptOutcome) -> None:
         outcome.infrastructure_failed(str(exc))
     except Exception as exc:
         outcome.infrastructure_failed(f"the terminal backend failed while shutting down: {exc!r}")
-    # Deliberately checked after teardown and at the highest precedence: a reader that
-    # died independently is an environment failure even when it surfaces while a timeout
-    # or a cancellation is being cleaned up.
-    if process.reader_failed.is_set():
-        outcome.infrastructure_failed(_reader_failure_detail(process))
+    # Deliberately checked after teardown and at the highest precedence: a pump that died
+    # independently is an environment failure even when it surfaces while a timeout or a
+    # cancellation is being cleaned up.
+    pump_failure = process.infrastructure_failure()
+    if pump_failure is not None:
+        outcome.infrastructure_failed(pump_failure)
 
 
 def _record_backend_failure(outcome: _ScriptOutcome, exc: Exception, phase: str) -> None:

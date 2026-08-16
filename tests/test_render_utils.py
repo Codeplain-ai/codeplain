@@ -662,3 +662,15 @@ def test_the_timeout_message_names_the_absent_input_driver(tmp_path, run_script)
     assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
     assert "no input driver was attached" in output.lower()
     assert "no input driver was attached" in Path(output_file).read_text().lower()
+
+
+def test_the_no_input_diagnostic_names_the_platform_asymmetry_on_windows():
+    """POSIX injects the terminal's EOF byte at spawn and ConPTY has no equivalent, so the
+    same script behaves differently and the message has to say so."""
+    posix = render_utils.no_input_diagnostic("darwin")
+    windows = render_utils.no_input_diagnostic("win32")
+
+    assert posix == render_utils.NO_INPUT_DIAGNOSTIC_BASE
+    assert windows.startswith(posix)
+    assert "end-of-file" in windows
+    assert render_utils.NO_INPUT_DIAGNOSTIC == render_utils.no_input_diagnostic(sys.platform)
