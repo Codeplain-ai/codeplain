@@ -773,6 +773,29 @@ def test_reader_exits_cleanly_when_the_leader_exits_with_a_descendant_on_the_sla
     assert process.reader_exc is None
 
 
+# How long the delayed-ack backend below holds the acknowledgment window open. Nothing
+# waits it out: every case that uses it ends the window itself.
+ACK_WINDOW_SECONDS = 5.0
+
+
+class _DelayedAckProcess(_posix_pty.PosixPtyProcess):
+    """Holds the acknowledgment for a bounded time, so the barrier's window is opened
+    rather than raced. The wait is cancellable and reader-aware, like the path it sits in."""
+
+    def __init__(self, delay=ACK_WINDOW_SECONDS):
+        super().__init__()
+        self.delay = delay
+        self.entered = threading.Event()
+
+    def _pre_ack_hook(self):
+        self.entered.set()
+        until = time.monotonic() + self.delay
+        while time.monotonic() < until:
+            self._check_cancelled()
+            self._check_reader_failed()
+            time.sleep(min(0.02, max(0.0, until - time.monotonic())))
+
+
 def test_cancellation_inside_the_ack_window_leaves_nothing_behind():
     """Deterministic through the delayed-ack hook: the window is opened, not raced.
 
@@ -780,24 +803,18 @@ def test_cancellation_inside_the_ack_window_leaves_nothing_behind():
     SESSION_READY however slowly the launcher gets there.
     """
     stop_event = threading.Event()
-    process = _posix_pty.PosixPtyProcess()
-    entered = threading.Event()
-    real_wait_pre_ack = process._wait_pre_ack
-
-    def recording_wait_pre_ack(delay, deadline):
-        entered.set()
-        real_wait_pre_ack(delay, deadline)
+    process = _DelayedAckProcess()
+    entered = process.entered
 
     def cancel_inside_the_window():
         if entered.wait(SPAWN_TIMEOUT):
             stop_event.set()
 
-    process._wait_pre_ack = recording_wait_pre_ack
     canceller = threading.Thread(target=cancel_inside_the_window, daemon=True)
     canceller.start()
     try:
         with pytest.raises(RenderCancelledError):
-            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event, pre_ack_delay=5.0)
+            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event)
     finally:
         canceller.join(timeout=SHORT_TIMEOUT)
         process.close()
@@ -855,10 +872,10 @@ def test_a_tree_that_exits_on_sigterm_does_not_wait_out_the_whole_grace(tmp_path
 def test_launcher_ack_timeout_beats_the_parents_ack():
     """The parent's write hits a closed pipe; the launcher's own reason must surface."""
     env = dict(os.environ, **{pty_exec.ACK_TIMEOUT_ENV: "0.2"})
-    process = _posix_pty.PosixPtyProcess()
+    process = _DelayedAckProcess(delay=2.0)
     try:
         with pytest.raises(TerminalLaunchError) as failure:
-            process.spawn(["/bin/sh", "-c", "exit 0"], env=env, pre_ack_delay=2.0, handshake_timeout=10.0)
+            process.spawn(["/bin/sh", "-c", "exit 0"], env=env, handshake_timeout=10.0)
     finally:
         process.close()
 
@@ -894,10 +911,10 @@ def test_codeplains_own_process_group_is_never_signalled(tmp_path, monkeypatch):
     monkeypatch.setattr(_posix_pty.os, "killpg", recording_killpg)
     stop_event = threading.Event()
     threading.Timer(0.2, stop_event.set).start()
-    process = _posix_pty.PosixPtyProcess()
+    process = _DelayedAckProcess()
     try:
         with pytest.raises(RenderCancelledError):
-            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event, pre_ack_delay=5.0)
+            process.spawn(["/bin/sh", "-c", "sleep 30"], stop_event=stop_event)
     finally:
         process.close()
 

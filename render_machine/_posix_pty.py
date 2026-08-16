@@ -501,14 +501,8 @@ class PosixPtyProcess(TerminalProcess):
         stop_event: Optional[threading.Event] = None,
         input_driver: Optional[object] = None,
         handshake_timeout: float = HANDSHAKE_TIMEOUT_SECONDS,
-        pre_ack_delay: float = 0.0,
     ) -> None:
-        """Allocates the terminal, launches the target, and returns once it is running.
-
-        `pre_ack_delay` holds the parent's acknowledgment for a bounded time. It exists so
-        the barrier's window can be driven deterministically from tests; production
-        callers leave it at zero.
-        """
+        """Allocates the terminal, launches the target, and returns once it is running."""
         if self._spawned:
             raise RuntimeError("PosixPtyProcess instances are single-use")
         self._spawned = True
@@ -521,7 +515,7 @@ class PosixPtyProcess(TerminalProcess):
             self._open_channels()
             self._start_child(command, cwd, env)
             self._hand_over_to_reader()
-            self._run_handshake(deadline, pre_ack_delay)
+            self._run_handshake(deadline)
             self._close_owned("_status_r")  # the handshake has resolved
         except BaseException:
             self._rollback()
@@ -715,7 +709,7 @@ class PosixPtyProcess(TerminalProcess):
 
     # ---------------------------------------------------------------- handshake
 
-    def _run_handshake(self, deadline: float, pre_ack_delay: float) -> None:
+    def _run_handshake(self, deadline: float) -> None:
         parser = _HandshakeParser()
         assert self._proc is not None and self._proc.stderr is not None
         status_r, err_r = self._status_r, self._err_r
@@ -733,12 +727,10 @@ class PosixPtyProcess(TerminalProcess):
                 watched.discard(stderr_fd)
             if err_r in readable:
                 self._consume_reader_edge(watched, err_r)
-            if status_r in readable and self._advance_handshake(parser, status_r, deadline, pre_ack_delay):
+            if status_r in readable and self._advance_handshake(parser, status_r, deadline):
                 return
 
-    def _advance_handshake(
-        self, parser: _HandshakeParser, status_r: int, deadline: float, pre_ack_delay: float
-    ) -> bool:
+    def _advance_handshake(self, parser: _HandshakeParser, status_r: int, deadline: float) -> bool:
         """Feeds one status chunk. Returns True once exec has been observed."""
         chunk = os.read(status_r, READ_CHUNK_BYTES)
         try:
@@ -752,17 +744,16 @@ class PosixPtyProcess(TerminalProcess):
             reason = parser.failure_payload.decode("utf-8", "replace")
             raise TerminalLaunchError(self._launch_message(f"the launcher failed: {reason}"))
         if parser.session_ready and not self._acked:
-            self._acknowledge(deadline, pre_ack_delay)
+            self._acknowledge(deadline)
         return False
 
-    def _acknowledge(self, deadline: float, pre_ack_delay: float) -> None:
+    def _acknowledge(self, deadline: float) -> None:
         """Records the group, delivers the no-driver VEOF, and only then releases the target."""
         assert self._proc is not None
         self._pgid = self._proc.pid  # recorded BEFORE the target can run
         if self._input_driver is None:
             self._inject_veof(deadline)
-        if pre_ack_delay > 0:
-            self._wait_pre_ack(pre_ack_delay, deadline)
+        self._pre_ack_hook()
         self._acked = True
         ack_w = self._ack_w
         assert ack_w is not None
@@ -774,12 +765,9 @@ class PosixPtyProcess(TerminalProcess):
             console.debug("the launcher closed the acknowledgment pipe before the parent acknowledged")
         self._close_owned("_ack_w")
 
-    def _wait_pre_ack(self, delay: float, deadline: float) -> None:
-        until = min(time.monotonic() + delay, deadline)
-        while time.monotonic() < until:
-            self._check_cancelled()
-            self._check_reader_failed()
-            time.sleep(min(POLL_INTERVAL_SECONDS, max(0.0, until - time.monotonic())))
+    def _pre_ack_hook(self) -> None:
+        """The window between the recorded group and the acknowledgment that releases the
+        target. Empty in production; a test overrides it to hold the window open."""
 
     def _inject_veof(self, deadline: float) -> None:
         result, receipt = self._input_queue.submit(
