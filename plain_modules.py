@@ -308,9 +308,17 @@ class PlainModule:
         )
         missing_in_tests = set()
         if render_conformance_tests:
-            missing_in_tests = set(
-                git_utils.frids_missing_commits(self.module_conformance_tests_folder, previous_frids, self.module_name)
-            )
+            try:
+                missing_in_tests = set(
+                    git_utils.frids_missing_commits(
+                        self.module_conformance_tests_folder, previous_frids, self.module_name
+                    )
+                )
+            except Exception:
+                # A broken tests repo must not mask the actionable build-repo error below;
+                # with nothing missing in the build repo it is a real failure and propagates.
+                if not missing_in_build:
+                    raise
 
         for frid in previous_frids:
             if frid in missing_in_build:

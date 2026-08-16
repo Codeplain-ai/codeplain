@@ -527,3 +527,38 @@ def test_reconcile_metadata_with_git_no_metadata_is_noop(solo_module):
     solo_module.reconcile_metadata_with_git()
 
     assert solo_module.load_module_metadata() is None
+
+
+# --------------------------------------------------------------------------
+# _raise_for_missing_frid_commits
+# --------------------------------------------------------------------------
+
+
+def test_a_broken_tests_repo_does_not_mask_the_missing_build_commit_error(solo_module, monkeypatch):
+    """The actionable --render-from guidance wins over a raw failure from the tests repo."""
+    import git_utils
+    from plain2code_exceptions import MissingPreviousFunctionalitiesError
+
+    def fake_missing(folder, frids, module_name):
+        if folder == solo_module.module_build_folder:
+            return ["1"]
+        raise RuntimeError("the conformance tests repository is broken")
+
+    monkeypatch.setattr(git_utils, "frids_missing_commits", fake_missing)
+
+    with pytest.raises(MissingPreviousFunctionalitiesError):
+        solo_module._raise_for_missing_frid_commits(["1"], "2", render_conformance_tests=True)
+
+
+def test_a_broken_tests_repo_with_a_healthy_build_repo_still_fails(solo_module, monkeypatch):
+    import git_utils
+
+    def fake_missing(folder, frids, module_name):
+        if folder == solo_module.module_build_folder:
+            return []
+        raise RuntimeError("the conformance tests repository is broken")
+
+    monkeypatch.setattr(git_utils, "frids_missing_commits", fake_missing)
+
+    with pytest.raises(RuntimeError, match="conformance tests repository"):
+        solo_module._raise_for_missing_frid_commits(["1"], "2", render_conformance_tests=True)
