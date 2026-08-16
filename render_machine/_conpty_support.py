@@ -153,22 +153,30 @@ class Receipt:
     """
 
     def __init__(self, on_resolve: Optional[ResolveCallback] = None) -> None:
+        self._lock = threading.Lock()
         self._event = threading.Event()
         self.error: Optional[BaseException] = None
         self.disposition: Optional[InputDisposition] = None
+        # Two counters, because they answer two different questions: how many resolutions
+        # took effect (never more than one), and how many were attempted (a caller retiring
+        # an item twice is a bug worth failing a test on).
         self.resolutions = 0
+        self.attempts = 0
         self._on_resolve = on_resolve
 
     def resolve(self, disposition: InputDisposition, error: Optional[BaseException] = None) -> None:
-        self.resolutions += 1
-        if self._event.is_set():
-            return
-        self.disposition = disposition
-        self.error = error
-        self._event.set()
-        if self._on_resolve is not None:
+        with self._lock:  # the check and the set are one step, so two threads cannot both win
+            self.attempts += 1
+            if self._event.is_set():
+                return
+            self.disposition = disposition
+            self.error = error
+            self.resolutions += 1
+            self._event.set()
+            callback = self._on_resolve
+        if callback is not None:  # outside the lock: a callback must not be able to re-enter it
             try:
-                self._on_resolve(disposition, error)
+                callback(disposition, error)
             except BaseException as exc:  # a completion callback must never strand the queue
                 console.debug(f"input completion callback raised: {exc!r}")
 
@@ -182,14 +190,27 @@ class Receipt:
 
 
 class InputItem:
-    """One whole logical write, plus the cursor the writer keeps across partial writes."""
+    """One whole logical write, plus the cursor the writer keeps across partial writes.
 
-    def __init__(self, data: bytes, receipt: Receipt, lane: InputLane, sequence: int, stop: bool = False) -> None:
+    An urgent control item also carries the preemption generation it was posted under, so
+    the writer acknowledges at least that generation before it starts writing the item.
+    """
+
+    def __init__(
+        self,
+        data: bytes,
+        receipt: Receipt,
+        lane: InputLane,
+        sequence: int,
+        stop: bool = False,
+        generation: int = 0,
+    ) -> None:
         self.data = data
         self.receipt = receipt
         self.lane = lane
         self.sequence = sequence
         self.stop = stop
+        self.generation = generation
         self.cursor = 0
 
 
@@ -228,6 +249,7 @@ class InputQueue:
         reserved: bool = False,
         lane: InputLane = InputLane.DATA,
         on_resolve: Optional[ResolveCallback] = None,
+        generation: int = 0,
     ) -> Tuple[InputWriteResult, Receipt]:
         """One non-blocking whole-item admission. Never waits, whoever the producer is."""
         receipt = Receipt(on_resolve)
@@ -247,7 +269,7 @@ class InputQueue:
             elif self._pending_bytes + size > byte_budget or queued >= item_budget:
                 result = InputWriteResult(InputDisposition.BACKPRESSURE, 0)
             else:
-                self._append(InputItem(bytes(data), receipt, lane, self._next_sequence()))
+                self._append(InputItem(bytes(data), receipt, lane, self._next_sequence(), generation=generation))
                 self._pending_bytes += size
                 result = InputWriteResult(InputDisposition.ACCEPTED, size)
                 enqueued = True
@@ -486,15 +508,17 @@ class InputWriter:
 
         Returns the id, or None when the writer failed or the deadline expired. The wait is
         bounded and abortable because a writer that dies before publishing must not park the
-        creator.
+        creator. `stop_check` runs at least once even when the writer is already ready, so a
+        cancellation set while it was starting is not skipped.
         """
-        while not self.ready.is_set():
+        while True:
             if stop_check is not None:
                 stop_check()
+            if self.ready.is_set():
+                return None if self.failed.is_set() else self.native_id
             if time.monotonic() >= deadline:
                 return None
             self.ready.wait(CANCEL_TICK_SECONDS)
-        return None if self.failed.is_set() else self.native_id
 
     def deliver_control(self, data: bytes, deadline_seconds: float) -> bool:
         """Posts an urgent control item, preempts any data write, and awaits its receipt.
@@ -503,13 +527,21 @@ class InputWriter:
         synchronous data write never reaches the queue again on its own, so the in-flight
         write is cancelled through the stored thread handle until the writer acknowledges
         this generation.
+
+        The generation is published under the same lock that makes the item visible. Bumping
+        it afterwards would let an idle writer dequeue the item, acknowledge the previous
+        generation and enter its control write before this thread starts cancelling — which
+        is exactly the wrong-call cancellation the lock exists to prevent.
         """
-        result, receipt = self.queue.submit(data, reserved=True, lane=InputLane.CONTROL)
-        if result.disposition is not InputDisposition.ACCEPTED:
-            return False
         with self._lock:
             self._requested_generation += 1
             generation = self._requested_generation
+            result, receipt = self.queue.submit(data, reserved=True, lane=InputLane.CONTROL, generation=generation)
+            if result.disposition is not InputDisposition.ACCEPTED:
+                # Nothing became visible, so the request is withdrawn rather than left for
+                # the writer to acknowledge against an item that does not exist.
+                self._requested_generation = generation - 1
+                return False
         deadline = time.monotonic() + deadline_seconds
         while not receipt.resolved:
             if time.monotonic() >= deadline:
@@ -598,8 +630,10 @@ class InputWriter:
     def _service(self, item: InputItem) -> None:
         if item.lane is InputLane.CONTROL:
             # Published before the control write begins: it means "no earlier data I/O
-            # remains", and it is what stops the poster's cancel loop.
-            self._acknowledge_preemption()
+            # remains", and it is what stops the poster's cancel loop. The item's own
+            # generation is the floor, so the acknowledgment can never be older than the
+            # request that produced the item.
+            self._acknowledge_preemption(item.generation)
             self._write_item(item, preemptible=False)
             return
         self._write_item(item, preemptible=True)
@@ -639,6 +673,11 @@ class InputWriter:
         with self._lock:
             return self._preempted_generation < self._requested_generation
 
-    def _acknowledge_preemption(self) -> None:
+    def _acknowledge_preemption(self, at_least: int = 0) -> None:
         with self._lock:
-            self._preempted_generation = self._requested_generation
+            self._preempted_generation = max(self._preempted_generation, self._requested_generation, at_least)
+
+    @property
+    def acknowledged_generation(self) -> int:
+        with self._lock:
+            return self._preempted_generation
