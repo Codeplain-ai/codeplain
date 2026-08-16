@@ -56,9 +56,6 @@ from render_machine.terminal_process import (
     DRAIN_DEADLINE_SECONDS,
     GRACE_TICK_SECONDS,
     HANDSHAKE_TIMEOUT_SECONDS,
-)
-from render_machine.terminal_process import NO_INPUT_NOTE as DEFAULT_NO_INPUT_NOTE
-from render_machine.terminal_process import (
     OWNER_PARENT,
     OWNER_READER,
     POLL_INTERVAL_SECONDS,
@@ -162,11 +159,12 @@ TEARDOWN_BUDGET_SECONDS = (
 # reaches only processes sharing the caller's console and the target is on the pseudoconsole.
 CONTROL_C_BYTE = b"\x03"
 
-# The absent-input note this backend adds to, stated where the asymmetry is documented: a
-# script that reads input blocks until the execution timeout rather than seeing end-of-file.
-NO_INPUT_NOTE = DEFAULT_NO_INPUT_NOTE + (
-    " On Windows the terminal carries no synthetic end-of-file, so such a script blocks until the "
-    "timeout instead of reading end-of-file."
+# The absent-input note this backend states itself, where the asymmetry is documented:
+# unlike the other backends it cannot hand the target end-of-file, so a script that reads
+# terminal input really does block until the execution timeout.
+NO_INPUT_NOTE = (
+    " No input driver was attached to the script's terminal, and on Windows the terminal carries "
+    "no synthetic end-of-file, so a script that waits for terminal input blocks until the timeout."
 )
 
 

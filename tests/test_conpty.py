@@ -382,10 +382,12 @@ def test_windows_selects_the_conpty_backend(monkeypatch):
 
 def test_the_backend_notes_that_it_has_no_synthetic_end_of_file():
     """The timeout diagnostic asks the backend that ran, so this one has to state the
-    asymmetry itself: a script reading input blocks instead of seeing end-of-file."""
+    asymmetry itself: a script reading input blocks instead of seeing end-of-file — the
+    base note describes backends that hand end-of-file at spawn, which this one cannot."""
     note = ConPtyProcess().no_input_note()
 
-    assert note.startswith(NO_INPUT_NOTE)
+    assert note != NO_INPUT_NOTE
+    assert "blocks until the timeout" in note
     assert "end-of-file" in note
 
 

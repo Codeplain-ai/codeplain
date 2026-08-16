@@ -83,12 +83,12 @@ READER_STALL_DETAIL = "the terminal output reader did not terminate within its s
 OWNER_PARENT = "parent"
 OWNER_READER = "reader"
 
-# What a timeout diagnostic says when no input driver was attached. A backend that gives
-# the target end-of-file at spawn needs nothing more; ConPTY, which cannot, appends its own
-# clause to this one.
+# What a timeout diagnostic says when no input driver was attached. A backend that hands
+# the target end-of-file at spawn needs nothing more; ConPTY, which cannot deliver an
+# end-of-file, states its own note instead.
 NO_INPUT_NOTE = (
-    " No input driver was attached to the script's terminal, so a script that waits for input "
-    "never receives any and runs to the timeout."
+    " No input driver was attached to the script's terminal; a script that reads terminal "
+    "input is handed end-of-file rather than left waiting for it."
 )
 
 
