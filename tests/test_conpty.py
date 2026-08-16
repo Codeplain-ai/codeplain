@@ -69,8 +69,16 @@ probe.CloseHandle.restype = wintypes.BOOL
 
 
 def write_program(tmp_path: Path, name: str, source: str) -> str:
+    """Writes a probe program, and refuses to write one that will not parse.
+
+    A target that dies on a parse error reports a bare non-zero exit code and whatever the
+    terminal happened to catch, which is the least useful evidence available. Compiling here,
+    while the text is still in hand, fails the test at the write with the source and the line.
+    """
     path = tmp_path / f"{name}.py"
-    path.write_text(textwrap.dedent(source), encoding="utf-8")
+    program = textwrap.dedent(source)
+    compile(program, str(path), "exec")
+    path.write_text(program, encoding="utf-8")
     return str(path)
 
 
@@ -236,51 +244,56 @@ def backend():
 
 # The probe reports what a script sees, one short line at a time: the pseudoconsole wraps at
 # the configured width, so a single long line would come back folded.
+# Written at column zero and without a single escape sequence: the target parses this file
+# on its own, and the two ways a program embedded in a test can arrive malformed — an indent
+# no longer shared by every line, and an escape the test source resolves too early — are both
+# absent by construction rather than by review.
 TERMINAL_PROBE = """
-    import ctypes
-    import os
-    import traceback
+import ctypes
+import os
+import traceback
 
 
-    def report():
-        # Declared: an undeclared call returns c_int, which truncates a handle and reports a
-        # false negative for both questions below.
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.GetStdHandle.argtypes = [ctypes.c_uint]
-        kernel32.GetStdHandle.restype = ctypes.c_void_p
-        kernel32.GetCurrentProcess.argtypes = []
-        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-        kernel32.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
-        kernel32.GetConsoleMode.restype = ctypes.c_int
-        kernel32.IsProcessInJob.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
-        kernel32.IsProcessInJob.restype = ctypes.c_int
+def report():
+    # Declared: an undeclared call returns c_int, which truncates a handle and reports a
+    # false negative for both questions below.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetStdHandle.argtypes = [ctypes.c_uint]
+    kernel32.GetStdHandle.restype = ctypes.c_void_p
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
+    kernel32.GetConsoleMode.restype = ctypes.c_int
+    kernel32.IsProcessInJob.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+    kernel32.IsProcessInJob.restype = ctypes.c_int
 
-        mode = ctypes.c_uint(0)
-        console = kernel32.GetConsoleMode(kernel32.GetStdHandle(0xFFFFFFF5), ctypes.byref(mode))
-        in_job = ctypes.c_int(0)
-        kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
-        return [
-            "ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)),
-            "CONSOLE=%s" % bool(console),
-            "INJOB=%s" % bool(in_job.value),
-            "TERM=%s" % os.environ.get("TERM"),
-            "DONE",
-        ]
+    mode = ctypes.c_uint(0)
+    console = kernel32.GetConsoleMode(kernel32.GetStdHandle(0xFFFFFFF5), ctypes.byref(mode))
+    in_job = ctypes.c_int(0)
+    kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
+    return [
+        "ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)),
+        "CONSOLE=%s" % bool(console),
+        "INJOB=%s" % bool(in_job.value),
+        "TERM=%s" % os.environ.get("TERM"),
+        "DONE",
+    ]
 
 
-    try:
-        lines = report()
-    except BaseException:
-        lines = ["PROBE-FAILED", traceback.format_exc()]
+try:
+    lines = report()
+except BaseException:
+    lines = ["PROBE-FAILED"] + traceback.format_exc().splitlines()
 
-    # Written beside the probe as well as printed: the file survives a target whose standard
-    # handles are not the terminal's, and it needs no argument that could itself go wrong.
-    beside_the_probe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe.txt")
-    with open(beside_the_probe, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines))
-
+# Written beside the probe as well as printed: the file survives a target whose standard
+# handles are not the terminal's, and it needs no argument that could itself go wrong.
+beside_the_probe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe.txt")
+with open(beside_the_probe, "w", encoding="utf-8") as handle:
     for line in lines:
-        print(line)
+        print(line, file=handle)
+
+for line in lines:
+    print(line)
 """
 
 
@@ -389,7 +402,11 @@ def test_a_script_runs_on_a_real_console_inside_the_job(backend, tmp_path):
     backend.close()
     output = backend.normalized_output()
     report = report_path.read_text(encoding="utf-8") if report_path.exists() else "(no report was written)"
-    evidence = f"transcript={output!r}; the target reported:\n{report}"
+    written = "".join(Path(script).read_text(encoding="utf-8").splitlines(keepends=True)[:5])
+    evidence = (
+        f"transcript={output!r}\nthe target reported:\n{report}\n"
+        f"first lines written={written!r}\nliteral={TERMINAL_PROBE[:80]!r}"
+    )
 
     assert exit_code == 0, evidence
     assert "ISATTY=True" in output, evidence
