@@ -119,6 +119,7 @@ ERROR_OPERATION_ABORTED = 995
 ERROR_NOT_FOUND = 1168
 
 WAIT_OBJECT_0 = 0
+WAIT_TIMEOUT = 258  # the only wait result that means "still running"
 
 # ConPTY ships from Windows 10 1809. Below it there is no fallback: a silent downgrade to
 # pipes would make execution behaviour depend on the machine again.
@@ -586,7 +587,8 @@ def _open_thread_handle(native_id: int) -> int:
     return handle
 
 
-def _job_active_processes(job: int) -> Optional[int]:
+def _job_active_processes(job: int) -> int:
+    """Members still running. Raises rather than reporting an empty job it never observed."""
     info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION()
     returned = DWORD(0)
     ok = kernel32.QueryInformationJobObject(
@@ -598,8 +600,7 @@ def _job_active_processes(job: int) -> Optional[int]:
     )
     if not ok:
         error = ctypes.get_last_error()
-        console.debug(f"querying the job object reported Windows error {error}")
-        return None
+        raise _win_error("Querying the job object for its remaining members", error)
     return int(info.ActiveProcesses)
 
 
@@ -626,7 +627,7 @@ class _PseudoconsoleInput(WriteChannel):
         return int(written.value)
 
     def cancel(self) -> None:
-        handle = self._session.writer_handle
+        handle = self._session.writer_handle.handle()
         if not handle:
             return
         ok = kernel32.CancelSynchronousIo(handle)
@@ -649,7 +650,7 @@ class _SessionBundle:
         self.in_w = _Holder(pair=in_pair)
         self.in_queue = in_queue
         self.writer: Optional[InputWriter] = None
-        self.writer_handle: Optional[int] = None
+        self.writer_handle = _Holder()  # the same take-then-close discipline as every handle
         self.reader: Optional[threading.Thread] = None
         self.hPC = HPCON()
         self.hPC_valid = False  # a failed HRESULT output is never closable
@@ -657,28 +658,51 @@ class _SessionBundle:
         self.job_array = (HANDLE * 1)()  # must outlive the attribute list that points at it
         self.proc = _ProcInfo()
         self.exit_code: Optional[int] = None
+        # The first native failure any of the observation or teardown steps hit. A failed
+        # wait, exit-code read, job query or job termination cannot be recovered from and
+        # must not be read as "still running" or "shut down cleanly", so it is published
+        # here and surfaces on the environment channel.
+        self.failure: Optional[str] = None
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------- observation
 
+    def record_failure(self, detail: str) -> None:
+        """Keeps the first failure: later ones are usually consequences of it."""
+        if self.failure is None:
+            self.failure = detail
+        console.debug(f"terminal session failure: {detail}")
+
     def poll_exit_code(self) -> Optional[int]:
         """Non-blocking exit status. `WaitForSingleObject` decides, so a target that exits
-        with 259 is not mistaken for one that is still running."""
+        with 259 is not mistaken for one that is still running.
+
+        Only `WAIT_TIMEOUT` means "still running". Every other non-signalled result, and a
+        failed exit-code read, is an infrastructure failure: reporting it as a running
+        process would turn it into a 124 timeout instead of a 69 environment error.
+        """
+        failure = None
         with self._lock:
             if self.exit_code is not None:
                 return self.exit_code
             handle = self.proc.process_handle()
             if not handle:
                 return None
-            if kernel32.WaitForSingleObject(handle, 0) != WAIT_OBJECT_0:
+            waited = kernel32.WaitForSingleObject(handle, 0)
+            if waited == WAIT_TIMEOUT:
                 return None
-            code = DWORD(0)
-            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            if waited != WAIT_OBJECT_0:
                 error = ctypes.get_last_error()
-                console.debug(f"reading the script's exit code reported Windows error {error}")
-                return None
-            self.exit_code = int(code.value)
-            return self.exit_code
+                failure = f"waiting on the script's process reported result 0x{waited:08X} (Windows error {error})"
+            else:
+                code = DWORD(0)
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    self.exit_code = int(code.value)
+                    return self.exit_code
+                error = ctypes.get_last_error()
+                failure = f"reading the script's exit code failed: Windows error {error}"
+        self.record_failure(failure)  # outside the lock: recording logs
+        return None
 
     def running(self) -> bool:
         """False once the process handle has been released, whatever the target is doing:
@@ -729,7 +753,9 @@ class _SessionBundle:
             return
         if not kernel32.TerminateJobObject(job, JOB_TERMINATION_EXIT_CODE):
             error = ctypes.get_last_error()
-            console.debug(f"terminating the job object reported Windows error {error}")
+            # The forced step of the shutdown: if it did not run, nothing else in this
+            # teardown can claim the tree is gone.
+            self.record_failure(f"terminating the script's job object failed: Windows error {error}")
 
     def _await_job_empty(self, bound: float) -> bool:
         """Closes the process handles, then waits for the job's membership to reach zero."""
@@ -739,8 +765,14 @@ class _SessionBundle:
             return True
         deadline = time.monotonic() + bound
         while True:
-            active = _job_active_processes(job)
-            if active is None or active == 0:
+            try:
+                active = _job_active_processes(job)
+            except TerminalEnvironmentError as exc:
+                # Unanswerable rather than empty. Teardown continues — closing the job handle
+                # is still the kill-on-close backstop — but the run is an environment failure.
+                self.record_failure(str(exc))
+                return True
+            if active == 0:
                 return True
             if time.monotonic() >= deadline:
                 console.debug(f"the job object still held {active} processes after {bound}s")
@@ -774,11 +806,34 @@ class _SessionBundle:
 
     def _release_handles(self) -> None:
         self.in_w.close_if_owned()  # after the writer has stopped, never before
-        _close_handle(self.writer_handle)
-        self.writer_handle = None
-        job, self.hJob = self.hJob, None
-        _close_handle(job)  # last: closing it is also the kill-on-close backstop
+        self.writer_handle.close_if_owned()
+        self._close_job()
         self.proc.close_all()
+
+    def _close_job(self) -> None:
+        job, self.hJob = self.hJob, None  # taken before it is closed, like every other handle
+        _close_handle(job)  # closing it is also the kill-on-close backstop
+
+    def release_abandoned(self) -> None:
+        """Last-resort release for a teardown nobody can finish.
+
+        Reached only when the finalizer runs out of time or could not be started. Everything
+        the writer cannot be blocked inside is released unconditionally — closing the job
+        handle is what lets kill-on-job-close fire — while `inputWriteSide` and the writer's
+        thread handle are leaked deliberately when the writer never returned, because closing
+        a handle underneath a blocked `WriteFile` is the corruption the bounded teardown
+        exists to avoid.
+        """
+        self._terminate_job()
+        self.proc.close_all()
+        self._close_pseudoconsole()
+        writer = self.writer
+        if writer is None or writer.finished.is_set():
+            self.in_w.close_if_owned()
+            self.writer_handle.close_if_owned()
+        else:
+            console.debug("leaking the terminal input handles: the writer never returned")
+        self._close_job()
 
     def join_reader(self, bound: float) -> bool:
         """Waits for the reader once every handle it could be blocked on is released.
@@ -807,15 +862,27 @@ class _SessionOwner:
         self.armed = True
 
 
-def _hand_off_to_finalizer(owner: _SessionOwner) -> None:
-    threading.Thread(target=_finalize_session, args=(owner,), name="codeplain-conpty-finalizer", daemon=True).start()
+def _hand_off_to_finalizer(owner: _SessionOwner) -> bool:
+    """Transfers the owner to a daemon finalizer. False when no thread could be started.
+
+    The caller keeps the owner on a false result: dropping the only reference to a session
+    nobody has taken is how a job, a pseudoconsole and two handles survive until Codeplain
+    exits.
+    """
+    thread = threading.Thread(target=_finalize_session, args=(owner,), name="codeplain-conpty-finalizer", daemon=True)
+    try:
+        thread.start()
+    except BaseException as exc:  # thread exhaustion is the realistic one
+        console.debug(f"the terminal session finalizer could not be started: {exc!r}")
+        return False
+    return True
 
 
 def _finalize_session(owner: _SessionOwner) -> None:
     """Finishes a teardown that outlived the foreground's bound, then closes the stack.
 
-    The stack is closed only once the teardown has completed, so there is exactly one owner
-    at every instant and the transfer never races an unwind in progress.
+    The stack is closed only once the session's own release has run, so there is exactly one
+    owner at every instant and the transfer never races an unwind in progress.
     """
     deadline = time.monotonic() + FINALIZER_DEADLINE_SECONDS
     try:
@@ -829,6 +896,13 @@ def _finalize_session(owner: _SessionOwner) -> None:
     except BaseException as exc:  # nothing here can be reported anywhere useful
         console.debug(f"the terminal session finalizer failed: {exc!r}")
     finally:
+        try:
+            # The stack holds startup and pipe state only, so giving up on the teardown
+            # without this leaves the job, the pseudoconsole and the input handle behind —
+            # and with the job handle open, kill-on-job-close never fires.
+            owner.session.release_abandoned()
+        except BaseException as exc:
+            console.debug(f"the terminal session finalizer could not release the session: {exc!r}")
         try:
             owner.stack.close()
         except BaseException as exc:
@@ -934,6 +1008,11 @@ class ConPtyProcess(TerminalProcess):
         writer = self._writer
         if writer is not None and writer.failed.is_set():
             return f"the terminal input writer failed: {writer.exc!r}"
+        owner = self._owner
+        if owner is not None and owner.session.failure is not None:
+            # A native wait, exit-code read, job query or job termination that failed: the
+            # run cannot be described by an exit status nobody could read.
+            return owner.session.failure
         return None
 
     def terminate_tree(self, grace: float = SIGTERM_GRACE_PERIOD_SECONDS) -> None:
@@ -1000,7 +1079,7 @@ class ConPtyProcess(TerminalProcess):
 
             self._start_reader(session, bundle, gate)
             self._start_writer(session, deadline)
-            self._check_pumps()
+            self._check_spawn_interrupted()
 
             session.hJob = _create_job()
             _set_kill_on_job_close(session.hJob)
@@ -1028,13 +1107,15 @@ class ConPtyProcess(TerminalProcess):
                 "job list",
             )
 
-            self._check_pumps()
+            # The last gate before the target can run: a cancellation observed here must
+            # unwind rather than let the script execute its side effects.
+            self._check_spawn_interrupted()
             session.proc = proc  # attached before the call, as the reader is
             _create_process(command_line, directory, environment, attrs, proc)
-            # The reader can die during process creation, which is the slowest step here, so
-            # the check runs again on the other side of it. The job already holds the child,
-            # so this unwind needs no special case.
-            self._check_pumps()
+            # A pump can die, and a render can be cancelled, during process creation — the
+            # slowest step here — so the check runs again on the other side of it. The job
+            # already holds the child, so this unwind needs no special case.
+            self._check_spawn_interrupted()
 
             # Documented timing: the pseudoconsole owns these two now, and holding
             # outputWriteSide open means the reader never observes EOF.
@@ -1046,9 +1127,7 @@ class ConPtyProcess(TerminalProcess):
             owner.armed = False  # the commit
         except BaseException:
             if session.teardown(None):  # before any stack unwinding starts
-                owner.armed = False  # disarm first: `finally` runs on this path too
-                self._owner = None
-                _hand_off_to_finalizer(owner)
+                self._transfer_to_finalizer(owner)
                 raise TerminalEnvironmentError(
                     "The script's terminal session could not be released within its bound and was "
                     "handed to the background finalizer."
@@ -1091,7 +1170,7 @@ class ConPtyProcess(TerminalProcess):
                     if writer.failed.is_set()
                     else "The terminal input writer did not report itself before the spawn deadline."
                 )
-            session.writer_handle = _open_thread_handle(native_id)
+            session.writer_handle.value = HANDLE(_open_thread_handle(native_id))
             decision = GateDecision.RUN  # only after the handle is stored
         finally:
             writer.gate.set(decision)  # always: ABORT wakes the writer to exit untouched
@@ -1157,11 +1236,13 @@ class ConPtyProcess(TerminalProcess):
     def _admit_reply(self, payload: bytes, on_complete: Callable[[Optional[str]], None]) -> None:
         """One non-blocking whole-item admission of a terminal reply, from the reader.
 
-        Replies take the reserved partition because they are terminal protocol: a caller
-        saturating the queue with input must not starve a required response. They keep their
-        place in the data lane, so a reply never overtakes input the caller sent first.
+        Replies are ordinary data admissions. The reserve exists so the graceful control byte
+        can always be posted; a target that queries in a loop against a blocked input pipe
+        would otherwise fill the whole budget with replies and leave cancellation with nothing
+        but forced termination. A rejected reply is recorded as undelivered, which is the
+        outcome the responder exists to report.
         """
-        self._input_queue.submit(payload, reserved=True, on_resolve=reply_resolution(on_complete))
+        self._input_queue.submit(payload, on_resolve=reply_resolution(on_complete))
 
     def _child_env(self, env: Optional[dict]) -> dict:
         child_env = child_environment(env)
@@ -1177,13 +1258,29 @@ class ConPtyProcess(TerminalProcess):
         if owner is None:
             return
         if owner.session.teardown(grace):
-            owner.armed = False  # disarm before publishing: the finalizer owns the stack now
-            self._owner = None
-            _hand_off_to_finalizer(owner)
+            self._transfer_to_finalizer(owner)
             raise TerminalEnvironmentError(
                 "The script's terminal session did not shut down within its bound and was handed to "
                 "the background finalizer."
             )
+
+    def _transfer_to_finalizer(self, owner: _SessionOwner) -> None:
+        """Publishes the owner to the daemon finalizer, or keeps it here if none took it.
+
+        Disarming comes first, because `finally` runs on this path too and must not unwind a
+        stack the finalizer now holds. Clearing `self._owner` comes last, and only once
+        another owner exists: a failed `Thread.start()` would otherwise drop the only
+        reference to a live job, pseudoconsole and input handle.
+        """
+        owner.armed = False
+        if _hand_off_to_finalizer(owner):
+            self._owner = None
+            return
+        # Nobody can finish this later, so release what is provably safe to release now and
+        # keep the rest recorded on the session that stays reachable from this backend.
+        owner.session.record_failure("no finalizer thread could be started for the terminal session")
+        owner.session.release_abandoned()
+        owner.stack.close()
 
     def _check_cancelled(self) -> None:
         if self._stop_event.is_set():
