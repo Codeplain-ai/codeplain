@@ -39,6 +39,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 from plain2code_console import console
 from plain2code_exceptions import RenderCancelledError
 from render_machine._conpty_support import (
+    CANCEL_TICK_SECONDS,
     WRITER_JOIN_DEADLINE_SECONDS,
     GateDecision,
     InputQueue,
@@ -47,6 +48,7 @@ from render_machine._conpty_support import (
     WriteChannel,
     build_command_line,
     build_environment_block,
+    native_thread_id,
     reply_resolution,
     validate_working_directory,
 )
@@ -101,6 +103,7 @@ LARGE_INTEGER = wintypes.LARGE_INTEGER
 S_OK = 0
 
 EXTENDED_STARTUPINFO_PRESENT = 0x00080000
+STARTF_USESTDHANDLES = 0x00000100
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
 PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D
@@ -111,6 +114,11 @@ JOBOBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS = 1
 JOBOBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
 
 THREAD_TERMINATE = 0x0001
+
+STD_INPUT_HANDLE = 0xFFFFFFF6
+STD_OUTPUT_HANDLE = 0xFFFFFFF5
+STD_ERROR_HANDLE = 0xFFFFFFF4
+INVALID_HANDLE_VALUE = 0xFFFFFFFFFFFFFFFF
 
 ERROR_HANDLE_EOF = 38
 ERROR_BROKEN_PIPE = 109
@@ -269,6 +277,8 @@ _declare("IsProcessInJob", [HANDLE, HANDLE, PBOOL], BOOL)
 _declare("GetExitCodeProcess", [HANDLE, LPDWORD], BOOL)
 _declare("WaitForSingleObject", [HANDLE, DWORD], DWORD)
 _declare("OpenThread", [DWORD, BOOL, DWORD], HANDLE)
+_declare("GetStdHandle", [DWORD], HANDLE)
+_declare("GetConsoleMode", [HANDLE, LPDWORD], BOOL)
 _declare("CancelSynchronousIo", [HANDLE], BOOL)
 
 
@@ -551,6 +561,15 @@ def _create_process(
     startup = STARTUPINFOEXW()
     startup.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
     startup.lpAttributeList = attrs.buffer
+    if _renderer_output_is_redirected():
+        # Declared, and left NULL. Without this, CreateProcessW hands the child a copy of the
+        # renderer's own standard handles: verified on Windows Server 2022, where the target
+        # wrote into the renderer's redirected stdout and read end-of-file from its stdin
+        # while still attached to the pseudoconsole and to its job. Declaring the handles and
+        # supplying none stops that copy, and the console the child is attached to supplies
+        # its standard handles instead. A renderer that owns a console is left on the path
+        # that already reaches the pseudoconsole, so this never changes the interactive case.
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES
     # CreateProcessW may modify lpCommandLine in place, so it is handed a writable buffer.
     command_buffer = ctypes.create_unicode_buffer(command_line)
     # The buffer's own terminator supplies the block's second NUL.
@@ -571,6 +590,25 @@ def _create_process(
         error = ctypes.get_last_error()
         raise _win_error("Starting the script", error)
     proc.valid = True  # closers ignore the garbage a failed call leaves behind
+
+
+def _renderer_output_is_redirected() -> bool:
+    """True when any of the renderer's own standard handles is not a console.
+
+    It decides whether the child needs protecting from them. When the renderer sits on a
+    console, `CreateProcessW` swaps the child's standard handles for its own console's and
+    the pseudoconsole is reached as intended. When the renderer is redirected — every CI run,
+    every piped invocation — the same call copies those files or pipes into the child, which
+    then writes past the pseudoconsole entirely and reads end-of-file instead of input.
+    """
+    for identifier in (STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE):
+        handle = kernel32.GetStdHandle(identifier)
+        if not handle or handle == INVALID_HANDLE_VALUE:
+            return True
+        mode = DWORD(0)
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return True
+    return False
 
 
 def _open_thread_handle(native_id: int) -> int:
@@ -652,6 +690,7 @@ class _SessionBundle:
         self.writer: Optional[InputWriter] = None
         self.writer_handle = _Holder()  # the same take-then-close discipline as every handle
         self.reader: Optional[threading.Thread] = None
+        self.reader_handle = _Holder()  # opened by the reader itself, for cancelling its read
         self.hPC = HPCON()
         self.hPC_valid = False  # a failed HRESULT output is never closable
         self.hJob: Optional[int] = None
@@ -789,6 +828,50 @@ class _SessionBundle:
             return True
         return writer.stop(WRITER_JOIN_DEADLINE_SECONDS)
 
+    def adopt_reader_thread(self) -> None:
+        """The reader opens a handle to itself, so a parked read can be cancelled later.
+
+        Opened by the thread rather than derived from a recorded id at cancel time: a thread
+        id is recyclable the instant its thread exits, and this is the one moment the thread
+        is certainly alive.
+        """
+        try:
+            self.reader_handle.value = HANDLE(_open_thread_handle(native_thread_id()))
+        except BaseException as exc:  # cancellation degrades to the bounded join alone
+            console.debug(f"the terminal output reader could not open a handle to itself: {exc!r}")
+
+    def join_reader(self, bound: float) -> bool:
+        """Joins the reader, cancelling its read if the output pipe never reached end-of-file.
+
+        `ClosePseudoConsole()` does not always break a parked `ReadFile`: verified on Windows
+        Server 2022, where a session that never had a client left the reader waiting on a pipe
+        whose write end was gone. Cancellation is retried like the writer's, because a cancel
+        issued between two reads reaches nothing. True when the reader has finished.
+        """
+        reader = self.reader
+        if reader is None or reader.ident is None:  # None when it never started
+            return True
+        reader.join(timeout=bound)
+        deadline = time.monotonic() + bound
+        while reader.is_alive():
+            self._cancel_reader()
+            reader.join(timeout=CANCEL_TICK_SECONDS)
+            if time.monotonic() >= deadline:
+                break
+        if reader.is_alive():
+            return False
+        self.reader_handle.close_if_owned()  # nothing can be cancelled through it any more
+        return True
+
+    def _cancel_reader(self) -> None:
+        handle = self.reader_handle.handle()
+        if not handle:
+            return
+        if not kernel32.CancelSynchronousIo(handle):
+            error = ctypes.get_last_error()
+            if error != ERROR_NOT_FOUND:  # nothing was in flight; the next tick tries again
+                console.debug(f"cancelling the terminal output read reported Windows error {error}")
+
     def _close_pseudoconsole(self) -> None:
         """The precondition is the output pipe: drained *or* closed, never neither.
 
@@ -796,7 +879,8 @@ class _SessionBundle:
         the close happens while a live reader is still draining, and a reader that has
         already failed closed the read handle before it published anything, so the same call
         finds the pipe closed. The join only follows the close, never precedes it, and this
-        never runs on the reader thread.
+        never runs on the reader thread. What the close does not guarantee is that the read
+        itself ends, which is why the join cancels it.
         """
         if not self.hPC_valid:
             return
@@ -804,19 +888,23 @@ class _SessionBundle:
         _close_handle(self.out_w.take())  # the write side must go, or the reader never sees EOF
         kernel32.ClosePseudoConsole(self.hPC)
         self.hPC = HPCON()
-        reader = self.reader
-        if reader is not None and reader.ident is not None:
-            reader.join(timeout=DRAIN_DEADLINE_SECONDS)
+        self.join_reader(DRAIN_DEADLINE_SECONDS)
 
     def _release_handles(self) -> None:
         self.in_w.close_if_owned()  # after the writer has stopped, never before
         self.writer_handle.close_if_owned()
+        if not self.reader_alive():  # kept while a parked read may still need cancelling
+            self.reader_handle.close_if_owned()
         self._close_job()
         self.proc.close_all()
 
     def _close_job(self) -> None:
         job, self.hJob = self.hJob, None  # taken before it is closed, like every other handle
         _close_handle(job)  # closing it is also the kill-on-close backstop
+
+    def reader_alive(self) -> bool:
+        reader = self.reader
+        return reader is not None and reader.ident is not None and reader.is_alive()
 
     def release_abandoned(self) -> None:
         """Last-resort release for a teardown nobody can finish.
@@ -841,18 +929,6 @@ class _SessionBundle:
             self.writer_handle.close_if_owned()
         else:
             console.debug("leaking the terminal input handles: the writer never returned")
-
-    def join_reader(self, bound: float) -> bool:
-        """Waits for the reader once every handle it could be blocked on is released.
-
-        True when it is still running, which means it still owns state and can still append
-        to the transcript.
-        """
-        reader = self.reader
-        if reader is None or reader.ident is None:  # None when it never started
-            return False
-        reader.join(timeout=bound)
-        return reader.is_alive()
 
 
 class _SessionOwner:
@@ -1059,7 +1135,7 @@ class ConPtyProcess(TerminalProcess):
             owner.armed = False
             # Joined after the stack close, because that is what releases the last write
             # handle a reader parked on an early failure path is still waiting for.
-            if owner.session.join_reader(DRAIN_DEADLINE_SECONDS):
+            if not owner.session.join_reader(DRAIN_DEADLINE_SECONDS):
                 self._publish_reader_stall()
 
     # ------------------------------------------------------------ spawn sequence
@@ -1161,7 +1237,7 @@ class ConPtyProcess(TerminalProcess):
         here and `CreateProcessW` unwinds with a reader the teardown can still join.
         """
         reader = threading.Thread(
-            target=self._reader_main, args=(bundle, gate), name="codeplain-conpty-reader", daemon=True
+            target=self._reader_main, args=(session, bundle, gate), name="codeplain-conpty-reader", daemon=True
         )
         try:
             session.reader = reader
@@ -1192,10 +1268,11 @@ class ConPtyProcess(TerminalProcess):
         finally:
             writer.gate.set(decision)  # always: ABORT wakes the writer to exit untouched
 
-    def _reader_main(self, bundle: _ReaderHandles, gate: threading.Event) -> None:
+    def _reader_main(self, session: _SessionBundle, bundle: _ReaderHandles, gate: threading.Event) -> None:
         gate.wait()
         if bundle.owner != _OWNER_READER:
             return  # the parent still owns everything; touch nothing, publish nothing
+        session.adopt_reader_thread()  # before the first read, so teardown can always cancel it
         reader_exc: Optional[BaseException] = None
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         handle = bundle.out_r.value
