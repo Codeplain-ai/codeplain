@@ -19,6 +19,7 @@ import textwrap
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -238,40 +239,48 @@ def backend():
 TERMINAL_PROBE = """
     import ctypes
     import os
-    import sys
+    import traceback
 
-    # Declared: an undeclared call returns c_int, which truncates a handle and reports a
-    # false negative for both questions below.
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.GetStdHandle.argtypes = [ctypes.c_uint]
-    kernel32.GetStdHandle.restype = ctypes.c_void_p
-    kernel32.GetCurrentProcess.argtypes = []
-    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-    kernel32.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
-    kernel32.GetConsoleMode.restype = ctypes.c_int
-    kernel32.IsProcessInJob.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
-    kernel32.IsProcessInJob.restype = ctypes.c_int
 
-    mode = ctypes.c_uint(0)
-    console = kernel32.GetConsoleMode(kernel32.GetStdHandle(0xFFFFFFF5), ctypes.byref(mode))
-    in_job = ctypes.c_int(0)
-    kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
+    def report():
+        # Declared: an undeclared call returns c_int, which truncates a handle and reports a
+        # false negative for both questions below.
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetStdHandle.argtypes = [ctypes.c_uint]
+        kernel32.GetStdHandle.restype = ctypes.c_void_p
+        kernel32.GetCurrentProcess.argtypes = []
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
+        kernel32.GetConsoleMode.restype = ctypes.c_int
+        kernel32.IsProcessInJob.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+        kernel32.IsProcessInJob.restype = ctypes.c_int
 
-    report = [
-        "ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)),
-        "CONSOLE=%s" % bool(console),
-        "INJOB=%s" % bool(in_job.value),
-        "TERM=%s" % os.environ.get("TERM"),
-        "DONE",
-    ]
-    # Written as well as printed: if the target's standard handles are not the terminal's,
-    # its own account of them is the only evidence that survives.
-    with open(sys.argv[1], "w", encoding="utf-8") as handle:
-        handle.write("\n".join(report))
+        mode = ctypes.c_uint(0)
+        console = kernel32.GetConsoleMode(kernel32.GetStdHandle(0xFFFFFFF5), ctypes.byref(mode))
+        in_job = ctypes.c_int(0)
+        kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
+        return [
+            "ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)),
+            "CONSOLE=%s" % bool(console),
+            "INJOB=%s" % bool(in_job.value),
+            "TERM=%s" % os.environ.get("TERM"),
+            "DONE",
+        ]
 
-    for line in report:
+
+    try:
+        lines = report()
+    except BaseException:
+        lines = ["PROBE-FAILED", traceback.format_exc()]
+
+    # Written beside the probe as well as printed: the file survives a target whose standard
+    # handles are not the terminal's, and it needs no argument that could itself go wrong.
+    beside_the_probe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe.txt")
+    with open(beside_the_probe, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+
+    for line in lines:
         print(line)
-    sys.stdout.flush()
 """
 
 
@@ -324,12 +333,13 @@ def test_a_failing_pseudoconsole_call_is_reported_as_its_hresult():
     Server 2022 accepts handles it will only fail on later. The failure has to be detected as
     a nonzero HRESULT rather than read from the last error, which these calls do not promise
     to set."""
-    slot = _conpty.HPCON()
+    session = SimpleNamespace(hPC=_conpty.HPCON(), hPC_valid=False)
 
     with pytest.raises(TerminalEnvironmentError) as error:
-        _conpty._create_pseudoconsole(0, 0, -1, -1, ctypes.byref(slot))
+        _conpty._create_pseudoconsole(session, 0, 0, -1, -1)
 
     assert "HRESULT" in str(error.value)
+    assert session.hPC_valid is False  # a failed HRESULT output is never closable
 
 
 def test_a_build_without_pseudoconsole_support_is_an_environment_error(monkeypatch):
@@ -373,18 +383,19 @@ def test_a_script_runs_on_a_real_console_inside_the_job(backend, tmp_path):
     script = write_program(tmp_path, "terminal_probe", TERMINAL_PROBE)
     report_path = tmp_path / "probe.txt"
 
-    backend.spawn(command(script, str(report_path)))
+    backend.spawn(command(script))
     exit_code = wait_for_exit(backend)
     backend.terminate_tree(grace=0.1)
     backend.close()
     output = backend.normalized_output()
     report = report_path.read_text(encoding="utf-8") if report_path.exists() else "(no report was written)"
+    evidence = f"transcript={output!r}; the target reported:\n{report}"
 
-    assert exit_code == 0
-    assert "ISATTY=True" in output, f"transcript={output!r}; the target reported:\n{report}"
-    assert "CONSOLE=True" in output
-    assert "INJOB=True" in output
-    assert "TERM=xterm-256color" in output
+    assert exit_code == 0, evidence
+    assert "ISATTY=True" in output, evidence
+    assert "CONSOLE=True" in output, evidence
+    assert "INJOB=True" in output, evidence
+    assert "TERM=xterm-256color" in output, evidence
 
 
 def test_the_exit_code_is_reported_verbatim(backend, tmp_path):
@@ -867,9 +878,9 @@ def test_a_finalizer_that_cannot_start_leaves_the_session_owned_and_released(mon
     assert backend._owner is not None  # ownership retained rather than dropped
     assert index_of(events, "CloseHandle", job) is not None
     assert process_is_gone(child)
-    # The input handles are the documented exception: the writer never returned, so they are
-    # leaked rather than closed underneath a blocked write.
-    assert session.in_w.owned and session.writer_handle.owned
+    # Released rather than leaked: the writer was idle on its queue, and the last-resort
+    # release stops it through the sentinel before it decides about the input handles.
+    assert not session.in_w.owned and not session.writer_handle.owned
 
 
 # ------------------------------------------------------------------- marshaling
