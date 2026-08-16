@@ -8,6 +8,7 @@ responder that owes nothing, and normalized output alongside the raw bytes.
 Scripts are executed for real, so every case that runs one is POSIX-only.
 """
 
+import contextlib
 import errno
 import json
 import os
@@ -326,3 +327,87 @@ def test_the_control_case_proves_the_harness_terminal_delivers_keystrokes(tmp_pa
     report = json.loads(output.strip())
     assert report["isatty"] is True
     assert report["data"] == KEYSTROKES
+
+
+def test_close_returns_while_a_descendant_holds_the_pipe_open(tmp_path, backend):
+    """The parked reader holds the buffered stream's lock, so close() must release the
+    read end without acquiring it — a blocking close deadlocked here. What follows the
+    release is platform-dependent: BSD kernels wake the parked read and the reader exits
+    cleanly; Linux keeps it parked and close() publishes the stall. Either way close()
+    returns within its budget."""
+    script = make_shell_script(tmp_path, "leaves_a_holder", "sleep 30 &\necho started\nexit 0\n")
+    backend.spawn([script])
+    returncode = wait_for_exit(backend)
+    assert returncode == 0
+
+    started = time.monotonic()
+    stalled = False
+    try:
+        backend.close()
+    except TerminalReaderError:
+        stalled = True
+    elapsed = time.monotonic() - started
+
+    assert elapsed < _legacy_pipe.TEARDOWN_BUDGET_SECONDS
+    if stalled:
+        assert READER_STALL_DETAIL in repr(backend.reader_exc)
+    # The escapee is not this test's subject; reap it so it cannot outlive the run.
+    with contextlib.suppress(OSError):
+        os.killpg(backend._proc.pid, 9)
+
+
+def test_terminate_tree_escalates_even_when_the_leader_dies_within_the_grace(tmp_path, backend):
+    """A group member that traps the graceful signal must still be reached: the
+    escalation is owed to the group, not only to a leader that failed to die."""
+    script = make_shell_script(
+        tmp_path,
+        "trapping_member",
+        "sh -c 'trap \"\" TERM; sleep 30' &\necho started\nexec sleep 30\n",
+    )
+    backend.spawn([script])
+
+    deadline = time.monotonic() + SPAWN_TIMEOUT
+    reported = ""
+    while time.monotonic() < deadline and "started" not in reported:
+        reported += backend.read_output()
+        time.sleep(0.02)
+    assert "started" in reported
+
+    backend.terminate_tree(grace=2.0)
+
+    gone_by = time.monotonic() + SPAWN_TIMEOUT
+    while time.monotonic() < gone_by:
+        try:
+            os.killpg(backend._proc.pid, 0)
+        except OSError:  # ESRCH once empty; EPERM on macOS while only zombies remain
+            return
+        time.sleep(0.05)
+    raise AssertionError("a TERM-trapping group member outlived terminate_tree()")
+
+
+def test_the_grace_covers_group_members_that_outlive_the_leader(tmp_path, backend):
+    """The grace watches the whole group: a member still cleaning up after the leader
+    died must finish inside it, and a group that empties is never SIGKILLed at all."""
+    script = make_shell_script(
+        tmp_path,
+        "member_cleanup",
+        "sh -c 'trap \"echo member-term; sleep 0.5; echo member-clean; exit 0\" TERM; while :; do sleep 1; done' &\n"
+        'trap "exit 0" TERM\n'
+        "echo started\n"
+        "while :; do sleep 1; done\n",
+    )
+    backend.spawn([script])
+
+    deadline = time.monotonic() + SPAWN_TIMEOUT
+    reported = ""
+    while time.monotonic() < deadline and "started" not in reported:
+        reported += backend.read_output()
+        time.sleep(0.02)
+    assert "started" in reported
+
+    backend.terminate_tree(grace=5.0)
+    backend.close()
+
+    output = backend.normalized_output()
+    assert "member-term" in output
+    assert "member-clean" in output

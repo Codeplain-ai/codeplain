@@ -28,6 +28,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from typing import Optional, Sequence, Tuple
 
 from plain2code_console import console
@@ -35,6 +36,7 @@ from plain2code_exceptions import RenderCancelledError
 from render_machine.output_normalizer import OutputNormalizer
 from render_machine.terminal_process import (
     DRAIN_DEADLINE_SECONDS,
+    GRACE_TICK_SECONDS,
     READ_CHUNK_BYTES,
     REAP_DEADLINE_SECONDS,
     SIGTERM_GRACE_PERIOD_SECONDS,
@@ -95,6 +97,7 @@ class LegacyPipeProcess(TerminalProcess):
         self._closed = False
         self._closing = threading.Event()
         self._reaped = False
+        self._stdout_redirected = False
 
     # ---------------------------------------------------------------- public API
 
@@ -151,17 +154,61 @@ class LegacyPipeProcess(TerminalProcess):
         proc = self._proc
         if proc is None or self._reaped:
             return
-        self._signal(proc, terminal=False)
+        if sys.platform == "win32":
+            self._terminate_windows(proc, grace)
+            return
+        # The leader is deliberately left unreaped until after the escalation: a zombie
+        # leader pins the group id against reuse, so the SIGKILL below can never reach a
+        # recycled group. The grace therefore watches the whole group, not the leader —
+        # members that outlive an instantly-dying leader get their grace too, and a group
+        # that empties within it is never SIGKILLed at all.
+        escalate = True
         try:
-            proc.wait(timeout=grace)
-        except subprocess.TimeoutExpired:
-            self._signal(proc, terminal=True)
+            try:
+                self._signal(proc, terminal=False)
+                deadline = time.monotonic() + grace
+                while time.monotonic() < deadline:
+                    if self._group_spent(proc.pid):
+                        escalate = False
+                        break
+                    time.sleep(GRACE_TICK_SECONDS)
+            finally:
+                if escalate:
+                    self._signal(proc, terminal=True)
+        finally:
+            # Reaped in a finally of its own: an exception escaping the grace loop has
+            # already escalated above, and skipping the reap here would leave a zombie
+            # whose eventual collection unpins the group id mid-retry.
             try:
                 proc.wait(timeout=REAP_DEADLINE_SECONDS)
             except subprocess.TimeoutExpired:
                 console.debug(f"process {proc.pid} outlived the reap deadline")
-                return
+            else:
+                self._reaped = True
+
+    def _terminate_windows(self, proc: subprocess.Popen, grace: float) -> None:
+        """TerminateProcess is already terminal, so there is nothing to escalate to."""
+        self._signal_process(proc, terminal=False)
+        try:
+            proc.wait(timeout=grace + REAP_DEADLINE_SECONDS)
+        except subprocess.TimeoutExpired:
+            console.debug(f"process {proc.pid} outlived the reap deadline")
+            return
         self._reaped = True
+
+    def _group_spent(self, pgid: int) -> bool:
+        """True once the group has no live member left to signal.
+
+        macOS reports a group whose remaining members are all zombies as EPERM rather
+        than ESRCH; both mean the grace has done its work.
+        """
+        try:
+            os.killpg(pgid, 0)
+        except (ProcessLookupError, PermissionError):
+            return True
+        except OSError:
+            return False
+        return False
 
     def close(self) -> None:
         if self._closed:
@@ -172,8 +219,9 @@ class LegacyPipeProcess(TerminalProcess):
         if self._reader is not None and self._reader.ident is not None:
             self._reader.join(timeout=DRAIN_DEADLINE_SECONDS)
             if self._reader.is_alive():
-                # A descendant is holding the write end open; the parked read has to be
-                # broken rather than waited out.
+                # A descendant is holding the write end open. The read end is redirected to
+                # devnull so any read that returns sees end-of-file; a read the kernel keeps
+                # parked past the second join is published as a stall below.
                 self._close_stdout()
                 self._reader.join(timeout=CLOSE_JOIN_SECONDS)
             stalled = self._reader.is_alive()
@@ -194,12 +242,17 @@ class LegacyPipeProcess(TerminalProcess):
                 console.debug(f"could not widen the output pipe: {exc}")
 
     def _signal(self, proc: subprocess.Popen, terminal: bool) -> None:
-        """Signals the child's whole group, falling back to the child alone."""
+        """Signals the child's whole group, falling back to the child alone.
+
+        `start_new_session` makes the child its own group leader, so the group id is the
+        child's pid itself — resolvable even after the leader has exited and been reaped,
+        which `os.getpgid()` on the pid no longer is.
+        """
         if sys.platform == "win32":
             self._signal_process(proc, terminal)
             return
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL if terminal else signal.SIGTERM)
+            os.killpg(proc.pid, signal.SIGKILL if terminal else signal.SIGTERM)
         except OSError:
             self._signal_process(proc, terminal)
 
@@ -210,9 +263,35 @@ class LegacyPipeProcess(TerminalProcess):
             proc.terminate()
 
     def _close_stdout(self) -> None:
-        if self._proc is not None and self._proc.stdout is not None:
+        """Releases the read end without touching the buffered stream's lock.
+
+        `BufferedReader.close()` takes the same internal lock the reader thread holds while
+        parked inside `read1()`, so a foreground close would deadlock exactly when the pipe
+        has to be broken. A raw `os.close()` would free the fd number for reuse under that
+        parked read instead. `os.dup2()` of devnull replaces the descriptor atomically: it
+        never blocks, never recycles the number, and a reader that wakes later reads
+        end-of-file. The buffered object itself is only closed once the reader is gone.
+        """
+        proc = self._proc
+        if proc is None or proc.stdout is None:
+            return
+        stream = proc.stdout
+        if not self._stdout_redirected:
+            self._stdout_redirected = True
             try:
-                self._proc.stdout.close()
+                devnull = os.open(os.devnull, os.O_RDONLY)
+            except OSError:
+                devnull = -1
+            if devnull >= 0:
+                try:
+                    os.dup2(devnull, stream.fileno())
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    os.close(devnull)
+        if (self._reader is None or not self._reader.is_alive()) and not stream.closed:
+            try:
+                stream.close()
             except OSError:
                 pass
 
