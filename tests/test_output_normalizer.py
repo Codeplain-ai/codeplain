@@ -313,8 +313,10 @@ def test_parser_failure_recovery_does_not_depend_on_the_read_boundaries(monkeypa
     assert whole.parse_failures == split.parse_failures == mid.parse_failures == 1
 
 
-def test_an_unterminated_osc_string_is_bounded_and_draining_continues():
-    """pyte would hold every byte of it; the guard holds a capped buffer instead."""
+def test_an_unterminated_osc_string_is_bounded_and_its_bytes_stay_visible():
+    """pyte would hold every byte of it; the guard caps its buffer and, past the cap,
+    treats the stream as plain output again — a string cut off mid-write must not
+    swallow the transcript that follows it."""
     normalizer = OutputNormalizer(columns=40, lines=5)
     normalizer.feed(b"\x1b]0;")
     for _ in range(200):
@@ -323,7 +325,9 @@ def test_an_unterminated_osc_string_is_bounded_and_draining_continues():
 
     assert normalizer._guard.pending_bytes <= MAX_SEQUENCE_BYTES
     assert normalizer.bounded_sequences == 1
-    assert normalizer.text() == "after\n"
+    text = normalizer.text()
+    assert text.endswith("after\n")
+    assert "AAAA" in text  # the abandoned string's bytes render instead of vanishing
     assert len(normalizer._screen.title) <= MAX_SEQUENCE_BYTES
 
 
@@ -341,7 +345,9 @@ def test_an_unterminated_csi_parameter_is_bounded_and_draining_continues():
     assert normalizer.text() == "still here\n"
 
 
-def test_a_completed_oversized_osc_string_is_dropped_rather_than_kept_as_metadata():
+def test_an_oversized_osc_string_is_abandoned_and_never_becomes_metadata():
+    """Whether its terminator ever arrives cannot be known at the cap, so an oversized
+    string is reclaimed as plain output either way — it must never grow the title."""
     normalizer = OutputNormalizer(columns=40, lines=5)
     normalizer.feed(b"\x1b]0;short title\x07")
     normalizer.feed(b"\x1b]0;" + b"B" * (MAX_SEQUENCE_BYTES * 4) + b"\x07")
@@ -349,7 +355,7 @@ def test_a_completed_oversized_osc_string_is_dropped_rather_than_kept_as_metadat
 
     assert normalizer._screen.title == "short title"
     assert normalizer.bounded_sequences == 1
-    assert normalizer.text() == "work goes on\n"
+    assert normalizer.text().endswith("work goes on\n")
 
 
 def test_repeated_combining_marks_do_not_grow_one_cell_without_bound():
@@ -391,3 +397,48 @@ def test_finalizing_a_complete_stream_changes_nothing():
 def test_fed_bytes_counts_every_byte_handed_to_the_parser():
     raw = read_fixture("spinner.raw")
     assert normalize(raw).fed_bytes == len(raw)
+
+
+def test_a_truncated_control_string_does_not_swallow_the_output_after_it():
+    """A tool killed mid-title-write must not blind the transcript: whatever followed the
+    unterminated introducer is reclaimed as plain output when the stream ends."""
+    normalizer = OutputNormalizer(columns=120, lines=5)
+    normalizer.feed(b"start\r\n")
+    normalizer.feed(b"\x1b]0;title")  # cut off before its terminator ever arrives
+    normalizer.feed(b"FAILED: assertion xyz\r\n")
+    normalizer.finalize()
+
+    text = normalizer.text()
+    assert "start" in text
+    assert "FAILED: assertion xyz" in text
+
+
+def test_can_aborts_a_control_string_and_rendering_resumes():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b]0;half a title\x18after\r\n")
+
+    assert normalizer._screen.title == ""  # an aborted string is discarded, not dispatched
+    assert normalizer.text() == "after\n"
+
+
+def test_an_escape_that_is_not_a_terminator_ends_the_string_and_starts_a_sequence():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b]0;half a title\x1b[31mred text\r\n")
+
+    assert normalizer._screen.title == ""  # the string was exited, never dispatched
+    assert normalizer.text() == "red text\n"
+
+
+def test_a_second_escape_restarts_the_sequence_rather_than_corrupting_it():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b\x1b[31mred\r\n")  # the first ESC led nowhere
+
+    assert normalizer.text() == "red\n"
+
+
+def test_an_escape_pair_inside_a_string_exits_it_and_the_next_sequence_still_parses():
+    normalizer = OutputNormalizer(columns=40, lines=5)
+    normalizer.feed(b"\x1b]0;discard\x1b\x1b[31mred\r\n")
+
+    assert normalizer._screen.title == ""
+    assert normalizer.text() == "red\n"

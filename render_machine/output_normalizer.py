@@ -87,6 +87,8 @@ class _RetainedLines:
 _GROUND, _ESCAPE, _INTERMEDIATE, _CSI, _STRING = range(5)
 _ESC = 0x1B
 _BEL = 0x07
+_CAN = 0x18
+_SUB = 0x1A
 _STRING_INTRODUCERS = frozenset(b"]PX^_")  # OSC, DCS, SOS, PM, APC
 _ESCAPE_INTERMEDIATES = frozenset(b"#%()")  # each takes exactly one more byte
 
@@ -142,11 +144,37 @@ class _SequenceGuard:
         while index < length and self._state != _GROUND:
             byte = data[index]
             index += 1
+            if byte in (_CAN, _SUB):
+                # CAN and SUB abort a sequence in any state, like a real parser; an
+                # aborted sequence is discarded, never handed to the parser.
+                self._reset()
+                continue
+            if self._state == _STRING and self._after_escape and byte != 0x5C:
+                # Only ESC \ terminates a string, but any other ESC-introduced byte still
+                # ends it: the ESC begins a new escape sequence, exactly as a real
+                # parser's exit from its string state does.
+                self._reset()
+                self._state = _ESCAPE
+                self._pending += b"\x1b"
+            if self._state == _ESCAPE and byte == _ESC and not self._dropping:
+                # ESC restarts the escape state: the previous ESC led nowhere and is
+                # dropped, and whatever follows this one is parsed as its own sequence.
+                self._pending.clear()
+                self._pending += b"\x1b"
+                continue
             if not self._dropping and len(self._pending) >= self._max_sequence_bytes:
+                self.dropped += 1
+                if self._state == _STRING:
+                    # A control string this long is abandoned rather than dropped to a
+                    # terminator that may never come: a stream cut mid-string would
+                    # otherwise swallow the remainder of the transcript. Its payload is
+                    # reclaimed as plain output, so nothing the target wrote is lost.
+                    units.append(bytes(self._pending[2:]))
+                    self._reset()
+                    return index - 1
                 # Nothing renders a sequence this long, so the rest of it is parsed by
                 # nobody and the buffer that held it is released here.
                 self._dropping = True
-                self.dropped += 1
                 self._pending.clear()
             if not self._dropping:
                 self._pending.append(byte)
@@ -155,6 +183,17 @@ class _SequenceGuard:
                     units.append(bytes(self._pending))
                 self._reset()
         return index
+
+    def flush(self) -> bytes:
+        """The payload of an unterminated control string, reclaimed as plain output.
+
+        Called at end of stream: a target cut off mid-string never sends the terminator,
+        and whatever followed the introducer would otherwise vanish from the transcript.
+        Incomplete sequences of every other kind stay dropped — they carry no payload.
+        """
+        payload = bytes(self._pending[2:]) if self._state == _STRING and not self._dropping else b""
+        self._reset()
+        return payload
 
     def _ends_sequence(self, byte: int) -> bool:
         if self._state == _ESCAPE:
@@ -354,7 +393,8 @@ class OutputNormalizer:
                     self.parse_failures += 1
 
     def finalize(self) -> None:
-        """Ends the stream: flushes the parser's decoder. Idempotent.
+        """Ends the stream: reclaims an unterminated control string's payload as plain
+        output, then flushes the parser's decoder. Idempotent.
 
         A trailing incomplete UTF-8 sequence sits in pyte's incremental decoder until it is
         finalized, so without this it never reaches the screen and vanishes from the
@@ -365,6 +405,12 @@ class OutputNormalizer:
             if self._finalized:
                 return
             self._finalized = True
+            leftover = self._guard.flush()
+            if leftover:
+                try:
+                    self._stream.feed(leftover)
+                except Exception:
+                    self.parse_failures += 1
             decoder = getattr(self._stream, "utf8_decoder", None)
             if decoder is None:
                 return
