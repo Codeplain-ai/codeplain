@@ -12,6 +12,7 @@ import time
 
 import pytest
 
+from plain2code_exceptions import RenderCancelledError
 from render_machine import _conpty_support as support
 from render_machine._conpty_support import (
     CANCEL_TICK_SECONDS,
@@ -73,6 +74,61 @@ class FakeChannel(WriteChannel):
     def cancel(self) -> None:
         self.cancels += 1
         self._release.set()
+
+
+class LateCancelChannel(FakeChannel):
+    """Ignores its first cancels, the way `CancelSynchronousIo` reports ERROR_NOT_FOUND when
+    the writer has not entered its write yet."""
+
+    def __init__(self, ignore_first=1):
+        super().__init__()
+        self.ignored = ignore_first
+
+    def cancel(self) -> None:
+        self.cancels += 1
+        if self.ignored > 0:
+            self.ignored -= 1
+            return  # nothing was in flight, so the call reached nothing
+        self._release.set()
+
+
+class SlowSubmitQueue(InputQueue):
+    """Widens the window between an item becoming visible and whatever the poster does next.
+
+    With the generation published under the same lock as the enqueue, a writer that dequeues
+    inside this window blocks on that lock before it can acknowledge anything. Published
+    afterwards, it acknowledges a generation that does not exist yet.
+    """
+
+    def submit(self, *args, **kwargs):
+        result = super().submit(*args, **kwargs)
+        time.sleep(CANCEL_TICK_SECONDS * 5)
+        return result
+
+
+class ControlParkChannel(WriteChannel):
+    """Parks inside the control write and never releases itself on cancel.
+
+    That is what makes a cancel aimed at the control write observable: the test, not the
+    cancellation, decides when the write completes.
+    """
+
+    def __init__(self):
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.cancels = 0
+        self.written = bytearray()
+
+    def write(self, data: bytes) -> int:
+        if data[:1] == b"\x03":
+            self.entered.set()
+            if not self.release.wait(SHORT_TIMEOUT):
+                raise AssertionError("the control write was never released")
+        self.written += data
+        return len(data)
+
+    def cancel(self) -> None:
+        self.cancels += 1
 
 
 def wait_until(predicate, timeout=SHORT_TIMEOUT):
@@ -270,6 +326,7 @@ def test_closing_the_queue_resolves_every_receipt_once():
     queue.close_and_fail_all()
 
     assert first.resolutions == 1 and second.resolutions == 1
+    assert first.attempts == 1 and second.attempts == 1
     assert not first.delivered and not second.delivered
     assert queue.submit(b"three")[0].disposition is InputDisposition.CLOSED
 
@@ -283,6 +340,8 @@ def test_a_receipt_reports_its_resolution_to_the_producer():
 
     assert seen == [(InputDisposition.ACCEPTED, None)]
     assert receipt.disposition is InputDisposition.ACCEPTED
+    assert receipt.resolutions == 1  # what took effect
+    assert receipt.attempts == 2  # what was tried, so a double retirement is still visible
 
 
 # ------------------------------------------------------------------ the writer
@@ -385,6 +444,7 @@ def test_a_cancelled_write_is_never_retried_and_never_duplicates_its_prefix():
         assert channel.writes.count(b"abcdef") == 1  # the buffer is never reissued
         assert bytes(channel.written) == b"abc\x03"
         assert data_receipt.resolutions == 1
+        assert data_receipt.attempts == 1  # retired once, never resolved a second time
     finally:
         writer.stop(SHORT_TIMEOUT)
 
@@ -476,24 +536,111 @@ def test_a_write_failure_is_published_to_the_foreground():
         writer.stop(SHORT_TIMEOUT)
 
 
-def test_the_cancel_is_retried_while_the_writer_is_still_parked_before_its_write():
-    """A one-shot cancel issued before the writer enters a write reaches nothing."""
-    queue, channel = InputQueue(), FakeChannel()
+def test_stopping_retries_the_cancel_that_reached_nothing():
+    """A cancel issued in the dequeue-to-write gap reports ERROR_NOT_FOUND and the writer
+    then blocks after it, so a one-shot cancel would hang to the bound."""
+    queue, channel = InputQueue(), LateCancelChannel(ignore_first=1)
+    channel.park = True
     writer, _ = start_writer(queue, channel)
+    queue.submit(b"blocked payload")
+    assert channel.entered.wait(SHORT_TIMEOUT)
 
     assert writer.stop(SHORT_TIMEOUT)
-    assert writer.cancels >= 0  # the loop joins on the sentinel rather than on a cancel
+
+    assert channel.cancels >= 2  # the first reached nothing; a later tick landed
+    assert channel.ignored == 0
 
 
-def test_repeated_admissions_against_a_saturated_channel_still_stop_within_the_bound():
+def test_a_control_item_is_delivered_even_when_the_first_cancel_reaches_nothing():
+    queue, channel = InputQueue(), LateCancelChannel(ignore_first=1)
+    channel.park = True
+    writer, _ = start_writer(queue, channel)
+    try:
+        queue.submit(b"blocked payload")
+        assert channel.entered.wait(SHORT_TIMEOUT)
+        channel.park = False
+
+        assert writer.deliver_control(b"\x03", SHORT_TIMEOUT)
+
+        assert channel.cancels >= 2
+        assert bytes(channel.written).endswith(b"\x03")
+    finally:
+        writer.stop(SHORT_TIMEOUT)
+
+
+def test_an_idle_writers_control_write_is_never_cancelled():
+    """The generation is published under the same lock that makes the item visible, so a
+    writer that dequeues it immediately has already acknowledged the request the poster is
+    about to wait on — otherwise the poster cancels the very write it asked for."""
+    channel = ControlParkChannel()
+    writer, _ = start_writer(SlowSubmitQueue(), channel)
+    delivered = []
+    poster = threading.Thread(target=lambda: delivered.append(writer.deliver_control(b"\x03", SHORT_TIMEOUT)))
+    try:
+        poster.start()
+        assert channel.entered.wait(SHORT_TIMEOUT)
+        cancels_at_entry = channel.cancels
+
+        time.sleep(CANCEL_TICK_SECONDS * 5)
+
+        assert channel.cancels == cancels_at_entry
+        channel.release.set()
+        poster.join(SHORT_TIMEOUT)
+        assert delivered == [True]
+    finally:
+        channel.release.set()
+        poster.join(SHORT_TIMEOUT)
+        writer.stop(SHORT_TIMEOUT)
+
+
+def test_a_full_data_queue_still_admits_the_graceful_control_byte():
+    """Query replies are ordinary admissions, so a query-emitting target cannot fill the
+    capacity cancellation depends on."""
+    queue = InputQueue(max_pending_bytes=64, reserved_bytes=16, max_pending_items=8, reserved_items=2)
+    channel = FakeChannel()
+    channel.park = True
+    writer, _ = start_writer(queue, channel)
+    try:
+        replies = [queue.submit(b"reply")[0] for _ in range(16)]
+        assert channel.entered.wait(SHORT_TIMEOUT)  # the writer is genuinely blocked in a write
+        assert any(result.disposition is InputDisposition.BACKPRESSURE for result in replies)
+        channel.park = False
+
+        assert writer.deliver_control(b"\x03", SHORT_TIMEOUT)
+
+        # First on the wire: the control lane is serviced ahead of everything queued behind
+        # the write it preempted.
+        assert bytes(channel.written).startswith(b"\x03")
+    finally:
+        writer.stop(SHORT_TIMEOUT)
+
+
+def test_a_saturated_writer_still_stops_within_the_bound():
     queue, channel = InputQueue(), FakeChannel()
     channel.park = True
     writer, _ = start_writer(queue, channel)
     for _ in range(50):
-        queue.submit(b"reply", reserved=True)
+        queue.submit(b"reply")
     assert channel.entered.wait(SHORT_TIMEOUT)
 
     started = time.monotonic()
     assert writer.stop(SHORT_TIMEOUT)
 
     assert time.monotonic() - started < SHORT_TIMEOUT
+
+
+def test_the_ready_wait_reports_a_cancellation_that_arrives_after_readiness():
+    """The stop check runs at least once even when the writer is already ready: a render
+    cancelled during writer startup must not proceed to launch the target."""
+    writer = InputWriter(InputQueue(), FakeChannel())
+    writer.start()
+    assert wait_until(writer.ready.is_set)
+
+    def cancelled():
+        raise RenderCancelledError()
+
+    try:
+        with pytest.raises(RenderCancelledError):
+            writer.await_ready(time.monotonic() + SHORT_TIMEOUT, cancelled)
+    finally:
+        writer.stop(SHORT_TIMEOUT)

@@ -29,7 +29,9 @@ if sys.platform != "win32":
 
 from ctypes import wintypes  # noqa: E402
 
+from plain2code_exceptions import RenderCancelledError  # noqa: E402
 from render_machine import _conpty  # noqa: E402
+from render_machine import render_utils  # noqa: E402
 from render_machine._conpty import ConPtyProcess  # noqa: E402
 from render_machine._legacy_pipe import LegacyPipeProcess  # noqa: E402
 from render_machine.terminal_process import (  # noqa: E402
@@ -422,6 +424,21 @@ def failing(name):
     return raiser
 
 
+def failing_after(monkeypatch, name):
+    """Fails once the named step has really run, so the rollback faces a real resource.
+
+    Injecting before the call proves only that nothing was allocated; these cases are the
+    ones that prove the allocation is released.
+    """
+    original = getattr(_conpty, name)
+
+    def wrapper(*args, **kwargs):
+        result = original(*args, **kwargs)
+        raise TerminalEnvironmentError(f"{name} failed by injection after the real call")
+
+    monkeypatch.setattr(_conpty, name, wrapper)
+
+
 def failing_on_call(monkeypatch, name, call_index):
     """Fails one specific call of a step that runs more than once."""
     original = getattr(_conpty, name)
@@ -459,8 +476,51 @@ def test_a_failed_step_leaves_no_process_thread_or_handle_behind(monkeypatch, tm
 
     assert "unreachable" not in process.normalized_output()
     assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
-    # Slack for handles the runtime opens for unrelated reasons between the two readings.
-    assert wait_for(lambda: handle_count() <= before + 2, timeout=10.0)
+    assert wait_for(lambda: handle_count() <= before, timeout=10.0)
+
+
+@pytest.mark.parametrize(
+    "step",
+    ["_create_job", "_create_pseudoconsole", "_initialize_attribute_list"],
+)
+def test_a_failure_after_a_real_native_step_releases_what_that_step_allocated(monkeypatch, tmp_path, step):
+    script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
+    failing_after(monkeypatch, step)
+    before = handle_count()
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+    assert wait_for(lambda: handle_count() <= before, timeout=10.0)
+
+
+def test_a_failure_after_create_process_leaves_no_surviving_child(monkeypatch, tmp_path):
+    """The widest rollback: the child already exists, and the job it was created inside is
+    what takes it down."""
+    script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
+    original = _conpty._create_process
+    created = []
+
+    def create_then_fail(command_line, directory, environment, attrs, proc):
+        original(command_line, directory, environment, attrs, proc)
+        created.append(int(proc.pi.dwProcessId))
+        raise TerminalEnvironmentError("injected after the child was created")
+
+    monkeypatch.setattr(_conpty, "_create_process", create_then_fail)
+    before = handle_count()
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert created, "the injection never ran the real call"
+    assert process_is_gone(created[0])
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+    assert wait_for(lambda: handle_count() <= before, timeout=10.0)
 
 
 @pytest.mark.parametrize("call_index", [1, 2])
@@ -535,12 +595,19 @@ def test_a_zero_return_from_create_process_keeps_its_garbage_fields_unclosed(mon
     must never be treated as handles."""
     script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
     sentinel = 0x0BADF00D
+    closed = []
+    original_close = kernel32.CloseHandle
+
+    def record(handle):
+        closed.append(handle)
+        return original_close(handle)
 
     def fail_with_sentinels(command_line, directory, environment, attrs, proc):
         proc.pi.hProcess = sentinel
         proc.pi.hThread = sentinel
         raise _conpty._win_error("Starting the script", 2)
 
+    monkeypatch.setattr(kernel32, "CloseHandle", record)
     monkeypatch.setattr(_conpty, "_create_process", fail_with_sentinels)
     process = ConPtyProcess()
 
@@ -548,24 +615,36 @@ def test_a_zero_return_from_create_process_keeps_its_garbage_fields_unclosed(mon
         process.spawn(command(script))
     process.close()
 
+    assert closed, "the rollback closed nothing, so the absence below would prove nothing"
+    assert sentinel not in closed  # the `proc.valid` gate keeps a failed call's fields unclosed
     assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
 
 
 def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypatch, backend, tmp_path):
-    """The foreground returns promptly, reports the failure on the environment channel, and
-    closes neither the pseudoconsole nor the stack itself."""
+    """The foreground returns promptly and reports the failure on the environment channel;
+    the finalizer, not the foreground, closes the pseudoconsole and releases the session."""
     script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
     closed_on = []
     original_close = kernel32.ClosePseudoConsole
+    original_wait = _conpty._SessionBundle._await_job_empty
+    waits = {"count": 0}
 
     def record(handle):
         closed_on.append(threading.current_thread().name)
         original_close(handle)
 
-    monkeypatch.setattr(kernel32, "ClosePseudoConsole", record)
-    monkeypatch.setattr(_conpty._SessionBundle, "_await_job_empty", lambda self, bound: False)
+    def expire_once(self, bound):
+        """Expires the foreground's wait, then lets the finalizer's own attempt succeed."""
+        waits["count"] += 1
+        return False if waits["count"] == 1 else original_wait(self, bound)
 
+    monkeypatch.setattr(kernel32, "ClosePseudoConsole", record)
+    monkeypatch.setattr(_conpty._SessionBundle, "_await_job_empty", expire_once)
+    monkeypatch.setattr(_conpty, "FINALIZER_TICK_SECONDS", 0.05)
+
+    before = handle_count()
     backend.spawn(command(script))
+    child = int(backend._owner.session.proc.pi.dwProcessId)
     started = time.monotonic()
     with pytest.raises(TerminalEnvironmentError) as error:
         backend.close()
@@ -573,10 +652,15 @@ def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypat
     assert time.monotonic() - started < TEARDOWN_BOUND
     assert "finalizer" in str(error.value)
     assert threading.current_thread().name not in closed_on
+    # Ownership was transferred, not dropped: the session is released on the finalizer's own
+    # time, the child goes with it, and every handle comes back.
+    assert wait_for(lambda: closed_on == ["codeplain-conpty-finalizer"], timeout=30.0)
     assert wait_for(
-        lambda: any(thread.name == "codeplain-conpty-finalizer" for thread in threading.enumerate()),
-        timeout=5.0,
+        lambda: not any(thread.name == "codeplain-conpty-finalizer" for thread in threading.enumerate()),
+        timeout=30.0,
     )
+    assert process_is_gone(child)
+    assert wait_for(lambda: handle_count() <= before, timeout=30.0)
 
 
 # ------------------------------------------------------------------- marshaling
@@ -605,3 +689,219 @@ def test_an_input_windows_cannot_carry_is_refused_before_any_process_is_created(
     process.close()
 
     assert not marker.exists()  # asserted by observation, not only by the exception
+
+
+# ---------------------------------------------------------------- cancellation
+
+
+def test_a_stop_event_set_before_the_spawn_launches_nothing(tmp_path):
+    marker = tmp_path / "ran.txt"
+    script = write_program(tmp_path, "marks", f"open(r'{marker}', 'w').close()\n")
+    stop = threading.Event()
+    stop.set()
+    process = ConPtyProcess()
+
+    with pytest.raises(RenderCancelledError):
+        process.spawn(command(script), stop_event=stop)
+    process.close()
+
+    assert not wait_for(marker.exists, timeout=2.0)
+
+
+def test_a_cancellation_observed_while_the_session_is_built_never_launches_the_target(monkeypatch, tmp_path):
+    """The window between the first check and `CreateProcessW` is the whole session setup;
+    a render cancelled inside it must not run the script's side effects."""
+    marker = tmp_path / "ran.txt"
+    script = write_program(tmp_path, "marks", f"open(r'{marker}', 'w').close()\n")
+    stop = threading.Event()
+    original = _conpty._create_pseudoconsole
+
+    def create_then_cancel(*args, **kwargs):
+        original(*args, **kwargs)
+        stop.set()
+
+    monkeypatch.setattr(_conpty, "_create_pseudoconsole", create_then_cancel)
+    process = ConPtyProcess()
+
+    with pytest.raises(RenderCancelledError):
+        process.spawn(command(script), stop_event=stop)
+    process.close()
+
+    assert not wait_for(marker.exists, timeout=2.0)
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+
+
+# ------------------------------------------------------- the blocked input channel
+
+
+SILENT_READER = """
+    import time
+
+    print("READY", flush=True)
+    time.sleep(120)
+"""
+
+
+def test_a_saturated_input_channel_still_tears_down_within_the_bound(backend, tmp_path):
+    """The target never reads, so the writer ends up blocked inside a synchronous `WriteFile`
+    — the state the cancel loop and the bounded join exist for."""
+    script = write_program(tmp_path, "silent_reader", SILENT_READER)
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "READY")
+    child = int(backend._owner.session.proc.pi.dwProcessId)
+
+    accepted = 0
+    for _ in range(64):
+        result = backend.write_input(b"x" * 4096 + b"\r")
+        if result.disposition is not InputDisposition.ACCEPTED:
+            break
+        accepted += 1
+
+    started = time.monotonic()
+    backend.terminate_tree(grace=0.5)
+    backend.close()
+
+    assert accepted > 0
+    assert time.monotonic() - started < TEARDOWN_BOUND
+    assert process_is_gone(child)
+
+
+PROCESSED_INPUT_OFF = """
+    import ctypes
+    import time
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.GetStdHandle(-10)
+    mode = ctypes.c_uint(0)
+    kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+    kernel32.SetConsoleMode(handle, mode.value & ~0x0001)  # ENABLE_PROCESSED_INPUT
+
+    print("READY", flush=True)
+    time.sleep(120)
+"""
+
+
+def test_a_client_that_cleared_processed_input_falls_through_to_forced_termination(backend, tmp_path):
+    """The best-effort boundary, proven rather than asserted: without ENABLE_PROCESSED_INPUT
+    the control byte is just a byte, so the grace expires and the job takes the tree."""
+    script = write_program(tmp_path, "no_processed_input", PROCESSED_INPUT_OFF)
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "READY")
+    child = int(backend._owner.session.proc.pi.dwProcessId)
+
+    started = time.monotonic()
+    backend.terminate_tree(grace=1.0)
+    backend.close()
+
+    assert time.monotonic() - started < TEARDOWN_BOUND
+    assert process_is_gone(child)
+    # Never exited on its own, so no status was ever read: the contrast with the handled
+    # case, which reports the code its handler chose.
+    assert backend.poll() is None
+
+
+TERMINAL_QUERY = """
+    import sys
+
+    sys.stdout.write("\\x1b[6n")  # device status report: a terminal is expected to answer
+    sys.stdout.flush()
+    print("QUERIED", flush=True)
+"""
+
+
+def test_a_target_that_queries_the_terminal_leaves_no_unanswered_obligation(backend, tmp_path):
+    """Either the pseudoconsole answers the query itself or the renderer's responder does.
+    What must never happen is an obligation this side registered and could not deliver."""
+    script = write_program(tmp_path, "queries", TERMINAL_QUERY)
+
+    backend.spawn(command(script))
+    exit_code = wait_for_exit(backend)
+    backend.terminate_tree(grace=0.1)
+    backend.close()
+
+    assert exit_code == 0
+    assert "QUERIED" in backend.normalized_output()
+    assert backend.terminal_reply_failed is False, backend.terminal_reply_detail()
+
+
+# ----------------------------------------------------- through execute_script
+
+
+SCRIPT_TYPE = "Unit"
+
+
+def write_powershell(tmp_path: Path, name: str, body: str) -> str:
+    path = tmp_path / f"{name}.ps1"
+    path.write_text(textwrap.dedent(body), encoding="utf-8")
+    return str(path)
+
+
+def run_script(script: str, timeout: int):
+    """One execution through the real renderer path, artifacts cleaned up afterwards."""
+    exit_code, output, artifact = render_utils.execute_script(script, [], SCRIPT_TYPE, timeout=timeout)
+    if artifact is not None:
+        for path in (artifact, artifact + render_utils.RAW_OUTPUT_SUFFIX):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    return exit_code, output
+
+
+REPORTING_SCRIPT = """
+    Write-Output "HELLO-CONPTY"
+    exit 0
+"""
+
+FAILING_SCRIPT = """
+    Write-Output "BEFORE-EXIT"
+    exit 3
+"""
+
+SINGLE_READ_SCRIPT = """
+    Write-Output "READY"
+    $line = [Console]::In.ReadLine()
+    Write-Output "GOT $line"
+"""
+
+REPEATED_READ_SCRIPT = """
+    Write-Output "READY"
+    while ($true) {
+        $line = [Console]::In.ReadLine()
+        Write-Output "GOT $line"
+    }
+"""
+
+
+def test_a_powershell_script_runs_through_execute_script_and_reports_its_output(tmp_path):
+    script = write_powershell(tmp_path, "reports", REPORTING_SCRIPT)
+
+    exit_code, output = run_script(script, timeout=90)
+
+    assert exit_code == 0
+    assert "HELLO-CONPTY" in output
+
+
+def test_a_failing_powershell_script_returns_its_exit_code_verbatim(tmp_path):
+    script = write_powershell(tmp_path, "fails", FAILING_SCRIPT)
+
+    exit_code, output = run_script(script, timeout=90)
+
+    assert exit_code == 3
+    assert "BEFORE-EXIT" in output
+
+
+@pytest.mark.parametrize(
+    "name,body",
+    [("reads_once", SINGLE_READ_SCRIPT), ("reads_repeatedly", REPEATED_READ_SCRIPT)],
+)
+def test_a_script_that_reads_input_runs_to_the_timeout_and_says_why(tmp_path, name, body):
+    """The documented Windows asymmetry: ConPTY carries no synthetic end-of-file, so a read
+    blocks until the timeout instead of returning EOF the way it does on POSIX."""
+    script = write_powershell(tmp_path, name, body)
+
+    exit_code, output = run_script(script, timeout=15)
+
+    assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
+    assert "no input driver was attached" in output.lower()
+    assert "end-of-file" in output.lower()
