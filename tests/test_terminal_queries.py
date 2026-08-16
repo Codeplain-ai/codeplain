@@ -14,7 +14,12 @@ import pytest
 
 from render_machine.output_normalizer import QUERY_CURSOR_POSITION, QUERY_DEVICE_ATTRIBUTES, QUERY_DEVICE_STATUS
 from render_machine.terminal_process import InputDisposition, InputWriteResult
-from render_machine.terminal_queries import MAX_TRACKED_FAILURES, ResponderState, TerminalQueryResponder
+from render_machine.terminal_queries import (
+    MAX_TRACKED_FAILURES,
+    ResponderState,
+    TerminalQueryResponder,
+    reply_resolution,
+)
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="The POSIX PTY backend is not built on Windows.")
 
@@ -459,7 +464,7 @@ def test_a_query_seen_only_after_quiescence_renders_and_records_nothing(tmp_path
         assert process.query_responder.state is ResponderState.QUIESCED
         admitted_before = process.query_responder.admitted
 
-        process._byte_sink(b"\x1b[6ntrailing frame\r\n")  # the reader's byte-feed hook
+        process.normalizer.feed(b"\x1b[6ntrailing frame\r\n")  # the reader's byte-feed hook
 
         assert process.query_responder.admitted == admitted_before
         assert process.query_responder.render_only == 1
@@ -468,3 +473,30 @@ def test_a_query_seen_only_after_quiescence_renders_and_records_nothing(tmp_path
     finally:
         process.terminate_tree(grace=0.05)
         process.close()
+
+
+# ------------------------------------------------------------- reply resolution
+#
+# One queue resolution, mapped onto the responder's delivered / not-delivered contract.
+# Both backends admit their replies through it.
+
+
+def test_a_delivered_reply_reports_no_reason():
+    reasons = []
+    reply_resolution(reasons.append)(InputDisposition.ACCEPTED, None)
+
+    assert reasons == [None]
+
+
+def test_a_failed_reply_reports_the_write_failure():
+    reasons = []
+    reply_resolution(reasons.append)(InputDisposition.ACCEPTED, OSError("gone"))
+
+    assert "write failed" in reasons[0]
+
+
+def test_a_discarded_reply_reports_the_disposition():
+    reasons = []
+    reply_resolution(reasons.append)(InputDisposition.CLOSED, None)
+
+    assert "discarded" in reasons[0] and "closed" in reasons[0]

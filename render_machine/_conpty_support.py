@@ -31,7 +31,7 @@ from render_machine.terminal_process import (
     InputWriteResult,
     TerminalEnvironmentError,
 )
-from render_machine.terminal_queries import REASON_DISCARDED, REASON_WRITE_FAILED
+from render_machine.terminal_queries import ResolveCallback
 
 NUL = "\x00"
 
@@ -50,9 +50,6 @@ WRITER_JOIN_DEADLINE_SECONDS = 3.0
 # A target that queries in a loop against a closed channel loses one item per query, so the
 # loss is logged as a sample plus a count rather than once per item.
 DROP_LOG_INTERVAL_SECONDS = 5.0
-
-# Resolution of one queued item, as the producer sees it.
-ResolveCallback = Callable[[InputDisposition, Optional[BaseException]], None]
 
 
 # --------------------------------------------------------------------- marshaling
@@ -119,20 +116,6 @@ def native_thread_id() -> int:
     patching the threading module the test runner also uses.
     """
     return threading.get_native_id()
-
-
-def reply_resolution(on_complete: Callable[[Optional[str]], None]) -> ResolveCallback:
-    """Maps one queue resolution onto the responder's delivered / not-delivered contract."""
-
-    def resolved(disposition: InputDisposition, error: Optional[BaseException]) -> None:
-        if error is not None:
-            on_complete(f"{REASON_WRITE_FAILED}: {error!r}")
-        elif disposition is InputDisposition.ACCEPTED:
-            on_complete(None)
-        else:
-            on_complete(f"{REASON_DISCARDED} ({disposition.value})")
-
-    return resolved
 
 
 # ------------------------------------------------------------------- input queue

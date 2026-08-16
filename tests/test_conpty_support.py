@@ -25,7 +25,6 @@ from render_machine._conpty_support import (
     WriteChannel,
     build_command_line,
     build_environment_block,
-    reply_resolution,
     validate_working_directory,
 )
 from render_machine.terminal_process import InputDisposition, TerminalEnvironmentError
@@ -214,30 +213,6 @@ def test_the_environment_block_is_sorted_case_insensitively():
 def test_an_empty_environment_block_still_terminates():
     """The buffer's own terminator supplies the second NUL, so one is enough here."""
     assert build_environment_block({}) == NUL
-
-
-# ------------------------------------------------------------- reply resolution
-
-
-def test_a_delivered_reply_reports_no_reason():
-    reasons = []
-    reply_resolution(reasons.append)(InputDisposition.ACCEPTED, None)
-
-    assert reasons == [None]
-
-
-def test_a_failed_reply_reports_the_write_failure():
-    reasons = []
-    reply_resolution(reasons.append)(InputDisposition.ACCEPTED, OSError("gone"))
-
-    assert "write failed" in reasons[0]
-
-
-def test_a_discarded_reply_reports_the_disposition():
-    reasons = []
-    reply_resolution(reasons.append)(InputDisposition.CLOSED, None)
-
-    assert "discarded" in reasons[0] and "closed" in reasons[0]
 
 
 # ------------------------------------------------------------------- the queue

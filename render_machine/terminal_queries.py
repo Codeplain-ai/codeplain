@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, List, Optional, Set, Tuple
 
+from render_machine.terminal_process import InputDisposition
+
 # Reasons a reply can fail to reach the target.
 REASON_ADMISSION_RAISED = "admission raised"
 REASON_DISCARDED = "discarded before delivery"
@@ -49,6 +51,23 @@ MAX_TRACKED_FAILURES = 16
 # callback with None when the last native byte lands, or with a reason when it cannot.
 CompletionCallback = Callable[[Optional[str]], None]
 AdmitReply = Callable[[bytes, CompletionCallback], None]
+
+# Resolution of one queued input item, as the backend's queue reports it.
+ResolveCallback = Callable[[InputDisposition, Optional[BaseException]], None]
+
+
+def reply_resolution(on_complete: CompletionCallback) -> ResolveCallback:
+    """Maps one queue resolution onto the responder's delivered / not-delivered contract."""
+
+    def resolved(disposition: InputDisposition, error: Optional[BaseException]) -> None:
+        if error is not None:
+            on_complete(f"{REASON_WRITE_FAILED}: {error!r}")
+        elif disposition is InputDisposition.ACCEPTED:
+            on_complete(None)
+        else:
+            on_complete(f"{REASON_DISCARDED} ({disposition.value})")
+
+    return resolved
 
 
 class ResponderState(Enum):

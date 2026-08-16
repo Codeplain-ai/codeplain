@@ -8,7 +8,6 @@ responder that owes nothing, and normalized output alongside the raw bytes.
 Scripts are executed for real, so every case that runs one is POSIX-only.
 """
 
-import contextlib
 import errno
 import json
 import os
@@ -24,6 +23,7 @@ import pytest
 
 from render_machine.terminal_process import READER_STALL_DETAIL, InputDisposition, TerminalReaderError
 from render_machine.terminal_queries import ResponderState
+from tests import test_render_utils as characterization
 
 posix_only = pytest.mark.skipif(
     sys.platform == "win32",
@@ -280,45 +280,13 @@ def test_a_reader_that_outlives_its_join_bound_is_published_as_a_reader_failure(
 # The escape hatch and the Windows interim both run on this backend, so it has to keep
 # the child away from Codeplain's own terminal exactly as the PTY path does.
 
-KEYSTROKES = "secret-keystrokes\n"
-STDIN_READ_LIMIT = 1024
-IMMEDIATE_EOF_SECONDS = 5
-
-STDIN_PROBE_PROGRAM = f"""
-import json
-import os
-import sys
-import time
-
-started = time.monotonic()
-data = os.read(0, {STDIN_READ_LIMIT})
-report = {{
-    "isatty": os.isatty(0),
-    "data": data.decode(errors="replace"),
-    "read_seconds": time.monotonic() - started,
-}}
-sys.stdout.write(json.dumps(report))
-sys.stdout.flush()
-"""
-
-
-@pytest.fixture
-def terminal_on_stdin():
-    """Puts a PTY slave on the test process's fd 0 and yields the master fd."""
-    try:
-        saved_stdin_fd = os.dup(0)
-    except OSError as exc:
-        pytest.skip(f"fd 0 cannot be duplicated in this environment: {exc}")
-
-    master_fd, slave_fd = os.openpty()
-    os.dup2(slave_fd, 0)
-    try:
-        yield master_fd
-    finally:
-        os.dup2(saved_stdin_fd, 0)
-        for fd in (saved_stdin_fd, slave_fd, master_fd):
-            with contextlib.suppress(OSError):
-                os.close(fd)
+# The probe, its constants and the harness terminal are the ones the PTY backend is held
+# to, imported rather than restated so the two backends are measured by one yardstick.
+KEYSTROKES = characterization.KEYSTROKES
+STDIN_READ_LIMIT = characterization.STDIN_READ_LIMIT
+IMMEDIATE_EOF_SECONDS = characterization.IMMEDIATE_EOF_SECONDS
+STDIN_PROBE_PROGRAM = characterization.STDIN_PROBE_PROGRAM
+terminal_on_stdin = characterization.terminal_on_stdin
 
 
 def test_the_child_never_reads_the_renderers_terminal(tmp_path, backend, terminal_on_stdin):

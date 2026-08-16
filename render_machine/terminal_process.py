@@ -11,10 +11,14 @@ import sys
 import threading
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
 
 from plain2code_console import console
-from render_machine.terminal_queries import TerminalQueryResponder
+from plain2code_exceptions import RenderCancelledError
+
+if TYPE_CHECKING:  # both import this module at runtime, so neither may be imported here
+    from render_machine.output_normalizer import OutputNormalizer
+    from render_machine.terminal_queries import TerminalQueryResponder
 
 # Break-glass override, not a tuning knob: set CODEPLAIN_NO_PTY=1 to run scripts on the
 # legacy pipe backend when PTY allocation fails in an environment. It is never selected
@@ -73,6 +77,19 @@ LAUNCHER_STDERR_CAP_BYTES = 16 * 1024
 # be trusted and the execution is an environment failure.
 READER_STALL_DETAIL = "the terminal output reader did not terminate within its shutdown bound"
 
+# The two owners a descriptor bundle can have. One field carrying one of these is what
+# keeps a rollback and a reader from ever disagreeing about who releases what.
+OWNER_PARENT = "parent"
+OWNER_READER = "reader"
+
+# What a timeout diagnostic says when no input driver was attached. A backend that gives
+# the target end-of-file at spawn needs nothing more; ConPTY, which cannot, appends its own
+# clause to this one.
+NO_INPUT_NOTE = (
+    " No input driver was attached to the script's terminal, so a script that waits for input "
+    "never receives any and runs to the timeout."
+)
+
 
 class InputDisposition(Enum):
     """Immediate whole-item backend admission — never a delivery receipt."""
@@ -111,11 +128,24 @@ class TerminalProcess:
 
     `spawn()` is bounded and cancellable; `close()` is idempotent and releases every
     handle the backend owns. Instances are single-use.
+
+    Output accumulation is identical on every backend — one lock over a decoded list and a
+    raw buffer, fed by whatever read loop the backend runs — so it is implemented here
+    rather than three times over. A backend supplies its read loop, its normalizer and its
+    query responder, calls `super().__init__()` before either, and inherits the rest.
     """
 
-    reader_failed: threading.Event
-    reader_exc: Optional[BaseException]
-    query_responder: TerminalQueryResponder
+    normalizer: "OutputNormalizer"
+    query_responder: "TerminalQueryResponder"
+
+    def __init__(self) -> None:
+        self.reader_failed = threading.Event()
+        self.reader_exc: Optional[BaseException] = None
+        self._stop_event = threading.Event()
+
+        self._output_lock = threading.Lock()
+        self._decoded: List[str] = []
+        self._raw = bytearray()
 
     def spawn(
         self,
@@ -134,15 +164,21 @@ class TerminalProcess:
 
     def read_output(self) -> str:
         """Decoded output accumulated since the previous call."""
-        raise NotImplementedError
+        with self._output_lock:
+            text = "".join(self._decoded)
+            self._decoded.clear()
+            return text
 
     def read_raw_output(self) -> bytes:
         """Raw output bytes accumulated since the previous call."""
-        raise NotImplementedError
+        with self._output_lock:
+            data = bytes(self._raw)
+            self._raw.clear()
+            return data
 
     def normalized_output(self) -> str:
         """The rendered transcript so far. Cumulative, unlike `read_output()`."""
-        raise NotImplementedError
+        return self.normalizer.text()
 
     @property
     def terminal_reply_failed(self) -> bool:
@@ -151,11 +187,30 @@ class TerminalProcess:
         Independent of `reader_failed`: both pumps can be healthy while one required
         protocol response was never accepted.
         """
-        raise NotImplementedError
+        return self.query_responder.reply_failed
 
     def terminal_reply_detail(self) -> str:
         """Query kinds and pressure reasons behind `terminal_reply_failed`."""
-        raise NotImplementedError
+        return self.query_responder.failure_detail()
+
+    def _feed_output(self, chunk: bytes, decoder) -> None:
+        """The one entry point every read loop hands its bytes to."""
+        text = decoder.decode(chunk)
+        with self._output_lock:
+            self._raw += chunk
+            if text:
+                self._decoded.append(text)
+        self.normalizer.feed(chunk)  # outside the output lock: parsing must not block read_output()
+
+    def _flush_decoder(self, decoder) -> None:
+        tail = decoder.decode(b"", final=True)  # a trailing partial sequence becomes U+FFFD
+        if tail:
+            with self._output_lock:
+                self._decoded.append(tail)
+
+    def _check_cancelled(self) -> None:
+        if self._stop_event.is_set():
+            raise RenderCancelledError()
 
     def write_input(self, data: bytes) -> InputWriteResult:
         raise NotImplementedError
@@ -215,6 +270,22 @@ def child_environment(env: Optional[dict]) -> dict:
     """
     child_env = dict(os.environ if env is None else env)
     child_env.pop(NO_PTY_ENV_VAR, None)
+    return child_env
+
+
+def terminal_child_environment(env: Optional[dict]) -> dict:
+    """`child_environment()` plus the policy a target with a terminal of its own runs under.
+
+    TERM is declared rather than inherited, so a toolchain's rendering does not depend on
+    the terminal Codeplain happens to be running in. GIT_TERMINAL_PROMPT is cleared because
+    git reads the terminal directly — /dev/tty on POSIX, the console on Windows — so neither
+    a synthetic end-of-file nor a redirected stdin can reach a credential prompt, and failing
+    is the only bounded outcome.
+    """
+    child_env = child_environment(env)
+    term = child_env.get("TERM")
+    child_env["TERM"] = term if term else DEFAULT_TERM
+    child_env["GIT_TERMINAL_PROMPT"] = "0"
     return child_env
 
 

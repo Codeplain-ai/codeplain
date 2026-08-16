@@ -26,11 +26,9 @@ import time
 from typing import Callable, Deque, List, Optional, Sequence, Tuple
 
 from plain2code_console import console
-from plain2code_exceptions import RenderCancelledError
 from render_machine import pty_exec
 from render_machine.output_normalizer import OutputNormalizer
 from render_machine.terminal_process import (
-    DEFAULT_TERM,
     DRAIN_DEADLINE_SECONDS,
     DRAIN_MAX_BYTES,
     DRAIN_QUIET_PERIOD_SECONDS,
@@ -41,6 +39,8 @@ from render_machine.terminal_process import (
     MAX_INPUT_ITEM_BYTES,
     MAX_PENDING_INPUT_BYTES,
     MAX_PENDING_INPUT_ITEMS,
+    OWNER_PARENT,
+    OWNER_READER,
     POLL_INTERVAL_SECONDS,
     READ_CHUNK_BYTES,
     REAP_DEADLINE_SECONDS,
@@ -55,9 +55,9 @@ from render_machine.terminal_process import (
     TerminalLaunchError,
     TerminalProcess,
     TerminalReaderError,
-    child_environment,
+    terminal_child_environment,
 )
-from render_machine.terminal_queries import REASON_DISCARDED, REASON_WRITE_FAILED, TerminalQueryResponder
+from render_machine.terminal_queries import ResolveCallback, TerminalQueryResponder, reply_resolution
 
 if sys.platform == "win32":  # pragma: no cover - the PTY backend is POSIX-only
     raise ImportError("render_machine._posix_pty is POSIX-only")
@@ -67,12 +67,6 @@ _LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pty_exec.p
 # Grace given to a launcher that never reached the target. It has not exec'd and never
 # forks, so termination is immediate and the full grace would only slow failures down.
 ROLLBACK_GRACE_SECONDS = 0.1
-
-_OWNER_PARENT = "parent"
-_OWNER_READER = "reader"
-
-# Completion callback for one queued input item, resolved by whoever retires it.
-ResolveCallback = Callable[[InputDisposition, Optional[BaseException]], None]
 
 
 class _ProtocolError(Exception):
@@ -325,7 +319,7 @@ class _ReaderBundle:
     """
 
     def __init__(self, master_fd: int, wakeup_r: int, err_w: int) -> None:
-        self.owner = _OWNER_PARENT
+        self.owner = OWNER_PARENT
         self.master_fd: Optional[int] = master_fd
         self.wakeup_r: Optional[int] = wakeup_r
         self.err_w: Optional[int] = err_w
@@ -446,8 +440,7 @@ class PosixPtyProcess(TerminalProcess):
     """One command, one pseudoterminal, one reader thread."""
 
     def __init__(self) -> None:
-        self.reader_failed = threading.Event()
-        self.reader_exc: Optional[BaseException] = None
+        super().__init__()
 
         self._proc: Optional[subprocess.Popen] = None
         self._pgid: Optional[int] = None
@@ -456,7 +449,6 @@ class PosixPtyProcess(TerminalProcess):
         self._closed = False
         self._acked = False
         self._input_driver: Optional[object] = None
-        self._stop_event = threading.Event()
 
         self._bundle: Optional[_ReaderBundle] = None
         self._reader: Optional[threading.Thread] = None
@@ -476,16 +468,12 @@ class PosixPtyProcess(TerminalProcess):
         self._status_r: Optional[int] = None
         self._ack_w: Optional[int] = None
 
-        self._output_lock = threading.Lock()
-        self._decoded: List[str] = []
-        self._raw = bytearray()
         self.launcher_stderr = _CappedDiagnostic()
 
-        # The parser runs live in the reader through this byte-feed hook, because terminals
-        # answer queries: a render-afterwards parser would leave a querying target hanging.
+        # The parser runs live in the reader, because terminals answer queries: a
+        # render-afterwards parser would leave a querying target hanging.
         self.query_responder = TerminalQueryResponder(self._admit_reply)
         self.normalizer = OutputNormalizer(reply_handler=self.query_responder.answer)
-        self._byte_sink: Callable[[bytes], None] = self.normalizer.feed
 
     # ---------------------------------------------------------------- public API
 
@@ -536,34 +524,11 @@ class PosixPtyProcess(TerminalProcess):
             self.query_responder.quiesce()
         return returncode
 
-    def read_output(self) -> str:
-        with self._output_lock:
-            text = "".join(self._decoded)
-            self._decoded.clear()
-            return text
-
-    def read_raw_output(self) -> bytes:
-        with self._output_lock:
-            data = bytes(self._raw)
-            self._raw.clear()
-            return data
-
     def write_input(self, data: bytes) -> InputWriteResult:
         result, _ = self._input_queue.submit(data)
         if result.disposition is InputDisposition.ACCEPTED:
             self._ring_doorbell()
         return result
-
-    def normalized_output(self) -> str:
-        """The rendered transcript so far. Cumulative, unlike `read_output()`."""
-        return self.normalizer.text()
-
-    @property
-    def terminal_reply_failed(self) -> bool:
-        return self.query_responder.reply_failed
-
-    def terminal_reply_detail(self) -> str:
-        return self.query_responder.failure_detail()
 
     def terminate_tree(self, grace: float = SIGTERM_GRACE_PERIOD_SECONDS) -> None:
         """Signals the recorded group, escalates on the clock, and reaps last.
@@ -609,7 +574,7 @@ class PosixPtyProcess(TerminalProcess):
         self._close_owned("_ack_w")
         if self._proc is not None and self._proc.stderr is not None:
             self._proc.stderr.close()
-        if self._bundle is not None and self._bundle.owner == _OWNER_PARENT:
+        if self._bundle is not None and self._bundle.owner == OWNER_PARENT:
             self._bundle.close_all()  # no reader ever took them
         if stalled:  # every handle this side owns is released first
             self._publish_reader_stall()
@@ -709,7 +674,7 @@ class PosixPtyProcess(TerminalProcess):
                 pass_fds=(slave_fd, status_w, ack_r),
                 close_fds=True,
                 cwd=cwd,
-                env=self._child_env(env),
+                env=terminal_child_environment(env),
             )
         except OSError as exc:
             raise TerminalEnvironmentError(f"Could not start the terminal launcher: {exc}") from exc
@@ -721,21 +686,12 @@ class PosixPtyProcess(TerminalProcess):
             self._child_fds = ()
             self._pending_slave_fd = None
 
-    def _child_env(self, env: Optional[dict]) -> dict:
-        child_env = child_environment(env)
-        term = child_env.get("TERM")
-        child_env["TERM"] = term if term else DEFAULT_TERM
-        # git reads /dev/tty directly, so neither the VEOF nor a redirected stdin can
-        # reach a credential prompt; failing is the only bounded outcome.
-        child_env["GIT_TERMINAL_PROMPT"] = "0"
-        return child_env
-
     def _hand_over_to_reader(self) -> None:
         """Starts the gated reader and commits ownership in a single field assignment."""
         assert self._bundle is not None and self._reader is not None
         try:
             self._reader.start()
-            self._bundle.owner = _OWNER_READER
+            self._bundle.owner = OWNER_READER
         finally:
             self._gate.set()  # an unreleased gate is unrecoverable, so this is never conditional
         self._check_reader_failed()
@@ -858,10 +814,6 @@ class PosixPtyProcess(TerminalProcess):
             return f"{reason}. Launcher output:\n{diagnostic}"
         return f"{reason}."
 
-    def _check_cancelled(self) -> None:
-        if self._stop_event.is_set():
-            raise RenderCancelledError()
-
     def _check_reader_failed(self) -> None:
         if self.reader_failed.is_set():
             raise TerminalReaderError(f"The terminal output reader failed: {self.reader_exc!r}")
@@ -871,7 +823,7 @@ class PosixPtyProcess(TerminalProcess):
     def _reader_main(self) -> None:
         self._gate.wait()
         assert self._bundle is not None
-        if self._bundle.owner != _OWNER_READER:
+        if self._bundle.owner != OWNER_READER:
             return  # the parent still owns everything; touch nothing, publish nothing
         reader_exc: Optional[BaseException] = None
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
@@ -937,20 +889,6 @@ class PosixPtyProcess(TerminalProcess):
             return False
         self._feed_output(chunk, decoder)
         return True
-
-    def _feed_output(self, chunk: bytes, decoder) -> None:
-        text = decoder.decode(chunk)
-        with self._output_lock:
-            self._raw += chunk
-            if text:
-                self._decoded.append(text)
-        self._byte_sink(chunk)  # outside the output lock: parsing must not block read_output()
-
-    def _flush_decoder(self, decoder) -> None:
-        tail = decoder.decode(b"", final=True)  # a trailing partial sequence becomes U+FFFD
-        if tail:
-            with self._output_lock:
-                self._decoded.append(tail)
 
     def _flush_input(self, master_fd: int, budget: int) -> None:
         """Services the FIFO through one retained cursor, bounded so input cannot starve output."""
@@ -1024,7 +962,7 @@ class PosixPtyProcess(TerminalProcess):
         They are never counted as caller input and never affect the input-driver
         diagnostic. The queue's cursor preserves the reply across short writes.
         """
-        result, _ = self._input_queue.submit(payload, reserved=True, on_resolve=_reply_resolution(on_complete))
+        result, _ = self._input_queue.submit(payload, reserved=True, on_resolve=reply_resolution(on_complete))
         if result.disposition is InputDisposition.ACCEPTED:
             self._ring_doorbell()
 
@@ -1092,20 +1030,6 @@ class PosixPtyProcess(TerminalProcess):
 
     def _close_owned(self, name: str) -> None:
         _close_quietly(self._take_owned(name))
-
-
-def _reply_resolution(on_complete: Callable[[Optional[str]], None]) -> ResolveCallback:
-    """Maps one queue resolution onto the responder's delivered / not-delivered contract."""
-
-    def resolved(disposition: InputDisposition, error: Optional[BaseException]) -> None:
-        if error is not None:
-            on_complete(f"{REASON_WRITE_FAILED}: {error!r}")
-        elif disposition is InputDisposition.ACCEPTED:
-            on_complete(None)
-        else:
-            on_complete(f"{REASON_DISCARDED} ({disposition.value})")
-
-    return resolved
 
 
 def _drain_doorbell(fd: int) -> None:

@@ -28,7 +28,7 @@ import signal
 import subprocess
 import sys
 import threading
-from typing import List, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from plain2code_console import console
 from plain2code_exceptions import RenderCancelledError
@@ -71,8 +71,7 @@ class LegacyPipeProcess(TerminalProcess):
     """One command, one pipe carrying its merged stdout and stderr, one reader thread."""
 
     def __init__(self) -> None:
-        self.reader_failed = threading.Event()
-        self.reader_exc: Optional[BaseException] = None
+        super().__init__()
         # No admission callable: the responder starts QUIESCED, so an escape sequence the
         # target prints is rendered and nothing is ever owed to it.
         self.query_responder = TerminalQueryResponder()
@@ -86,10 +85,6 @@ class LegacyPipeProcess(TerminalProcess):
         self._closed = False
         self._closing = threading.Event()
         self._reaped = False
-
-        self._output_lock = threading.Lock()
-        self._decoded: List[str] = []
-        self._raw = bytearray()
 
     # ---------------------------------------------------------------- public API
 
@@ -118,7 +113,7 @@ class LegacyPipeProcess(TerminalProcess):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=cwd,
-                env=self._child_env(env),
+                env=child_environment(env),
                 start_new_session=(sys.platform != "win32"),
                 creationflags=CREATION_FLAGS,
             )
@@ -137,28 +132,6 @@ class LegacyPipeProcess(TerminalProcess):
         if returncode is not None:
             self._reaped = True
         return returncode
-
-    def read_output(self) -> str:
-        with self._output_lock:
-            text = "".join(self._decoded)
-            self._decoded.clear()
-            return text
-
-    def read_raw_output(self) -> bytes:
-        with self._output_lock:
-            data = bytes(self._raw)
-            self._raw.clear()
-            return data
-
-    def normalized_output(self) -> str:
-        return self.normalizer.text()
-
-    @property
-    def terminal_reply_failed(self) -> bool:
-        return self.query_responder.reply_failed
-
-    def terminal_reply_detail(self) -> str:
-        return self.query_responder.failure_detail()
 
     def write_input(self, data: bytes) -> InputWriteResult:
         """Always closed: this backend hands the child `DEVNULL`, by design."""
@@ -200,9 +173,6 @@ class LegacyPipeProcess(TerminalProcess):
             self._publish_reader_stall()
 
     # -------------------------------------------------------------------- internals
-
-    def _child_env(self, env: Optional[dict]) -> dict:
-        return child_environment(env)
 
     def _widen_pipe(self) -> None:
         """Best-effort 1MB pipe buffer, so bursts of output need fewer reader wakeups."""
@@ -264,17 +234,3 @@ class LegacyPipeProcess(TerminalProcess):
             self.reader_exc = reader_exc  # stored while still unobservable
             if reader_exc is not None:
                 self.reader_failed.set()
-
-    def _feed_output(self, chunk: bytes, decoder) -> None:
-        text = decoder.decode(chunk)
-        with self._output_lock:
-            self._raw += chunk
-            if text:
-                self._decoded.append(text)
-        self.normalizer.feed(chunk)  # outside the lock: parsing must not block read_output()
-
-    def _flush_decoder(self, decoder) -> None:
-        tail = decoder.decode(b"", final=True)  # a trailing partial sequence becomes U+FFFD
-        if tail:
-            with self._output_lock:
-                self._decoded.append(tail)

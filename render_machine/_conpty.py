@@ -34,10 +34,9 @@ import threading
 import time
 from contextlib import ExitStack
 from ctypes import wintypes
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 from plain2code_console import console
-from plain2code_exceptions import RenderCancelledError
 from render_machine._conpty_support import (
     CANCEL_TICK_SECONDS,
     WRITER_JOIN_DEADLINE_SECONDS,
@@ -49,16 +48,16 @@ from render_machine._conpty_support import (
     build_command_line,
     build_environment_block,
     native_thread_id,
-    reply_resolution,
     validate_working_directory,
 )
 from render_machine.output_normalizer import OutputNormalizer
 from render_machine.terminal_process import (
     CONTROL_DELIVERY_DEADLINE_SECONDS,
-    DEFAULT_TERM,
     DRAIN_DEADLINE_SECONDS,
     GRACE_TICK_SECONDS,
     HANDSHAKE_TIMEOUT_SECONDS,
+    OWNER_PARENT,
+    OWNER_READER,
     POLL_INTERVAL_SECONDS,
     READ_CHUNK_BYTES,
     REAP_DEADLINE_SECONDS,
@@ -68,9 +67,9 @@ from render_machine.terminal_process import (
     InputWriteResult,
     TerminalEnvironmentError,
     TerminalProcess,
-    child_environment,
+    terminal_child_environment,
 )
-from render_machine.terminal_queries import TerminalQueryResponder
+from render_machine.terminal_queries import TerminalQueryResponder, reply_resolution
 
 if sys.platform != "win32":  # pragma: no cover - the ConPTY backend is Windows-only
     raise ImportError("render_machine._conpty is Windows-only")
@@ -139,9 +138,6 @@ JOB_TERMINATION_EXIT_CODE = 1
 # How long the finalizer keeps retrying a teardown the foreground had to abandon.
 FINALIZER_DEADLINE_SECONDS = 60.0
 FINALIZER_TICK_SECONDS = 0.5
-
-_OWNER_PARENT = "parent"
-_OWNER_READER = "reader"
 
 # The graceful signal: writing 0x03 into the pseudoconsole input is how terminal emulators
 # deliver Ctrl-C to a ConPTY client. `GenerateConsoleCtrlEvent` cannot be used, because it
@@ -452,7 +448,7 @@ class _ReaderHandles:
     """
 
     def __init__(self, pair: _PipePair) -> None:
-        self.owner = _OWNER_PARENT
+        self.owner = OWNER_PARENT
         self.out_r = HANDLE()
         self._pair = pair
         self._lock = threading.Lock()
@@ -470,7 +466,7 @@ class _ReaderHandles:
             return handle
 
     def close_if_owner_is_parent(self) -> None:
-        if self.owner == _OWNER_PARENT:
+        if self.owner == OWNER_PARENT:
             _close_handle(self.take())
 
 
@@ -1025,26 +1021,18 @@ class ConPtyProcess(TerminalProcess):
     """One command, one pseudoconsole, one job, one reader thread, one writer thread."""
 
     def __init__(self) -> None:
-        self.reader_failed = threading.Event()
-        self.reader_exc: Optional[BaseException] = None
+        super().__init__()
 
         self._spawned = False
         self._closed = False
-        self._stop_event = threading.Event()
-        self._input_driver: Optional[object] = None
         self._owner: Optional[_SessionOwner] = None
         self._writer: Optional[InputWriter] = None
         self._input_queue = InputQueue()
-
-        self._output_lock = threading.Lock()
-        self._decoded: List[str] = []
-        self._raw = bytearray()
 
         # The parser runs live in the reader, because terminals answer queries: a
         # render-afterwards parser would leave a querying target hanging.
         self.query_responder = TerminalQueryResponder(self._admit_reply)
         self.normalizer = OutputNormalizer(reply_handler=self.query_responder.answer)
-        self._byte_sink: Callable[[bytes], None] = self.normalizer.feed
 
     # ---------------------------------------------------------------- public API
 
@@ -1071,7 +1059,7 @@ class ConPtyProcess(TerminalProcess):
         # allocated, and long before there is a process to truncate a command line for.
         command_line = build_command_line(command)
         directory = validate_working_directory(cwd)
-        environment = build_environment_block(self._child_env(env))
+        environment = build_environment_block(terminal_child_environment(env))
         self._start_session(command_line, directory, environment, columns, rows, time.monotonic() + spawn_timeout)
 
     def poll(self) -> Optional[int]:
@@ -1083,28 +1071,6 @@ class ConPtyProcess(TerminalProcess):
             # The execution outcome is observed, so no client is left to answer.
             self.query_responder.quiesce()
         return code
-
-    def read_output(self) -> str:
-        with self._output_lock:
-            text = "".join(self._decoded)
-            self._decoded.clear()
-            return text
-
-    def read_raw_output(self) -> bytes:
-        with self._output_lock:
-            data = bytes(self._raw)
-            self._raw.clear()
-            return data
-
-    def normalized_output(self) -> str:
-        return self.normalizer.text()
-
-    @property
-    def terminal_reply_failed(self) -> bool:
-        return self.query_responder.reply_failed
-
-    def terminal_reply_detail(self) -> str:
-        return self.query_responder.failure_detail()
 
     def write_input(self, data: bytes) -> InputWriteResult:
         result, _ = self._input_queue.submit(data)
@@ -1257,7 +1223,7 @@ class ConPtyProcess(TerminalProcess):
         try:
             session.reader = reader
             reader.start()
-            bundle.owner = _OWNER_READER  # the commit: one assignment, nothing after it
+            bundle.owner = OWNER_READER  # the commit: one assignment, nothing after it
         finally:
             gate.set()  # always: an unopened gate parks the thread forever
 
@@ -1285,7 +1251,7 @@ class ConPtyProcess(TerminalProcess):
 
     def _reader_main(self, session: _SessionBundle, bundle: _ReaderHandles, gate: threading.Event) -> None:
         gate.wait()
-        if bundle.owner != _OWNER_READER:
+        if bundle.owner != OWNER_READER:
             return  # the parent still owns everything; touch nothing, publish nothing
         session.adopt_reader_thread()  # before the first read, so teardown can always cancel it
         reader_exc: Optional[BaseException] = None
@@ -1326,20 +1292,6 @@ class ConPtyProcess(TerminalProcess):
                 return
             self._feed_output(buffer.raw[: read.value], decoder)
 
-    def _feed_output(self, chunk: bytes, decoder) -> None:
-        text = decoder.decode(chunk)
-        with self._output_lock:
-            self._raw += chunk
-            if text:
-                self._decoded.append(text)
-        self._byte_sink(chunk)  # outside the output lock: parsing must not block read_output()
-
-    def _flush_decoder(self, decoder) -> None:
-        tail = decoder.decode(b"", final=True)  # a trailing partial sequence becomes U+FFFD
-        if tail:
-            with self._output_lock:
-                self._decoded.append(tail)
-
     # ------------------------------------------------------------------ internals
 
     def _admit_reply(self, payload: bytes, on_complete: Callable[[Optional[str]], None]) -> None:
@@ -1352,15 +1304,6 @@ class ConPtyProcess(TerminalProcess):
         outcome the responder exists to report.
         """
         self._input_queue.submit(payload, on_resolve=reply_resolution(on_complete))
-
-    def _child_env(self, env: Optional[dict]) -> dict:
-        child_env = child_environment(env)
-        term = child_env.get("TERM")
-        child_env["TERM"] = term if term else DEFAULT_TERM
-        # git reads the console directly, so no redirection can reach a credential prompt;
-        # failing is the only bounded outcome.
-        child_env["GIT_TERMINAL_PROMPT"] = "0"
-        return child_env
 
     def _shutdown(self, grace: Optional[float]) -> None:
         owner = self._owner
@@ -1387,10 +1330,6 @@ class ConPtyProcess(TerminalProcess):
         owner.session.release_abandoned()
         owner.stack.close()
         return False
-
-    def _check_cancelled(self) -> None:
-        if self._stop_event.is_set():
-            raise RenderCancelledError()
 
     def _check_pumps(self) -> None:
         detail = self.infrastructure_failure()
