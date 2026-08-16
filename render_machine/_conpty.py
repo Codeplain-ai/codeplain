@@ -488,12 +488,18 @@ def _create_pipe(read_holder, write_holder, pair: _PipePair) -> None:
     pair.valid = True
 
 
-def _create_job() -> int:
+def _create_job(session: "_SessionBundle") -> None:
+    """Stores the job in the session before returning.
+
+    Returning the handle for the caller to assign leaves a window in which nothing owns it:
+    an interruption between the two loses the job, and with it the containment its whole
+    purpose is.
+    """
     handle = kernel32.CreateJobObjectW(None, None)
     if not handle:
         error = ctypes.get_last_error()
         raise _win_error("Creating the job object for the script's process tree", error)
-    return handle
+    session.hJob = handle
 
 
 def _set_kill_on_job_close(job: int) -> None:
@@ -511,11 +517,17 @@ def _set_kill_on_job_close(job: int) -> None:
         raise _win_error("Configuring the job object", error)
 
 
-def _create_pseudoconsole(columns: int, rows: int, in_r: int, out_w: int, slot) -> None:
+def _create_pseudoconsole(session, columns: int, rows: int, in_r: int, out_w: int) -> None:
+    """Writes into the session's slot and arms it, both inside this call.
+
+    Arming from the caller would leave a pseudoconsole nobody may close if anything came
+    between the two statements.
+    """
     size = COORD(ctypes.c_short(columns), ctypes.c_short(rows))
-    hresult = kernel32.CreatePseudoConsole(size, in_r, out_w, 0, slot)
+    hresult = kernel32.CreatePseudoConsole(size, in_r, out_w, 0, ctypes.byref(session.hPC))
     if hresult != S_OK:  # HRESULT, not BOOL: success is zero and failure is everything else
         raise _hresult_error("Creating the pseudoconsole", hresult)
+    session.hPC_valid = True  # armed only after S_OK
 
 
 def _initialize_attribute_list(attrs: _AttrList, count: int) -> None:
@@ -611,18 +623,18 @@ def _renderer_output_is_redirected() -> bool:
     return False
 
 
-def _open_thread_handle(native_id: int) -> int:
+def _open_thread_handle(holder: "_Holder", native_id: int) -> None:
     """THREAD_TERMINATE is what `CancelSynchronousIo()` requires.
 
-    The handle is opened while the writer is still parked on its gate: an open handle cannot
-    be recycled, so every later cancel lands on the writer rather than on whichever thread
-    inherited its id.
+    The handle is opened while the thread it names is certainly alive — the writer parked on
+    its gate, the reader before its first read — because an id is recyclable the instant its
+    thread exits. It lands in the holder inside this call, so no interruption can lose it.
     """
     handle = kernel32.OpenThread(THREAD_TERMINATE, False, native_id)
     if not handle:
         error = ctypes.get_last_error()
-        raise _win_error("Opening a handle to the terminal input writer", error)
-    return handle
+        raise _win_error("Opening a handle to a terminal pump thread", error)
+    holder.value = HANDLE(handle)
 
 
 def _job_active_processes(job: int) -> int:
@@ -836,7 +848,7 @@ class _SessionBundle:
         is certainly alive.
         """
         try:
-            self.reader_handle.value = HANDLE(_open_thread_handle(native_thread_id()))
+            _open_thread_handle(self.reader_handle, native_thread_id())
         except BaseException as exc:  # cancellation degrades to the bounded join alone
             console.debug(f"the terminal output reader could not open a handle to itself: {exc!r}")
 
@@ -915,16 +927,18 @@ class _SessionBundle:
         24H2 would stand between a failing teardown and the kill-on-job-close that is the
         whole backstop.
 
-        `inputWriteSide` and the writer's thread handle are leaked deliberately when the
-        writer never returned: closing a handle underneath a blocked `WriteFile` is the
-        corruption the bounded teardown exists to avoid.
+        The writer is stopped here as well as in the ordered teardown, because this path is
+        reached when the teardown gave up before it got that far: an idle writer is parked on
+        its queue rather than inside a write, and the stop sentinel is the only thing that
+        ever releases it. `inputWriteSide` and the writer's thread handle are leaked only when
+        the stop itself runs out of bound — closing a handle underneath a blocked `WriteFile`
+        is the corruption the bounded teardown exists to avoid.
         """
         self._terminate_job()
         self.proc.close_all()
         self._close_job()  # kill-on-job-close fires before anything that can block
         self._close_pseudoconsole()
-        writer = self.writer
-        if writer is None or writer.finished.is_set():
+        if self._stop_writer():
             self.in_w.close_if_owned()
             self.writer_handle.close_if_owned()
         else:
@@ -1176,14 +1190,15 @@ class ConPtyProcess(TerminalProcess):
             self._start_writer(session, deadline)
             self._check_spawn_interrupted()
 
-            session.hJob = _create_job()
-            _set_kill_on_job_close(session.hJob)
+            _create_job(session)
+            job = session.hJob
+            assert job is not None  # _create_job stores one or raises
+            _set_kill_on_job_close(job)
 
             in_read = in_r.handle()
             out_write = out_w.handle()
             assert in_read is not None and out_write is not None
-            _create_pseudoconsole(columns, rows, in_read, out_write, ctypes.byref(session.hPC))
-            session.hPC_valid = True  # armed only after S_OK
+            _create_pseudoconsole(session, columns, rows, in_read, out_write)
 
             _initialize_attribute_list(attrs, PROC_THREAD_ATTRIBUTE_COUNT)
             session.job_array[0] = session.hJob
@@ -1263,7 +1278,7 @@ class ConPtyProcess(TerminalProcess):
                     if writer.failed.is_set()
                     else "The terminal input writer did not report itself before the spawn deadline."
                 )
-            session.writer_handle.value = HANDLE(_open_thread_handle(native_id))
+            _open_thread_handle(session.writer_handle, native_id)
             decision = GateDecision.RUN  # only after the handle is stored
         finally:
             writer.gate.set(decision)  # always: ABORT wakes the writer to exit untouched
