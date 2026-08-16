@@ -729,6 +729,10 @@ class _SessionBundle:
             # close. Closing a handle underneath a blocked write is what the hand-off exists
             # to avoid.
             return True
+        # The job handle closes before the pseudoconsole, never after: ClosePseudoConsole()
+        # can block on builds before 24H2, and kill-on-job-close must not be waiting behind
+        # a call that might not return.
+        self._close_job()
         self._close_pseudoconsole()
         self._release_handles()
         return False
@@ -817,15 +821,19 @@ class _SessionBundle:
     def release_abandoned(self) -> None:
         """Last-resort release for a teardown nobody can finish.
 
-        Reached only when the finalizer runs out of time or could not be started. Everything
-        the writer cannot be blocked inside is released unconditionally — closing the job
-        handle is what lets kill-on-job-close fire — while `inputWriteSide` and the writer's
-        thread handle are leaked deliberately when the writer never returned, because closing
-        a handle underneath a blocked `WriteFile` is the corruption the bounded teardown
-        exists to avoid.
+        Reached only when the finalizer runs out of time or could not be started, which is
+        also when the process tree is most likely still alive — so the job goes first, and
+        `ClosePseudoConsole()` only after it. Reversed, a call that can block on builds before
+        24H2 would stand between a failing teardown and the kill-on-job-close that is the
+        whole backstop.
+
+        `inputWriteSide` and the writer's thread handle are leaked deliberately when the
+        writer never returned: closing a handle underneath a blocked `WriteFile` is the
+        corruption the bounded teardown exists to avoid.
         """
         self._terminate_job()
         self.proc.close_all()
+        self._close_job()  # kill-on-job-close fires before anything that can block
         self._close_pseudoconsole()
         writer = self.writer
         if writer is None or writer.finished.is_set():
@@ -833,7 +841,6 @@ class _SessionBundle:
             self.writer_handle.close_if_owned()
         else:
             console.debug("leaking the terminal input handles: the writer never returned")
-        self._close_job()
 
     def join_reader(self, bound: float) -> bool:
         """Waits for the reader once every handle it could be blocked on is released.
@@ -860,6 +867,18 @@ class _SessionOwner:
         self.session = session
         self.stack = stack
         self.armed = True
+
+
+def _unreleased_session_error(context: str, handed_off: bool) -> TerminalEnvironmentError:
+    """One message for both hand-off sites, saying which of the two things happened."""
+    if handed_off:
+        return TerminalEnvironmentError(
+            f"The script's terminal session {context} and was handed to the background finalizer."
+        )
+    return TerminalEnvironmentError(
+        f"The script's terminal session {context}, and no finalizer thread could be started for it: "
+        "it was released as far as it safely could be."
+    )
 
 
 def _hand_off_to_finalizer(owner: _SessionOwner) -> bool:
@@ -1127,10 +1146,8 @@ class ConPtyProcess(TerminalProcess):
             owner.armed = False  # the commit
         except BaseException:
             if session.teardown(None):  # before any stack unwinding starts
-                self._transfer_to_finalizer(owner)
-                raise TerminalEnvironmentError(
-                    "The script's terminal session could not be released within its bound and was "
-                    "handed to the background finalizer."
+                raise _unreleased_session_error(
+                    "could not be released within its bound", self._transfer_to_finalizer(owner)
                 )
             raise
         finally:
@@ -1258,13 +1275,9 @@ class ConPtyProcess(TerminalProcess):
         if owner is None:
             return
         if owner.session.teardown(grace):
-            self._transfer_to_finalizer(owner)
-            raise TerminalEnvironmentError(
-                "The script's terminal session did not shut down within its bound and was handed to "
-                "the background finalizer."
-            )
+            raise _unreleased_session_error("did not shut down within its bound", self._transfer_to_finalizer(owner))
 
-    def _transfer_to_finalizer(self, owner: _SessionOwner) -> None:
+    def _transfer_to_finalizer(self, owner: _SessionOwner) -> bool:
         """Publishes the owner to the daemon finalizer, or keeps it here if none took it.
 
         Disarming comes first, because `finally` runs on this path too and must not unwind a
@@ -1275,12 +1288,13 @@ class ConPtyProcess(TerminalProcess):
         owner.armed = False
         if _hand_off_to_finalizer(owner):
             self._owner = None
-            return
+            return True
         # Nobody can finish this later, so release what is provably safe to release now and
         # keep the rest recorded on the session that stays reachable from this backend.
         owner.session.record_failure("no finalizer thread could be started for the terminal session")
         owner.session.release_abandoned()
         owner.stack.close()
+        return False
 
     def _check_cancelled(self) -> None:
         if self._stop_event.is_set():
