@@ -35,6 +35,7 @@ from render_machine import render_utils  # noqa: E402
 from render_machine._conpty import ConPtyProcess  # noqa: E402
 from render_machine._legacy_pipe import LegacyPipeProcess  # noqa: E402
 from render_machine.terminal_process import (  # noqa: E402
+    ENVIRONMENT_ERROR_EXIT_CODE,
     NO_PTY_ENV_VAR,
     InputDisposition,
     TerminalEnvironmentError,
@@ -663,6 +664,94 @@ def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypat
     assert wait_for(lambda: handle_count() <= before, timeout=30.0)
 
 
+def native_call_log(monkeypatch):
+    """One ordered log of the two native calls whose relative order is load-bearing."""
+    events = []
+    original_close_handle = kernel32.CloseHandle
+    original_close_pty = kernel32.ClosePseudoConsole
+
+    def close_handle(handle):
+        events.append(("CloseHandle", handle, threading.current_thread().name))
+        return original_close_handle(handle)
+
+    def close_pseudoconsole(handle):
+        events.append(("ClosePseudoConsole", handle, threading.current_thread().name))
+        original_close_pty(handle)
+
+    monkeypatch.setattr(kernel32, "CloseHandle", close_handle)
+    monkeypatch.setattr(kernel32, "ClosePseudoConsole", close_pseudoconsole)
+    return events
+
+
+def index_of(events, name, handle=None):
+    for position, (called, argument, _thread) in enumerate(events):
+        if called == name and (handle is None or argument == handle):
+            return position
+    return None
+
+
+def test_a_finalizer_that_runs_out_of_time_still_closes_the_job_first(monkeypatch, backend, tmp_path):
+    """The abandoned path is the one most likely to face a live process tree, and
+    `ClosePseudoConsole()` can block on this build — so kill-on-job-close must not be queued
+    behind it."""
+    script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
+    events = native_call_log(monkeypatch)
+    monkeypatch.setattr(_conpty._SessionBundle, "_await_job_empty", lambda self, bound: False)
+    monkeypatch.setattr(_conpty, "FINALIZER_DEADLINE_SECONDS", 0.2)
+    monkeypatch.setattr(_conpty, "FINALIZER_TICK_SECONDS", 0.05)
+
+    backend.spawn(command(script))
+    session = backend._owner.session
+    child = int(session.proc.pi.dwProcessId)
+    job = session.hJob
+    with pytest.raises(TerminalEnvironmentError):
+        backend.close()
+
+    assert wait_for(
+        lambda: not any(thread.name == "codeplain-conpty-finalizer" for thread in threading.enumerate()),
+        timeout=30.0,
+    )
+    job_closed = index_of(events, "CloseHandle", job)
+    pseudoconsole_closed = index_of(events, "ClosePseudoConsole")
+    assert job_closed is not None, "the abandoned session never released its job"
+    assert pseudoconsole_closed is not None
+    assert job_closed < pseudoconsole_closed
+    assert process_is_gone(child)  # kill-on-job-close, which is what closing the job buys
+
+
+def test_a_finalizer_that_cannot_start_leaves_the_session_owned_and_released(monkeypatch, backend, tmp_path):
+    """Nothing took the session, so the foreground keeps it and releases the natives itself
+    rather than dropping the only reference to a live job."""
+    script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
+    events = native_call_log(monkeypatch)
+    monkeypatch.setattr(_conpty._SessionBundle, "_await_job_empty", lambda self, bound: False)
+    original_start = threading.Thread.start
+
+    def refuse(self):
+        if self.name == "codeplain-conpty-finalizer":
+            raise RuntimeError("can't start new thread")
+        original_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+
+    backend.spawn(command(script))
+    session = backend._owner.session
+    child = int(session.proc.pi.dwProcessId)
+    job = session.hJob
+    started = time.monotonic()
+    with pytest.raises(TerminalEnvironmentError) as error:
+        backend.close()
+
+    assert time.monotonic() - started < TEARDOWN_BOUND
+    assert "no finalizer thread could be started" in str(error.value)
+    assert backend._owner is not None  # ownership retained rather than dropped
+    assert index_of(events, "CloseHandle", job) is not None
+    assert process_is_gone(child)
+    # The input handles are the documented exception: the writer never returned, so they are
+    # leaked rather than closed underneath a blocked write.
+    assert session.in_w.owned and session.writer_handle.owned
+
+
 # ------------------------------------------------------------------- marshaling
 
 
@@ -742,9 +831,24 @@ SILENT_READER = """
 """
 
 
+def writer_progress(backend):
+    """What the writer has consumed: the item under its cursor and the bytes still owed."""
+    queue = backend._writer.queue
+    current = queue.current()
+    position = None if current is None else (current.sequence, current.cursor)
+    return position, queue.pending_bytes()
+
+
 def test_a_saturated_input_channel_still_tears_down_within_the_bound(backend, tmp_path):
-    """The target never reads, so the writer ends up blocked inside a synchronous `WriteFile`
-    — the state the cancel loop and the bounded join exist for."""
+    """The target never reads, so the writer is expected to end up parked inside a synchronous
+    `WriteFile` — the state the cancel loop and the bounded join exist for.
+
+    Whether it truly parks is not this side's decision: the pseudoconsole drains the pipe into
+    its own input buffer, so on some builds every item lands and the writer stays idle. The
+    bounded-progress sample below distinguishes the two worlds, and each is asserted for what
+    it can prove — the parked one that the cancel path ran at all, both of them that teardown
+    stays inside its bound and the tree dies.
+    """
     script = write_program(tmp_path, "silent_reader", SILENT_READER)
     backend.spawn(command(script))
     assert wait_for_output(backend, "READY")
@@ -757,11 +861,19 @@ def test_a_saturated_input_channel_still_tears_down_within_the_bound(backend, tm
             break
         accepted += 1
 
+    first = writer_progress(backend)
+    time.sleep(0.5)
+    second = writer_progress(backend)
+    parked = first == second and first[0] is not None and first[1] > 0
+
     started = time.monotonic()
     backend.terminate_tree(grace=0.5)
     backend.close()
 
     assert accepted > 0
+    if parked:
+        # A writer that never moved could only be released by the cancel loop.
+        assert backend._writer.cancels > 0
     assert time.monotonic() - started < TEARDOWN_BOUND
     assert process_is_gone(child)
 
@@ -801,26 +913,42 @@ def test_a_client_that_cleared_processed_input_falls_through_to_forced_terminati
 
 
 TERMINAL_QUERY = """
+    import msvcrt
     import sys
+    import time
 
     sys.stdout.write("\\x1b[6n")  # device status report: a terminal is expected to answer
     sys.stdout.flush()
+
+    reply = ""
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not reply.endswith("R"):
+        if msvcrt.kbhit():
+            reply += msvcrt.getwch()
+        else:
+            time.sleep(0.01)
+
+    print("ANSWERED=%s" % reply.endswith("R"), flush=True)
     print("QUERIED", flush=True)
 """
 
 
-def test_a_target_that_queries_the_terminal_leaves_no_unanswered_obligation(backend, tmp_path):
-    """Either the pseudoconsole answers the query itself or the renderer's responder does.
-    What must never happen is an obligation this side registered and could not deliver."""
+def test_a_target_that_queries_the_terminal_receives_its_reply(backend, tmp_path):
+    """The target reads its own console input back, so this proves delivery rather than the
+    absence of a recorded failure. Which side answers — the pseudoconsole's own emulator or
+    the renderer's responder — is not asserted; that a querying target is not left waiting is.
+    """
     script = write_program(tmp_path, "queries", TERMINAL_QUERY)
 
     backend.spawn(command(script))
     exit_code = wait_for_exit(backend)
     backend.terminate_tree(grace=0.1)
     backend.close()
+    output = backend.normalized_output()
 
     assert exit_code == 0
-    assert "QUERIED" in backend.normalized_output()
+    assert "QUERIED" in output
+    assert "ANSWERED=True" in output
     assert backend.terminal_reply_failed is False, backend.terminal_reply_detail()
 
 
@@ -836,9 +964,11 @@ def write_powershell(tmp_path: Path, name: str, body: str) -> str:
     return str(path)
 
 
-def run_script(script: str, timeout: int):
+def run_script(script: str, timeout: int, stop_event=None):
     """One execution through the real renderer path, artifacts cleaned up afterwards."""
-    exit_code, output, artifact = render_utils.execute_script(script, [], SCRIPT_TYPE, timeout=timeout)
+    exit_code, output, artifact = render_utils.execute_script(
+        script, [], SCRIPT_TYPE, timeout=timeout, stop_event=stop_event
+    )
     if artifact is not None:
         for path in (artifact, artifact + render_utils.RAW_OUTPUT_SUFFIX):
             try:
@@ -905,3 +1035,52 @@ def test_a_script_that_reads_input_runs_to_the_timeout_and_says_why(tmp_path, na
     assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
     assert "no input driver was attached" in output.lower()
     assert "end-of-file" in output.lower()
+
+
+def test_a_cancelled_script_raises_instead_of_publishing_an_outcome(tmp_path):
+    """Cancellation while the script is blocked on a read it will never satisfy: the run
+    raises rather than waiting out the timeout it would otherwise reach."""
+    marker = tmp_path / "started.txt"
+    script = write_powershell(
+        tmp_path,
+        "cancelled_read",
+        f"""
+        New-Item -ItemType File -Path "{marker}" | Out-Null
+        Write-Output "READY"
+        $line = [Console]::In.ReadLine()
+        Write-Output "GOT $line"
+        """,
+    )
+    stop = threading.Event()
+    watcher = threading.Thread(target=lambda: stop.set() if wait_for(marker.exists, timeout=90.0) else None)
+    watcher.daemon = True
+    watcher.start()
+
+    started = time.monotonic()
+    with pytest.raises(RenderCancelledError):
+        run_script(script, timeout=180, stop_event=stop)
+
+    assert time.monotonic() - started < 90.0  # cancelled, not timed out
+    watcher.join(5.0)
+
+
+@pytest.mark.parametrize(
+    "symbol,result",
+    [
+        ("WaitForSingleObject", 0xFFFFFFFF),  # WAIT_FAILED
+        ("GetExitCodeProcess", 0),
+        ("QueryInformationJobObject", 0),
+        ("TerminateJobObject", 0),
+    ],
+)
+def test_a_native_call_failing_after_launch_is_an_environment_error(monkeypatch, tmp_path, symbol, result):
+    """The post-launch seams: a wait, an exit-code read, a job query or a job termination that
+    fails describes a run whose outcome nobody could observe, so it takes the 69 channel rather
+    than being reported as a timeout or a clean pass."""
+    script = write_powershell(tmp_path, "reports", REPORTING_SCRIPT)
+    monkeypatch.setattr(kernel32, symbol, lambda *arguments: result)
+
+    exit_code, output = run_script(script, timeout=90)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "could not be executed" in output
