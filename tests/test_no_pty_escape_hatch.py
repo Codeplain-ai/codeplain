@@ -13,6 +13,7 @@ import sys
 
 import pytest
 
+from render_machine._legacy_pipe import LegacyPipeProcess
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
     NO_PTY_ENV_VAR,
@@ -26,9 +27,12 @@ posix_only = pytest.mark.skipif(
     reason="These cases run POSIX shell and Python scripts directly.",
 )
 
-if sys.platform != "win32":
-    from render_machine._legacy_pipe import LegacyPipeProcess
-    from render_machine._posix_pty import PosixPtyProcess
+# The backend the platform selects when the hatch is closed. Both are reachable from every
+# platform's suite, because the hatch is what decides, not the platform.
+if sys.platform == "win32":
+    from render_machine._conpty import ConPtyProcess as DefaultBackend
+else:
+    from render_machine._posix_pty import PosixPtyProcess as DefaultBackend
 
 SCRIPT_TYPE = characterization.SCRIPT_TYPE
 
@@ -81,8 +85,8 @@ test_a_repainted_screen_yields_one_frame_and_no_escape_sequences = (
 )
 
 
-@posix_only
 def test_the_hatch_selects_the_pipe_backend(hatch_warnings):
+    """The hatch is consulted before the platform, so it holds on Windows as well."""
     process = create_terminal_process()
     try:
         assert isinstance(process, LegacyPipeProcess)
@@ -90,7 +94,6 @@ def test_the_hatch_selects_the_pipe_backend(hatch_warnings):
         process.close()
 
 
-@posix_only
 @pytest.mark.parametrize("value", ["", "0", "true", "yes", "11", " 1"])
 def test_only_the_value_one_selects_the_pipe_backend(monkeypatch, value):
     monkeypatch.setenv(NO_PTY_ENV_VAR, value)
@@ -98,12 +101,11 @@ def test_only_the_value_one_selects_the_pipe_backend(monkeypatch, value):
     assert pty_disabled_by_environment() is False
     process = create_terminal_process()
     try:
-        assert isinstance(process, PosixPtyProcess)
+        assert isinstance(process, DefaultBackend)
     finally:
         process.close()
 
 
-@posix_only
 def test_the_warning_names_the_variable_on_every_use(hatch_warnings):
     for _ in range(2):
         create_terminal_process().close()
@@ -114,7 +116,6 @@ def test_the_warning_names_the_variable_on_every_use(hatch_warnings):
         assert "isatty" in message
 
 
-@posix_only
 def test_no_warning_is_emitted_when_the_hatch_is_closed(monkeypatch, hatch_warnings):
     monkeypatch.delenv(NO_PTY_ENV_VAR)
 

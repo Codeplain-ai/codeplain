@@ -1,0 +1,607 @@
+"""The ConPTY backend on native Windows.
+
+Every case here allocates real pseudoconsoles, jobs, pipes and processes, so the whole
+module is Windows-only and each helper is responsible for leaving nothing behind. The
+fault-injection cases fail one native step at a time and assert what the rollback releases:
+no process, no thread, no handle, and — on the paths that reach it — no pseudoconsole
+closed on the foreground thread.
+
+The teardown-completes-within-a-bound assertions are only meaningful on a build in the
+range where `ClosePseudoConsole()` can block, which is why CI runs this module on a
+`windows-2022` image as well as on `windows-latest`.
+"""
+
+import ctypes
+import os
+import signal
+import sys
+import textwrap
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+if sys.platform != "win32":
+    # The module binds kernel32 at import time, so collection has to stop here rather than
+    # leaving the cases to a skip mark.
+    pytest.skip("The ConPTY backend is not built off Windows.", allow_module_level=True)
+
+from ctypes import wintypes  # noqa: E402
+
+from render_machine import _conpty  # noqa: E402
+from render_machine._conpty import ConPtyProcess  # noqa: E402
+from render_machine._legacy_pipe import LegacyPipeProcess  # noqa: E402
+from render_machine.terminal_process import (  # noqa: E402
+    NO_PTY_ENV_VAR,
+    InputDisposition,
+    TerminalEnvironmentError,
+    create_terminal_process,
+)
+
+# Generous relative to the operations they cover, so a failure means a hang rather than a
+# slow machine.
+SPAWN_TIMEOUT = 30.0
+WAIT_TIMEOUT = 30.0
+TEARDOWN_BOUND = 25.0
+POLL = 0.05
+
+SYNCHRONIZE = 0x00100000
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+WAIT_OBJECT_0 = 0
+
+# The backend's own binding, used only to assert its declarations and to observe the calls
+# it makes. Everything this module calls for its own purposes goes through a second binding,
+# so a test never adds a declaration production code then depends on.
+kernel32 = _conpty.kernel32
+
+probe = ctypes.WinDLL("kernel32", use_last_error=True)
+probe.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+probe.OpenProcess.restype = wintypes.HANDLE
+probe.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+probe.WaitForSingleObject.restype = wintypes.DWORD
+probe.CloseHandle.argtypes = [wintypes.HANDLE]
+probe.CloseHandle.restype = wintypes.BOOL
+probe.GetCurrentProcess.argtypes = []
+probe.GetCurrentProcess.restype = wintypes.HANDLE
+probe.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+probe.GetProcessHandleCount.restype = wintypes.BOOL
+
+
+def write_program(tmp_path: Path, name: str, source: str) -> str:
+    path = tmp_path / f"{name}.py"
+    path.write_text(textwrap.dedent(source), encoding="utf-8")
+    return str(path)
+
+
+def command(script: str, *args: str):
+    return [sys.executable, "-I", script, *args]
+
+
+def wait_for(predicate, timeout=WAIT_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(POLL)
+    return bool(predicate())
+
+
+def wait_for_output(process, needle, timeout=WAIT_TIMEOUT):
+    return wait_for(lambda: needle in process.normalized_output(), timeout)
+
+
+def wait_for_exit(process, timeout=WAIT_TIMEOUT):
+    assert wait_for(lambda: process.poll() is not None, timeout), "the script never exited"
+    return process.poll()
+
+
+def process_is_gone(pid: int, timeout=WAIT_TIMEOUT) -> bool:
+    handle = probe.OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return True  # already reaped, so there is nothing left to wait for
+    try:
+        return probe.WaitForSingleObject(handle, int(timeout * 1000)) == WAIT_OBJECT_0
+    finally:
+        probe.CloseHandle(handle)
+
+
+def handle_count() -> int:
+    count = wintypes.DWORD(0)
+    probe.GetProcessHandleCount(probe.GetCurrentProcess(), ctypes.byref(count))
+    return int(count.value)
+
+
+def live_backend_threads():
+    return [thread for thread in threading.enumerate() if thread.name.startswith("codeplain-conpty-")]
+
+
+@pytest.fixture
+def backend():
+    process = ConPtyProcess()
+    try:
+        yield process
+    finally:
+        try:
+            process.terminate_tree(grace=0.1)
+        except TerminalEnvironmentError:
+            pass
+        try:
+            process.close()
+        except TerminalEnvironmentError:
+            pass
+
+
+# The probe reports what a script sees, one short line at a time: the pseudoconsole wraps at
+# the configured width, so a single long line would come back folded.
+TERMINAL_PROBE = """
+    import ctypes
+    import os
+    import sys
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    mode = ctypes.c_uint(0)
+    console = kernel32.GetConsoleMode(kernel32.GetStdHandle(-11), ctypes.byref(mode))
+    in_job = ctypes.c_int(0)
+    kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
+
+    print("ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)))
+    print("CONSOLE=%s" % bool(console))
+    print("INJOB=%s" % bool(in_job.value))
+    print("TERM=%s" % os.environ.get("TERM"))
+    print("DONE")
+    sys.stdout.flush()
+"""
+
+
+# ------------------------------------------------------------------ declarations
+
+
+def test_every_handle_returning_call_is_declared_pointer_wide():
+    """ctypes converts a return value as c_int unless told otherwise, which truncates a
+    64-bit handle long before any ownership rule can help."""
+    pointer_width = ctypes.sizeof(ctypes.c_void_p)
+
+    for name in ("CreateJobObjectW", "OpenThread", "GetProcessHeap"):
+        assert ctypes.sizeof(getattr(kernel32, name).restype) == pointer_width, name
+    assert ctypes.sizeof(kernel32.HeapAlloc.restype) == pointer_width
+    assert ctypes.sizeof(_conpty.HANDLE) == pointer_width
+
+
+def test_the_void_calls_are_declared_as_returning_nothing():
+    assert kernel32.ClosePseudoConsole.restype is None
+    assert kernel32.DeleteProcThreadAttributeList.restype is None
+
+
+def test_the_pseudoconsole_calls_are_declared_as_signed_32_bit_results():
+    """HRESULT is the inverse of the BOOL convention every other call here uses."""
+    assert ctypes.sizeof(kernel32.CreatePseudoConsole.restype) == 4
+    assert kernel32.CreatePseudoConsole.restype(-1).value == -1
+
+
+def test_an_allocated_pointer_survives_the_declared_return_type():
+    heap = kernel32.GetProcessHeap()
+    buffer = kernel32.HeapAlloc(heap, 0, 4096)
+    try:
+        assert buffer is not None and buffer > 0
+        # A truncating declaration turns a pointer with high bits set into a negative int.
+        assert buffer == ctypes.c_void_p(buffer).value
+    finally:
+        assert kernel32.HeapFree(heap, 0, buffer)
+
+
+def test_a_failing_bool_call_reports_the_captured_last_error():
+    ok = probe.CloseHandle(wintypes.HANDLE(0))
+    error = ctypes.get_last_error()
+
+    assert not ok
+    assert str(error) in str(_conpty._win_error("Closing a handle", error))
+
+
+def test_a_failing_pseudoconsole_call_is_reported_as_its_hresult():
+    """An invalid input handle: the failure has to be detected as a nonzero HRESULT rather
+    than read from the last error, which these calls do not promise to set."""
+    slot = _conpty.HPCON()
+
+    with pytest.raises(TerminalEnvironmentError) as error:
+        _conpty._create_pseudoconsole(80, 25, -2, -2, ctypes.byref(slot))
+
+    assert "HRESULT" in str(error.value)
+
+
+def test_a_build_without_pseudoconsole_support_is_an_environment_error(monkeypatch):
+    monkeypatch.setattr(_conpty, "PSEUDOCONSOLE_AVAILABLE", False)
+
+    with pytest.raises(TerminalEnvironmentError) as error:
+        _conpty._require_pseudoconsole_support()
+
+    assert str(_conpty.MIN_CONPTY_BUILD) in str(error.value)
+    assert "fallback" in str(error.value)
+
+
+# --------------------------------------------------------------- backend selection
+
+
+def test_windows_selects_the_conpty_backend(monkeypatch):
+    monkeypatch.delenv(NO_PTY_ENV_VAR, raising=False)
+
+    process = create_terminal_process()
+    try:
+        assert isinstance(process, ConPtyProcess)
+    finally:
+        process.close()
+
+
+def test_the_escape_hatch_still_selects_the_pipe_backend_on_windows(monkeypatch):
+    """The hatch is cross-platform: it is read before the platform branch, not instead of it."""
+    monkeypatch.setenv(NO_PTY_ENV_VAR, "1")
+
+    process = create_terminal_process()
+    try:
+        assert isinstance(process, LegacyPipeProcess)
+    finally:
+        process.close()
+
+
+# ------------------------------------------------------------------- the lifecycle
+
+
+def test_a_script_runs_on_a_real_console_inside_the_job(backend, tmp_path):
+    script = write_program(tmp_path, "terminal_probe", TERMINAL_PROBE)
+
+    backend.spawn(command(script))
+    exit_code = wait_for_exit(backend)
+    backend.terminate_tree(grace=0.1)
+    backend.close()
+    output = backend.normalized_output()
+
+    assert exit_code == 0
+    assert "ISATTY=True" in output
+    assert "CONSOLE=True" in output
+    assert "INJOB=True" in output
+    assert "TERM=xterm-256color" in output
+
+
+def test_the_exit_code_is_reported_verbatim(backend, tmp_path):
+    script = write_program(tmp_path, "exit_seven", "import sys\nsys.exit(7)\n")
+
+    backend.spawn(command(script))
+
+    assert wait_for_exit(backend) == 7
+
+
+def test_input_written_through_the_stored_session_reaches_the_script(backend, tmp_path):
+    """The one field whose absence only shows up when everything else went right."""
+    script = write_program(
+        tmp_path,
+        "echo_line",
+        """
+        import sys
+
+        print("READY", flush=True)
+        line = sys.stdin.readline().strip()
+        print("GOT[%s]" % line, flush=True)
+        """,
+    )
+
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "READY")
+    result = backend.write_input(b"hello\r")
+
+    assert result.disposition is InputDisposition.ACCEPTED
+    assert wait_for_output(backend, "GOT[hello]")
+    assert wait_for_exit(backend) == 0
+
+
+def test_the_script_is_a_member_of_the_sessions_job(backend, tmp_path):
+    """Membership comes from the attribute list at creation, so there is no window in which
+    the process exists outside the job."""
+    script = write_program(tmp_path, "waits", "print('READY', flush=True)\nimport time\ntime.sleep(120)\n")
+
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "READY")
+    session = backend._owner.session
+    member = wintypes.BOOL(0)
+
+    assert kernel32.IsProcessInJob(session.proc.process_handle(), session.hJob, ctypes.byref(member))
+    assert member.value
+
+
+def test_a_descendant_is_terminated_with_the_script(backend, tmp_path):
+    script = write_program(
+        tmp_path,
+        "spawns_a_child",
+        f"""
+        import subprocess
+        import sys
+        import time
+
+        child = subprocess.Popen([r"{sys.executable}", "-c", "import time; time.sleep(120)"])
+        print("CHILD=%d" % child.pid, flush=True)
+        time.sleep(120)
+        """,
+    )
+
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "CHILD=")
+    line = [part for part in backend.normalized_output().split() if part.startswith("CHILD=")][0]
+    descendant = int(line.split("=", 1)[1])
+
+    started = time.monotonic()
+    backend.terminate_tree(grace=0.2)
+    backend.close()
+
+    assert time.monotonic() - started < TEARDOWN_BOUND
+    assert process_is_gone(descendant)
+
+
+def test_teardown_completes_within_its_bound_for_a_script_that_ignores_everything(backend, tmp_path):
+    """The failure mode this guards is a hang, not an exception: `ClosePseudoConsole()`
+    blocks on pre-24H2 builds unless the output pipe is drained or closed."""
+    script = write_program(
+        tmp_path,
+        "ignores_signals",
+        """
+        import signal
+        import sys
+        import time
+
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        print("READY", flush=True)
+        while True:
+            print("noise" * 200, flush=True)
+            time.sleep(0.01)
+        """,
+    )
+
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "READY")
+
+    started = time.monotonic()
+    backend.terminate_tree(grace=0.5)
+    backend.close()
+
+    assert time.monotonic() - started < TEARDOWN_BOUND
+
+
+def test_the_graceful_signal_reaches_a_registered_handler_before_the_grace_expires(backend, tmp_path):
+    script = write_program(
+        tmp_path,
+        "handles_ctrl_c",
+        """
+        import signal
+        import sys
+        import time
+
+
+        def handler(signum, frame):
+            print("HANDLED", flush=True)
+            sys.exit(42)
+
+
+        signal.signal(signal.SIGINT, handler)
+        print("READY", flush=True)
+        time.sleep(120)
+        """,
+    )
+
+    backend.spawn(command(script))
+    assert wait_for_output(backend, "READY")
+
+    backend.terminate_tree(grace=10.0)
+
+    assert wait_for_output(backend, "HANDLED", timeout=5.0)
+    assert backend.poll() == 42  # its own exit status, not the job's termination code
+
+
+def test_the_renderers_own_console_is_untouched_by_the_graceful_signal(backend, tmp_path):
+    """The Windows analogue of signalling our own process group, and the one catastrophic
+    failure: the control byte goes into the pseudoconsole, never through
+    `GenerateConsoleCtrlEvent`."""
+    script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
+    interrupted = threading.Event()
+    previous = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, lambda *_: interrupted.set())
+    try:
+        backend.spawn(command(script))
+        backend.terminate_tree(grace=0.5)
+        backend.close()
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+    assert not interrupted.is_set()
+
+
+# --------------------------------------------------------------- fault injection
+
+
+def failing(name):
+    def raiser(*args, **kwargs):
+        raise TerminalEnvironmentError(f"{name} failed by injection")
+
+    return raiser
+
+
+def failing_on_call(monkeypatch, name, call_index):
+    """Fails one specific call of a step that runs more than once."""
+    original = getattr(_conpty, name)
+    calls = {"count": 0}
+
+    def wrapper(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == call_index:
+            raise TerminalEnvironmentError(f"{name} call {call_index} failed by injection")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_conpty, name, wrapper)
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "_create_job",
+        "_set_kill_on_job_close",
+        "_create_pseudoconsole",
+        "_initialize_attribute_list",
+        "_create_process",
+        "_open_thread_handle",
+    ],
+)
+def test_a_failed_step_leaves_no_process_thread_or_handle_behind(monkeypatch, tmp_path, step):
+    script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
+    monkeypatch.setattr(_conpty, step, failing(step))
+    before = handle_count()
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert "unreachable" not in process.normalized_output()
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+    # Slack for handles the runtime opens for unrelated reasons between the two readings.
+    assert wait_for(lambda: handle_count() <= before + 2, timeout=10.0)
+
+
+@pytest.mark.parametrize("call_index", [1, 2])
+def test_a_failed_pipe_leaves_nothing_behind(monkeypatch, tmp_path, call_index):
+    """Both `CreatePipe` calls are separate failure sites; the second is the one a coarser
+    cleanup scope mishandles while the first still looks correct."""
+    script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
+    failing_on_call(monkeypatch, "_create_pipe", call_index)
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+
+
+@pytest.mark.parametrize("call_index", [1, 2])
+def test_a_failed_attribute_update_leaves_nothing_behind(monkeypatch, tmp_path, call_index):
+    script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
+    failing_on_call(monkeypatch, "_update_attribute", call_index)
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+
+
+def test_a_reader_that_cannot_start_fails_before_there_is_anything_to_roll_back(monkeypatch, tmp_path):
+    script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
+    original = threading.Thread.start
+
+    def refuse(self):
+        if self.name == "codeplain-conpty-reader":
+            raise RuntimeError("can't start new thread")
+        original(self)
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    process = ConPtyProcess()
+
+    with pytest.raises(RuntimeError):
+        process.spawn(command(script))
+    process.close()
+
+    assert not live_backend_threads()
+
+
+def test_a_reader_that_dies_while_the_process_is_being_created_still_unwinds(monkeypatch, tmp_path):
+    """The widest window in the sequence: process creation is its slowest step."""
+    script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
+    process = ConPtyProcess()
+    original = _conpty._create_process
+
+    def create_then_fail_the_reader(*args, **kwargs):
+        original(*args, **kwargs)
+        process.reader_exc = OSError("the reader died during creation")
+        process.reader_failed.set()
+
+    monkeypatch.setattr(_conpty, "_create_process", create_then_fail_the_reader)
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+
+
+def test_a_zero_return_from_create_process_keeps_its_garbage_fields_unclosed(monkeypatch, tmp_path):
+    """`CreateProcessW` writes nothing meaningful on failure, so the fields it leaves behind
+    must never be treated as handles."""
+    script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
+    sentinel = 0x0BADF00D
+
+    def fail_with_sentinels(command_line, directory, environment, attrs, proc):
+        proc.pi.hProcess = sentinel
+        proc.pi.hThread = sentinel
+        raise _conpty._win_error("Starting the script", 2)
+
+    monkeypatch.setattr(_conpty, "_create_process", fail_with_sentinels)
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(command(script))
+    process.close()
+
+    assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
+
+
+def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypatch, backend, tmp_path):
+    """The foreground returns promptly, reports the failure on the environment channel, and
+    closes neither the pseudoconsole nor the stack itself."""
+    script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
+    closed_on = []
+    original_close = kernel32.ClosePseudoConsole
+
+    def record(handle):
+        closed_on.append(threading.current_thread().name)
+        original_close(handle)
+
+    monkeypatch.setattr(kernel32, "ClosePseudoConsole", record)
+    monkeypatch.setattr(_conpty._SessionBundle, "_await_job_empty", lambda self, bound: False)
+
+    backend.spawn(command(script))
+    started = time.monotonic()
+    with pytest.raises(TerminalEnvironmentError) as error:
+        backend.close()
+
+    assert time.monotonic() - started < TEARDOWN_BOUND
+    assert "finalizer" in str(error.value)
+    assert threading.current_thread().name not in closed_on
+    assert wait_for(
+        lambda: any(thread.name == "codeplain-conpty-finalizer" for thread in threading.enumerate()),
+        timeout=5.0,
+    )
+
+
+# ------------------------------------------------------------------- marshaling
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"command": [sys.executable, "-c", "print('x')\x00"]},
+        {"cwd": "C:\\builds\x00"},
+        {"env": {"NAME\x00": "value"}},
+        {"env": {"NAME": "value\x00"}},
+        {"env": {"NA=ME": "value"}},
+        {"env": {"": "value"}},
+    ],
+)
+def test_an_input_windows_cannot_carry_is_refused_before_any_process_is_created(kwargs, tmp_path):
+    marker = tmp_path / "ran.txt"
+    argv = kwargs.pop("command", [sys.executable, "-c", f"open(r'{marker}', 'w').close()"])
+    if "env" in kwargs:
+        kwargs["env"] = dict(os.environ, **kwargs["env"])
+    process = ConPtyProcess()
+
+    with pytest.raises(TerminalEnvironmentError):
+        process.spawn(argv, **kwargs)
+    process.close()
+
+    assert not marker.exists()  # asserted by observation, not only by the exception
