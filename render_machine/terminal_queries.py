@@ -34,7 +34,7 @@ import functools
 import threading
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set
 
 from render_machine.terminal_process import InputDisposition
 
@@ -101,13 +101,12 @@ class TerminalQueryResponder:
     input channel — starts quiesced, so a printed escape query creates no obligation.
     """
 
-    def __init__(self, admit: Optional[AdmitReply] = None, active: bool = True) -> None:
+    def __init__(self, admit: Optional[AdmitReply] = None) -> None:
         self._lock = threading.RLock()
         self._admit = admit
-        self._state = ResponderState.ACTIVE if active and admit is not None else ResponderState.QUIESCED
+        self._state = ResponderState.ACTIVE if admit is not None else ResponderState.QUIESCED
         self._outstanding: Set[_Obligation] = set()
         self._failures: List[TerminalReplyFailure] = []
-        self._recorded_kinds: Set[Tuple[str, str]] = set()
         self.admitted = 0
         self.render_only = 0
         self.failures_recorded = 0
@@ -175,9 +174,8 @@ class TerminalQueryResponder:
         """Counts every failure; retains one record per distinct kind and reason, capped."""
         self.failures_recorded += 1
         if len(self._failures) >= MAX_TRACKED_FAILURES:
-            return  # the counter carries the rest, so neither list nor index can grow
-        key = (kind, reason)
-        if key in self._recorded_kinds:
+            return  # the counter carries the rest, so the list cannot grow
+        failure = TerminalReplyFailure(kind, reason)
+        if failure in self._failures:  # the cap keeps this scan bounded
             return
-        self._recorded_kinds.add(key)
-        self._failures.append(TerminalReplyFailure(kind, reason))
+        self._failures.append(failure)

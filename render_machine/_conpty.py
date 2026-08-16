@@ -288,7 +288,6 @@ def _declare_pseudoconsole_api() -> bool:
     if not hasattr(kernel32, "CreatePseudoConsole"):
         return False
     _declare("CreatePseudoConsole", [COORD, HANDLE, HANDLE, DWORD, PHPCON], ctypes.c_long)
-    _declare("ResizePseudoConsole", [HPCON, COORD], ctypes.c_long)
     _declare("ClosePseudoConsole", [HPCON], None)
     return True
 
@@ -903,6 +902,9 @@ class _SessionBundle:
         self.writer_handle.close_if_owned()
         if not self.reader_alive():  # kept while a parked read may still need cancelling
             self.reader_handle.close_if_owned()
+        # Belt and braces: the ordered teardown closed both of these earlier, and each
+        # takes what it releases, so this is a no-op there and a release on any path that
+        # reaches here without having got that far.
         self._close_job()
         self.proc.close_all()
 
@@ -1050,7 +1052,6 @@ class ConPtyProcess(TerminalProcess):
             raise RuntimeError("ConPtyProcess instances are single-use")
         self._spawned = True
         self._stop_event = stop_event if stop_event is not None else threading.Event()
-        self._input_driver = input_driver
         self._check_cancelled()
         _require_pseudoconsole_support()
         columns, rows = terminal_size

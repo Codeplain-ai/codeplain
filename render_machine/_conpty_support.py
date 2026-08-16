@@ -332,10 +332,6 @@ class InputQueue:
         with self._condition:
             self._accepting = False
 
-    def accepting(self) -> bool:
-        with self._condition:
-            return self._accepting
-
     def has_pending(self) -> bool:
         with self._condition:
             return self._current is not None or bool(self._control) or bool(self._data)
@@ -659,8 +655,3 @@ class InputWriter:
     def _acknowledge_preemption(self, at_least: int = 0) -> None:
         with self._lock:
             self._preempted_generation = max(self._preempted_generation, self._requested_generation, at_least)
-
-    @property
-    def acknowledged_generation(self) -> int:
-        with self._lock:
-            return self._preempted_generation
