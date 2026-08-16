@@ -1194,6 +1194,9 @@ def test_an_exception_mid_grace_still_escalates(tmp_path):
             raise KeyboardInterrupt()
 
         process._grace_tick = interrupting_tick
+        # The subject is exception propagation, not liveness: pin the probe so the
+        # grace loop cannot break before the tick fires on a fast tree.
+        process._group_spent = lambda pgid: False
         with pytest.raises(KeyboardInterrupt):
             process.terminate_tree(grace=1.0)
     finally:
@@ -1223,6 +1226,7 @@ def test_a_reader_failure_during_teardown_still_escalates(tmp_path):
             real_tick()
 
         process._grace_tick = failing_tick
+        process._group_spent = lambda pgid: False  # the fault must get its tick
         process.terminate_tree(grace=0.5)
     finally:
         process.close()
