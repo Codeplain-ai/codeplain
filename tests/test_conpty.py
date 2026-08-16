@@ -65,10 +65,6 @@ probe.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 probe.WaitForSingleObject.restype = wintypes.DWORD
 probe.CloseHandle.argtypes = [wintypes.HANDLE]
 probe.CloseHandle.restype = wintypes.BOOL
-probe.GetCurrentProcess.argtypes = []
-probe.GetCurrentProcess.restype = wintypes.HANDLE
-probe.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-probe.GetProcessHandleCount.restype = wintypes.BOOL
 
 
 def write_program(tmp_path: Path, name: str, source: str) -> str:
@@ -91,7 +87,9 @@ def wait_for(predicate, timeout=WAIT_TIMEOUT):
 
 
 def wait_for_output(process, needle, timeout=WAIT_TIMEOUT):
-    return wait_for(lambda: needle in process.normalized_output(), timeout)
+    if wait_for(lambda: needle in process.normalized_output(), timeout):
+        return True
+    raise AssertionError(f"{needle!r} never reached the transcript, which held {process.normalized_output()!r}")
 
 
 def wait_for_exit(process, timeout=WAIT_TIMEOUT):
@@ -109,14 +107,114 @@ def process_is_gone(pid: int, timeout=WAIT_TIMEOUT) -> bool:
         probe.CloseHandle(handle)
 
 
-def handle_count() -> int:
-    count = wintypes.DWORD(0)
-    probe.GetProcessHandleCount(probe.GetCurrentProcess(), ctypes.byref(count))
-    return int(count.value)
-
-
 def live_backend_threads():
     return [thread for thread in threading.enumerate() if thread.name.startswith("codeplain-conpty-")]
+
+
+class _HandleLedger:
+    """Every handle the backend opened through kernel32, minus the ones it closed again."""
+
+    def __init__(self):
+        self.open = {}
+
+    def opened(self, handle, description):
+        if handle:
+            self.open[int(handle)] = description
+
+    def closed(self, handle):
+        if handle:
+            self.open.pop(int(handle), None)
+
+    def outstanding(self):
+        return dict(self.open)
+
+
+@pytest.fixture
+def handle_ledger(monkeypatch):
+    """A ledger of the backend's own handles rather than GetProcessHandleCount().
+
+    A process-wide count is not a leak detector here: CPython allocates a kernel semaphore
+    per lock object, so the count moves for reasons that have nothing to do with this
+    backend, and waiting for it to settle waits on the garbage collector.
+    """
+    ledger = _HandleLedger()
+    originals = {
+        name: getattr(kernel32, name)
+        for name in (
+            "CreatePipe",
+            "CreateJobObjectW",
+            "OpenThread",
+            "CreateProcessW",
+            "CreatePseudoConsole",
+            "CloseHandle",
+            "ClosePseudoConsole",
+        )
+    }
+
+    def create_pipe(read_slot, write_slot, attributes, size):
+        ok = originals["CreatePipe"](read_slot, write_slot, attributes, size)
+        if ok:
+            ledger.opened(read_slot._obj.value, "pipe read end")
+            ledger.opened(write_slot._obj.value, "pipe write end")
+        return ok
+
+    def create_job(attributes, name):
+        handle = originals["CreateJobObjectW"](attributes, name)
+        ledger.opened(handle, "job object")
+        return handle
+
+    def open_thread(access, inherit, thread_id):
+        handle = originals["OpenThread"](access, inherit, thread_id)
+        ledger.opened(handle, "thread handle")
+        return handle
+
+    def create_process(*arguments):
+        ok = originals["CreateProcessW"](*arguments)
+        if ok:
+            information = arguments[-1]._obj
+            ledger.opened(information.hProcess, "process handle")
+            ledger.opened(information.hThread, "thread handle of the process")
+        return ok
+
+    def create_pseudoconsole(size, input_handle, output_handle, flags, slot):
+        hresult = originals["CreatePseudoConsole"](size, input_handle, output_handle, flags, slot)
+        if hresult == 0:
+            ledger.opened(slot._obj.value, "pseudoconsole")
+        return hresult
+
+    def close_handle(handle):
+        ledger.closed(handle if isinstance(handle, int) else handle.value)
+        return originals["CloseHandle"](handle)
+
+    def close_pseudoconsole(handle):
+        ledger.closed(handle if isinstance(handle, int) else handle.value)
+        originals["ClosePseudoConsole"](handle)
+
+    for name, replacement in (
+        ("CreatePipe", create_pipe),
+        ("CreateJobObjectW", create_job),
+        ("OpenThread", open_thread),
+        ("CreateProcessW", create_process),
+        ("CreatePseudoConsole", create_pseudoconsole),
+        ("CloseHandle", close_handle),
+        ("ClosePseudoConsole", close_pseudoconsole),
+    ):
+        monkeypatch.setattr(kernel32, name, replacement)
+    return ledger
+
+
+@pytest.fixture(autouse=True)
+def no_backend_threads_outlive_the_test():
+    """Fails the test that leaked a pump rather than the one that runs after it.
+
+    A reader or writer left running owns handles and keeps appending to a transcript nobody
+    reads, and every later assertion about threads or handles then measures the leak instead
+    of its own subject.
+    """
+    yield
+    assert wait_for(
+        lambda: not live_backend_threads(), timeout=20.0
+    ), f"backend threads outlived the test: {[thread.name for thread in live_backend_threads()]}"
 
 
 @pytest.fixture
@@ -142,17 +240,37 @@ TERMINAL_PROBE = """
     import os
     import sys
 
+    # Declared: an undeclared call returns c_int, which truncates a handle and reports a
+    # false negative for both questions below.
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetStdHandle.argtypes = [ctypes.c_uint]
+    kernel32.GetStdHandle.restype = ctypes.c_void_p
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
+    kernel32.GetConsoleMode.restype = ctypes.c_int
+    kernel32.IsProcessInJob.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+    kernel32.IsProcessInJob.restype = ctypes.c_int
+
     mode = ctypes.c_uint(0)
-    console = kernel32.GetConsoleMode(kernel32.GetStdHandle(-11), ctypes.byref(mode))
+    console = kernel32.GetConsoleMode(kernel32.GetStdHandle(0xFFFFFFF5), ctypes.byref(mode))
     in_job = ctypes.c_int(0)
     kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
 
-    print("ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)))
-    print("CONSOLE=%s" % bool(console))
-    print("INJOB=%s" % bool(in_job.value))
-    print("TERM=%s" % os.environ.get("TERM"))
-    print("DONE")
+    report = [
+        "ISATTY=%s" % (os.isatty(0) and os.isatty(1) and os.isatty(2)),
+        "CONSOLE=%s" % bool(console),
+        "INJOB=%s" % bool(in_job.value),
+        "TERM=%s" % os.environ.get("TERM"),
+        "DONE",
+    ]
+    # Written as well as printed: if the target's standard handles are not the terminal's,
+    # its own account of them is the only evidence that survives.
+    with open(sys.argv[1], "w", encoding="utf-8") as handle:
+        handle.write("\n".join(report))
+
+    for line in report:
+        print(line)
     sys.stdout.flush()
 """
 
@@ -202,12 +320,14 @@ def test_a_failing_bool_call_reports_the_captured_last_error():
 
 
 def test_a_failing_pseudoconsole_call_is_reported_as_its_hresult():
-    """An invalid input handle: the failure has to be detected as a nonzero HRESULT rather
-    than read from the last error, which these calls do not promise to set."""
+    """A zero-sized console is rejected outright, where invalid handles are not: Windows
+    Server 2022 accepts handles it will only fail on later. The failure has to be detected as
+    a nonzero HRESULT rather than read from the last error, which these calls do not promise
+    to set."""
     slot = _conpty.HPCON()
 
     with pytest.raises(TerminalEnvironmentError) as error:
-        _conpty._create_pseudoconsole(80, 25, -2, -2, ctypes.byref(slot))
+        _conpty._create_pseudoconsole(0, 0, -1, -1, ctypes.byref(slot))
 
     assert "HRESULT" in str(error.value)
 
@@ -251,15 +371,17 @@ def test_the_escape_hatch_still_selects_the_pipe_backend_on_windows(monkeypatch)
 
 def test_a_script_runs_on_a_real_console_inside_the_job(backend, tmp_path):
     script = write_program(tmp_path, "terminal_probe", TERMINAL_PROBE)
+    report_path = tmp_path / "probe.txt"
 
-    backend.spawn(command(script))
+    backend.spawn(command(script, str(report_path)))
     exit_code = wait_for_exit(backend)
     backend.terminate_tree(grace=0.1)
     backend.close()
     output = backend.normalized_output()
+    report = report_path.read_text(encoding="utf-8") if report_path.exists() else "(no report was written)"
 
     assert exit_code == 0
-    assert "ISATTY=True" in output
+    assert "ISATTY=True" in output, f"transcript={output!r}; the target reported:\n{report}"
     assert "CONSOLE=True" in output
     assert "INJOB=True" in output
     assert "TERM=xterm-256color" in output
@@ -465,10 +587,9 @@ def failing_on_call(monkeypatch, name, call_index):
         "_open_thread_handle",
     ],
 )
-def test_a_failed_step_leaves_no_process_thread_or_handle_behind(monkeypatch, tmp_path, step):
+def test_a_failed_step_leaves_no_process_thread_or_handle_behind(monkeypatch, handle_ledger, tmp_path, step):
     script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
     monkeypatch.setattr(_conpty, step, failing(step))
-    before = handle_count()
     process = ConPtyProcess()
 
     with pytest.raises(TerminalEnvironmentError):
@@ -477,17 +598,18 @@ def test_a_failed_step_leaves_no_process_thread_or_handle_behind(monkeypatch, tm
 
     assert "unreachable" not in process.normalized_output()
     assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
-    assert wait_for(lambda: handle_count() <= before, timeout=10.0)
+    assert wait_for(lambda: not handle_ledger.outstanding(), timeout=10.0), handle_ledger.outstanding()
 
 
 @pytest.mark.parametrize(
     "step",
     ["_create_job", "_create_pseudoconsole", "_initialize_attribute_list"],
 )
-def test_a_failure_after_a_real_native_step_releases_what_that_step_allocated(monkeypatch, tmp_path, step):
+def test_a_failure_after_a_real_native_step_releases_what_that_step_allocated(
+    monkeypatch, handle_ledger, tmp_path, step
+):
     script = write_program(tmp_path, "never_runs", "print('unreachable')\n")
     failing_after(monkeypatch, step)
-    before = handle_count()
     process = ConPtyProcess()
 
     with pytest.raises(TerminalEnvironmentError):
@@ -495,10 +617,10 @@ def test_a_failure_after_a_real_native_step_releases_what_that_step_allocated(mo
     process.close()
 
     assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
-    assert wait_for(lambda: handle_count() <= before, timeout=10.0)
+    assert wait_for(lambda: not handle_ledger.outstanding(), timeout=10.0), handle_ledger.outstanding()
 
 
-def test_a_failure_after_create_process_leaves_no_surviving_child(monkeypatch, tmp_path):
+def test_a_failure_after_create_process_leaves_no_surviving_child(monkeypatch, handle_ledger, tmp_path):
     """The widest rollback: the child already exists, and the job it was created inside is
     what takes it down."""
     script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
@@ -511,7 +633,6 @@ def test_a_failure_after_create_process_leaves_no_surviving_child(monkeypatch, t
         raise TerminalEnvironmentError("injected after the child was created")
 
     monkeypatch.setattr(_conpty, "_create_process", create_then_fail)
-    before = handle_count()
     process = ConPtyProcess()
 
     with pytest.raises(TerminalEnvironmentError):
@@ -521,7 +642,7 @@ def test_a_failure_after_create_process_leaves_no_surviving_child(monkeypatch, t
     assert created, "the injection never ran the real call"
     assert process_is_gone(created[0])
     assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
-    assert wait_for(lambda: handle_count() <= before, timeout=10.0)
+    assert wait_for(lambda: not handle_ledger.outstanding(), timeout=10.0), handle_ledger.outstanding()
 
 
 @pytest.mark.parametrize("call_index", [1, 2])
@@ -621,7 +742,7 @@ def test_a_zero_return_from_create_process_keeps_its_garbage_fields_unclosed(mon
     assert wait_for(lambda: not live_backend_threads(), timeout=10.0)
 
 
-def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypatch, backend, tmp_path):
+def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypatch, handle_ledger, backend, tmp_path):
     """The foreground returns promptly and reports the failure on the environment channel;
     the finalizer, not the foreground, closes the pseudoconsole and releases the session."""
     script = write_program(tmp_path, "waits", "import time\ntime.sleep(120)\n")
@@ -643,7 +764,6 @@ def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypat
     monkeypatch.setattr(_conpty._SessionBundle, "_await_job_empty", expire_once)
     monkeypatch.setattr(_conpty, "FINALIZER_TICK_SECONDS", 0.05)
 
-    before = handle_count()
     backend.spawn(command(script))
     child = int(backend._owner.session.proc.pi.dwProcessId)
     started = time.monotonic()
@@ -661,7 +781,7 @@ def test_a_teardown_that_outlives_its_bound_is_handed_to_the_finalizer(monkeypat
         timeout=30.0,
     )
     assert process_is_gone(child)
-    assert wait_for(lambda: handle_count() <= before, timeout=30.0)
+    assert wait_for(lambda: not handle_ledger.outstanding(), timeout=30.0), handle_ledger.outstanding()
 
 
 def native_call_log(monkeypatch):
