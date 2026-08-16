@@ -1,9 +1,9 @@
 """Legacy pipe backend for `TerminalProcess`.
 
 Wraps the `Popen(stdout=PIPE, stderr=STDOUT, start_new_session=True)` path Codeplain
-shipped before the PTY, behind the same interface. It survives for two reasons: it is the
-`CODEPLAIN_NO_PTY` escape hatch, and it is the Windows interim until the ConPTY backend
-lands.
+shipped before the PTY, behind the same interface. It survives for one reason: it is the
+`CODEPLAIN_NO_PTY` escape hatch, on POSIX and on Windows alike. Neither platform selects
+it automatically.
 
 The child's stdin is `DEVNULL`, permanently and on every platform. A child without a
 terminal of its own would otherwise inherit Codeplain's fd 0, and `start_new_session=True`

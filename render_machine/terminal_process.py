@@ -2,7 +2,7 @@
 
 A `TerminalProcess` runs one command with a terminal behind all three of its standard
 descriptors and owns every handle that arrangement needs. The POSIX implementation lives
-in `render_machine._posix_pty`; the Windows ConPTY implementation will live in
+in `render_machine._posix_pty` and the Windows ConPTY implementation in
 `render_machine._conpty`. Only this module is imported by callers.
 """
 
@@ -38,6 +38,10 @@ DEFAULT_TERM = "xterm-256color"
 # Every duration below is a monotonic budget, never wall time.
 HANDSHAKE_TIMEOUT_SECONDS = 20.0
 SIGTERM_GRACE_PERIOD_SECONDS = 3.0
+# Bounds the delivery of a graceful control byte, which on Windows travels through a
+# synchronous pipe a wedged target may never read. It is never the grace period itself:
+# queue delay must not silently consume the handler's time.
+CONTROL_DELIVERY_DEADLINE_SECONDS = 2.0
 GRACE_TICK_SECONDS = 0.05
 REAP_DEADLINE_SECONDS = 5.0
 DRAIN_DEADLINE_SECONDS = 2.0
@@ -162,6 +166,17 @@ class TerminalProcess:
     def close(self) -> None:
         raise NotImplementedError
 
+    def infrastructure_failure(self) -> Optional[str]:
+        """Detail of a failed backend pump, or None while they are all healthy.
+
+        The output reader is the one pump every backend has. A backend that runs more of
+        them — the Windows input writer — reports them here too, so the execution loop has
+        one question to ask rather than one per platform.
+        """
+        if self.reader_failed.is_set():
+            return f"the terminal output reader failed: {self.reader_exc!r}"
+        return None
+
     def _publish_reader_stall(self) -> None:
         """Publishes a reader that close() could not join, and refuses to return quietly.
 
@@ -216,11 +231,9 @@ def create_terminal_process() -> TerminalProcess:
         return LegacyPipeProcess()
 
     if sys.platform == "win32":
-        # Interim: Windows has no PTY backend yet, so it stays on the documented legacy
-        # pipe path until the ConPTY backend lands (ENG-34, Phase 6).
-        from render_machine._legacy_pipe import LegacyPipeProcess
+        from render_machine._conpty import ConPtyProcess
 
-        return LegacyPipeProcess()
+        return ConPtyProcess()
 
     from render_machine._posix_pty import PosixPtyProcess
 
