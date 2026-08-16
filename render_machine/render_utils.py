@@ -42,6 +42,30 @@ _CONDITION_RANK = {
     CONDITION_INFRASTRUCTURE: 3,
 }
 
+# How many script executions currently own a terminal backend. A caller waiting for the
+# render thread to stop derives its wait from this: the full teardown budget applies only
+# while a backend still owns processes and handles.
+_active_scripts_lock = threading.Lock()
+_active_script_count = 0
+
+
+def terminal_script_active() -> bool:
+    """True while any execute_script() call holds a live terminal backend."""
+    with _active_scripts_lock:
+        return _active_script_count > 0
+
+
+def _script_started() -> None:
+    global _active_script_count
+    with _active_scripts_lock:
+        _active_script_count += 1
+
+
+def _script_finished() -> None:
+    global _active_script_count
+    with _active_scripts_lock:
+        _active_script_count -= 1
+
 
 def revert_changes_for_frid(render_context):
     if render_context.frid_context.frid is not None:
@@ -219,18 +243,23 @@ def _run_script(cmd: list[str], script_timeout: float, stop_event: Optional[thre
         _record_backend_failure(outcome, exc, "while being created")
     if process is None:
         return execution
+    _script_started()
     try:
-        process.spawn(cmd, stop_event=stop_event, input_driver=INPUT_DRIVER)
-        _await_target(process, script_timeout, stop_event, outcome)
-    except RenderCancelledError:
-        outcome.cancelled()
-    except Exception as exc:
-        # Recorded here rather than around the teardown, so the failure that ended the run
-        # is the one that explains the outcome and a teardown diagnostic can only follow it.
-        _record_backend_failure(outcome, exc, "while running the script")
+        try:
+            process.spawn(cmd, stop_event=stop_event, input_driver=INPUT_DRIVER)
+            _await_target(process, script_timeout, stop_event, outcome)
+        except RenderCancelledError:
+            outcome.cancelled()
+        except Exception as exc:
+            # Recorded here rather than around the teardown, so the failure that ended the
+            # run is the one that explains the outcome and a teardown diagnostic can only
+            # follow it.
+            _record_backend_failure(outcome, exc, "while running the script")
+        finally:
+            _teardown(process, outcome)
+        _collect_backend_state(process, execution)
     finally:
-        _teardown(process, outcome)
-    _collect_backend_state(process, execution)
+        _script_finished()
     return execution
 
 

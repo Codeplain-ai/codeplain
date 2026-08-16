@@ -173,3 +173,45 @@ def test_shutdown_stays_bounded_when_the_teardown_never_completes(monkeypatch):
     finally:
         release.set()
         render_thread.join(timeout=WEDGED_THREAD_TIMEOUT)
+
+
+def test_shutdown_waits_the_full_budget_only_while_a_script_is_active(monkeypatch):
+    """A live terminal backend earns the teardown budget; without one the short bound
+    applies, so quitting mid-API-call does not hold the exiting CLI."""
+    monkeypatch.setattr(plain2code.render_utils, "terminal_script_active", lambda: True)
+    stop_event = threading.Event()
+    torn_down = threading.Event()
+
+    def render_then_tear_down():
+        stop_event.wait(timeout=WEDGED_THREAD_TIMEOUT)
+        time.sleep(plain2code.RENDER_THREAD_IDLE_SHUTDOWN_TIMEOUT + 0.5)
+        torn_down.set()
+
+    render_thread = threading.Thread(target=render_then_tear_down, daemon=True)
+    render_thread.start()
+
+    with patch("plain2code.console"):
+        completed = plain2code.shutdown_render_thread(render_thread, stop_event)
+
+    assert completed is True
+    assert torn_down.is_set()
+
+
+def test_shutdown_gives_up_after_the_short_bound_when_no_script_runs():
+    release = threading.Event()
+    render_thread = threading.Thread(target=lambda: release.wait(WEDGED_THREAD_TIMEOUT), daemon=True)
+    render_thread.start()
+
+    try:
+        started = time.monotonic()
+        with patch("plain2code.console") as mock_console:
+            completed = plain2code.shutdown_render_thread(render_thread, threading.Event())
+        elapsed = time.monotonic() - started
+
+        assert completed is False
+        assert elapsed < plain2code.RENDER_THREAD_SHUTDOWN_TIMEOUT / 2
+        warning = mock_console.warning.call_args[0][0]
+        assert "No script is running" in warning
+    finally:
+        release.set()
+        render_thread.join(timeout=WEDGED_THREAD_TIMEOUT)

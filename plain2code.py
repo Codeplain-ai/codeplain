@@ -51,6 +51,7 @@ from plain2code_logger import (
 )
 from plain2code_state import RunState
 from plain2code_telemetry import capture_crash, initialize_telemetry
+from render_machine import render_utils
 from render_machine.terminal_process import teardown_budget_seconds
 from system_config import system_config
 from tui.plain2code_tui import Plain2CodeTUI
@@ -65,6 +66,11 @@ DEFAULT_TEMPLATE_DIRS = "standard_template_library"
 # ignores TERM alive.
 RENDER_THREAD_UNWIND_MARGIN_SECONDS = 1.0
 RENDER_THREAD_SHUTDOWN_TIMEOUT = teardown_budget_seconds() + RENDER_THREAD_UNWIND_MARGIN_SECONDS
+
+# The wait while no script is running. A render thread that is only unwinding Python and
+# HTTP state owns no processes, so the full teardown budget above would hold the exiting
+# CLI for it — most visibly when the user quits mid-API-call.
+RENDER_THREAD_IDLE_SHUTDOWN_TIMEOUT = 2.0
 
 # Exceptions that represent expected, user-facing error conditions. They are
 # reported to the user directly and must never be sent to Sentry as crashes.
@@ -199,21 +205,33 @@ def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> N
 def shutdown_render_thread(render_thread: threading.Thread, stop_event: threading.Event) -> bool:
     """Cancels the render and waits for the thread to finish tearing its script down.
 
-    Returns True when the thread completed within the bound. A thread still running past
-    it is reported rather than waited on further: the wait covers every budget the backend
-    can spend, so anything beyond it is unbounded and the process must not hang on it.
+    Returns True when the thread completed within its bound. The full teardown budget is
+    only waited out while a script's terminal backend is live; a thread that runs no script
+    gets the short bound, because it is typically parked in an API call that no cancellation
+    reaches. A thread still running past its bound is reported rather than waited on
+    further: anything beyond the bound is unbounded and the process must not hang on it.
     """
     stop_event.set()
     if render_thread.is_alive():
-        console.info("Stopping the render. Waiting for the running script to shut down...")
-    render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
-    if render_thread.is_alive():
-        console.warning(
-            f"The render did not stop within {RENDER_THREAD_SHUTDOWN_TIMEOUT:.0f} seconds. "
-            "A script it started may still be running."
-        )
-        return False
-    return True
+        console.info("Stopping the render...")
+    render_thread.join(timeout=RENDER_THREAD_IDLE_SHUTDOWN_TIMEOUT)
+    if not render_thread.is_alive():
+        return True
+    if render_utils.terminal_script_active():
+        console.info("Waiting for the running script to shut down...")
+        render_thread.join(timeout=RENDER_THREAD_SHUTDOWN_TIMEOUT)
+        if render_thread.is_alive():
+            console.warning(
+                f"The render did not stop within {RENDER_THREAD_SHUTDOWN_TIMEOUT:.0f} seconds. "
+                "A script it started may still be running."
+            )
+            return False
+        return True
+    console.warning(
+        f"The render did not stop within {RENDER_THREAD_IDLE_SHUTDOWN_TIMEOUT:.0f} seconds. "
+        "No script is running; the render is likely waiting on a network call and will not outlive the process."
+    )
+    return False
 
 
 def render(  # noqa: C901

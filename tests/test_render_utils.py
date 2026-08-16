@@ -689,3 +689,23 @@ def test_the_timeout_diagnostic_carries_the_note_of_the_backend_that_ran(injecte
     assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
     assert note in output
     assert note in Path(output_file).read_text()
+
+
+def test_the_terminal_script_active_flag_spans_spawn_through_teardown(injected_backend, run_script):
+    """The full shutdown budget is only owed while a backend is live, so the flag must
+    cover teardown — the phase that budget exists for — and clear once it is done."""
+    process = injected_backend(exit_code=0)
+    seen = {}
+    original_close = process.close
+
+    def recording_close():
+        seen["active_during_teardown"] = render_utils.terminal_script_active()
+        original_close()
+
+    process.close = recording_close
+
+    assert not render_utils.terminal_script_active()
+    run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert seen["active_during_teardown"] is True
+    assert not render_utils.terminal_script_active()
