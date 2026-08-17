@@ -239,9 +239,12 @@ class TtyBroker(TerminalInputDriver):
         return value
 
     def _wait(self, args: dict, present: bool) -> dict:
-        text = self._text_arg(args)
+        # The transcript is rendered per line with trailing whitespace stripped, so a
+        # needle quoting a prompt verbatim — "Master password: " — could never match as
+        # written. End-of-line whitespace is stripped from the needle to compensate.
+        text = "\n".join(part.rstrip() for part in self._text_arg(args).split("\n"))
         if not text:
-            raise ValueError("the text to wait for must not be empty")
+            raise ValueError("the text to wait for must not be empty or whitespace-only")
         timeout = args.get("timeout", DEFAULT_WAIT_SECONDS)
         if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
             raise ValueError("'timeout' must be a positive number of seconds")

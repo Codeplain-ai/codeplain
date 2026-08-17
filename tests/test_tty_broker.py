@@ -128,6 +128,35 @@ def test_wait_for_resolves_once_the_text_appears(broker):
     assert response["ok"] is True
 
 
+def test_wait_for_matches_a_prompt_despite_trailing_whitespace(broker):
+    """The transcript is rendered per line with trailing whitespace stripped, so a
+    needle quoting a prompt verbatim — 'Master password: ' — could never match as
+    written. The broker strips end-of-line whitespace from the needle to compensate."""
+    instance, process = broker
+    process.transcript = "Master password:"
+    response = command(instance, "wait-for", {"text": "Master password: ", "timeout": 2})
+    assert response["ok"] is True
+
+
+def test_wait_until_absent_applies_the_same_needle_normalization(broker):
+    instance, process = broker
+    process.transcript = "spinner"
+
+    def clear_later():
+        time.sleep(0.2)
+        process.transcript = "done"
+
+    threading.Thread(target=clear_later, daemon=True).start()
+    response = command(instance, "wait-until-absent", {"text": "spinner ", "timeout": 5})
+    assert response["ok"] is True
+
+
+def test_a_whitespace_only_wait_needle_is_a_usage_error(broker):
+    instance, _ = broker
+    response = command(instance, "wait-for", {"text": "   ", "timeout": 2})
+    assert response["error"] == tty_protocol.ERROR_INVALID_REQUEST
+
+
 def test_wait_for_times_out_with_the_timeout_error(broker):
     instance, _ = broker
     response = command(instance, "wait-for", {"text": "never", "timeout": 0.2})
