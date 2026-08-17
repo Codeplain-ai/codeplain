@@ -44,6 +44,7 @@ from render_machine.terminal_process import (
     TERMINAL_ROWS,
     InputDisposition,
     InputWriteResult,
+    TerminalInputDriver,
     TerminalLaunchError,
     TerminalProcess,
     child_environment,
@@ -110,7 +111,7 @@ class LegacyPipeProcess(TerminalProcess):
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[object] = None,
+        input_driver: Optional[TerminalInputDriver] = None,
     ) -> None:
         if self._spawned:
             raise RuntimeError("LegacyPipeProcess instances are single-use")
@@ -151,6 +152,10 @@ class LegacyPipeProcess(TerminalProcess):
     def write_input(self, data: bytes) -> InputWriteResult:
         """Always closed: this backend hands the child `DEVNULL`, by design."""
         return InputWriteResult(InputDisposition.CLOSED, 0)
+
+    def resize(self, columns: int, rows: int) -> None:
+        """There is no terminal to resize; only the rendering parser follows the size."""
+        self.normalizer.resize(columns, rows)
 
     def terminate_tree(self, grace: float = SIGTERM_GRACE_PERIOD_SECONDS) -> None:
         proc = self._proc

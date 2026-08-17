@@ -66,7 +66,9 @@ from render_machine.terminal_process import (
     TERMINAL_ROWS,
     InputWriteResult,
     TerminalEnvironmentError,
+    TerminalInputDriver,
     TerminalProcess,
+    TerminalProcessError,
     terminal_child_environment,
 )
 from render_machine.terminal_queries import TerminalQueryResponder, reply_resolution
@@ -1068,7 +1070,7 @@ class ConPtyProcess(TerminalProcess):
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[object] = None,
+        input_driver: Optional[TerminalInputDriver] = None,
         spawn_timeout: float = HANDSHAKE_TIMEOUT_SECONDS,
     ) -> None:
         if self._spawned:
@@ -1099,6 +1101,14 @@ class ConPtyProcess(TerminalProcess):
     def write_input(self, data: bytes) -> InputWriteResult:
         result, _ = self._input_queue.submit(data)
         return result
+
+    def resize(self, columns: int, rows: int) -> None:
+        """Not implemented yet: needs a ResizePseudoConsole binding on the live session.
+
+        Raising keeps the failure explicit — a silent normalizer-only resize would tell
+        the caller the target saw a size it never received.
+        """
+        raise TerminalProcessError("runtime terminal resize is not implemented on the ConPTY backend yet")
 
     def no_input_note(self) -> str:
         return NO_INPUT_NOTE

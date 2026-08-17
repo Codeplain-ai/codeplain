@@ -52,8 +52,10 @@ from render_machine.terminal_process import (
     InputDisposition,
     InputWriteResult,
     TerminalEnvironmentError,
+    TerminalInputDriver,
     TerminalLaunchError,
     TerminalProcess,
+    TerminalProcessError,
     TerminalReaderError,
     terminal_child_environment,
 )
@@ -349,6 +351,18 @@ class _ReaderBundle:
     def take_master(self) -> Optional[int]:
         return self._take("master_fd")
 
+    def with_master(self, operation) -> bool:
+        """Runs `operation(master_fd)` while the descriptor cannot be taken from under it.
+
+        The lock is the same one `_take` swaps under, so the descriptor is either still
+        owned for the whole call or the call never starts. False when it is already gone.
+        """
+        with self._lock:
+            if self.master_fd is None:
+                return False
+            operation(self.master_fd)
+            return True
+
     def take_wakeup_r(self) -> Optional[int]:
         return self._take("wakeup_r")
 
@@ -463,7 +477,7 @@ class PosixPtyProcess(TerminalProcess):
         self._spawned = False
         self._closed = False
         self._acked = False
-        self._input_driver: Optional[object] = None
+        self._input_driver: Optional[TerminalInputDriver] = None
 
         self._bundle: Optional[_ReaderBundle] = None
         self._reader: Optional[threading.Thread] = None
@@ -499,7 +513,7 @@ class PosixPtyProcess(TerminalProcess):
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[object] = None,
+        input_driver: Optional[TerminalInputDriver] = None,
         handshake_timeout: float = HANDSHAKE_TIMEOUT_SECONDS,
     ) -> None:
         """Allocates the terminal, launches the target, and returns once it is running."""
@@ -538,6 +552,19 @@ class PosixPtyProcess(TerminalProcess):
         if result.disposition is InputDisposition.ACCEPTED:
             self._ring_doorbell()
         return result
+
+    def resize(self, columns: int, rows: int) -> None:
+        """Applies the new size on the master, which also raises SIGWINCH in the target.
+
+        Issued under the bundle's ownership lock, so the ioctl can never race the reader
+        closing the descriptor at teardown.
+        """
+        packed = struct.pack("HHHH", rows, columns, 0, 0)
+        bundle = self._bundle
+        applied = bundle is not None and bundle.with_master(lambda fd: fcntl.ioctl(fd, termios.TIOCSWINSZ, packed))
+        if not applied:
+            raise TerminalProcessError("the terminal is no longer available to resize")
+        self.normalizer.resize(columns, rows)
 
     def terminate_tree(self, grace: float = SIGTERM_GRACE_PERIOD_SECONDS) -> None:
         """Signals the recorded group, escalates on the clock, and reaps last.

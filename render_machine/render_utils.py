@@ -11,6 +11,7 @@ from plain2code_exceptions import RenderCancelledError
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
     NO_INPUT_NOTE,
+    TerminalInputDriver,
     TerminalProcess,
     TerminalProcessError,
     create_terminal_process,
@@ -24,10 +25,11 @@ POLL_INTERVAL_SECONDS = 0.2
 # discoverable from the returned path and cleanable by the same convention.
 RAW_OUTPUT_SUFFIX = ".raw"
 
-# The `codeplain-tty` broker that would drive a script's terminal input is deferred, so no
-# input driver is ever attached. The timeout diagnostic is keyed on this declaration rather
-# than on bytes written: a script that blocks on input has written nothing either way.
-INPUT_DRIVER: Optional[object] = None
+# The `codeplain-tty` broker exists but is not wired into script execution yet — that is
+# the runtime-scoping phase of the codeplain-tty plan. Until then no input driver is
+# attached. The timeout diagnostic is keyed on this declaration rather than on bytes
+# written: a script that blocks on input has written nothing either way.
+INPUT_DRIVER: Optional[TerminalInputDriver] = None
 
 # Conditions the arbiter chooses between, highest precedence last.
 CONDITION_EXIT = "exit"
