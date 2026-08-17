@@ -157,6 +157,32 @@ def test_a_whitespace_only_wait_needle_is_a_usage_error(broker):
     assert response["error"] == tty_protocol.ERROR_INVALID_REQUEST
 
 
+def test_wait_for_consumes_the_transcript_through_its_match(broker):
+    """Expect-style sequencing: a successful wait-for advances a cursor, so the next
+    wait-for matches only output produced after it. Without this, the second of two
+    sequential interactive children matches the first child's stale prompt instantly,
+    types into a terminal nobody is reading yet, and hangs the whole script."""
+    instance, process = broker
+    process.transcript = "Master password:"
+    assert command(instance, "wait-for", {"text": "Master password:", "timeout": 2})["ok"] is True
+
+    # The same text again, with no new output: must NOT match the stale occurrence.
+    response = command(instance, "wait-for", {"text": "Master password:", "timeout": 0.3})
+    assert response["error"] == tty_protocol.ERROR_TIMEOUT
+
+    # A second occurrence beyond the cursor matches.
+    process.transcript = "Master password:\nVault initialized\nMaster password:"
+    assert command(instance, "wait-for", {"text": "Master password:", "timeout": 2})["ok"] is True
+
+
+def test_wait_until_absent_looks_only_beyond_the_cursor(broker):
+    instance, process = broker
+    process.transcript = "spinner"
+    assert command(instance, "wait-for", {"text": "spinner", "timeout": 2})["ok"] is True
+    # The consumed occurrence no longer counts as present.
+    assert command(instance, "wait-until-absent", {"text": "spinner", "timeout": 2})["ok"] is True
+
+
 def test_wait_for_times_out_with_the_timeout_error(broker):
     instance, _ = broker
     response = command(instance, "wait-for", {"text": "never", "timeout": 0.2})

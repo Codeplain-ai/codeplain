@@ -73,6 +73,9 @@ class TtyBroker(TerminalInputDriver):
         self._process = process
         self._token = secrets.token_hex(16)
         self._closing = threading.Event()
+        # Transcript position consumed by the last successful wait-for. Mutated only by
+        # the single server thread, which serves one request at a time.
+        self._match_cursor = 0
         self._server: Optional[threading.Thread] = None
         self._listener: Optional[socket.socket] = None
         self._directory: Optional[str] = None
@@ -250,8 +253,18 @@ class TtyBroker(TerminalInputDriver):
             raise ValueError("'timeout' must be a positive number of seconds")
         deadline = time.monotonic() + min(float(timeout), MAX_WAIT_SECONDS)
         while True:
+            # Expect-style sequencing: a successful wait-for consumes the transcript
+            # through its match, so every later wait matches only output produced after
+            # it. Without the cursor, the second of two sequential interactive targets
+            # matches the first one's stale prompt instantly and the test types into a
+            # terminal nobody is reading yet. The transcript re-renders as the screen
+            # changes, so the cursor is clamped rather than trusted exactly.
             transcript = self._process.normalized_output()
-            if (text in transcript) == present:
+            start = min(self._match_cursor, len(transcript))
+            found_at = transcript.find(text, start)
+            if (found_at >= 0) == present:
+                if found_at >= 0:
+                    self._match_cursor = found_at + len(text)
                 return tty_protocol.ok_response()
             if self._closing.is_set():
                 return tty_protocol.error_response(tty_protocol.ERROR_SHUTTING_DOWN, "the execution is shutting down")
