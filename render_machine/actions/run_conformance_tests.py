@@ -4,6 +4,7 @@ from typing import Any
 import render_machine.render_utils as render_utils
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
+from render_machine.platform_test_runtime import platform_test_runtime_available
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
 
@@ -48,6 +49,10 @@ class RunConformanceTests(BaseAction):
             module=render_context.conformance_tests_running_context.current_testing_module_name,
             timeout=render_context.test_script_timeout,
             stop_event=render_context.stop_event,
+            # Conformance (and the acceptance tests that extend the same suite) may drive
+            # the target's terminal through codeplain-tty; unit tests and environment
+            # preparation never get the runtime.
+            platform_test_runtime=platform_test_runtime_available(),
         )
         render_context.script_execution_history.latest_conformance_test_output_path = (
             conformance_tests_temp_log_file_path

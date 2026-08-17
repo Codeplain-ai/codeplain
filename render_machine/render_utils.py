@@ -1,3 +1,4 @@
+import os
 import sys
 import tempfile
 import threading
@@ -8,6 +9,7 @@ import file_utils
 import plain_spec
 from plain2code_console import MUTED_COLOR, RETRY_COLOR, SUCCESS_COLOR, console
 from plain2code_exceptions import RenderCancelledError
+from render_machine import tty_protocol
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
     NO_INPUT_NOTE,
@@ -16,6 +18,7 @@ from render_machine.terminal_process import (
     TerminalProcessError,
     create_terminal_process,
 )
+from render_machine.tty_broker import TtyBroker
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
@@ -25,10 +28,9 @@ POLL_INTERVAL_SECONDS = 0.2
 # discoverable from the returned path and cleanable by the same convention.
 RAW_OUTPUT_SUFFIX = ".raw"
 
-# The `codeplain-tty` broker exists but is not wired into script execution yet — that is
-# the runtime-scoping phase of the codeplain-tty plan. Until then no input driver is
-# attached. The timeout diagnostic is keyed on this declaration rather than on bytes
-# written: a script that blocks on input has written nothing either way.
+# The driver a non-broker execution gets: none. Only an execution that asked for the
+# platform-test runtime (conformance and acceptance runs) attaches the per-execution
+# `codeplain-tty` broker; unit tests and environment preparation always run without one.
 INPUT_DRIVER: Optional[TerminalInputDriver] = None
 
 # Conditions the arbiter chooses between, highest precedence last.
@@ -235,7 +237,26 @@ def _collect_backend_state(process: TerminalProcess, execution: _ScriptExecution
         _record_backend_failure(execution.outcome, exc, "while reporting its result")
 
 
-def _run_script(cmd: list[str], script_timeout: float, stop_event: Optional[threading.Event]) -> _ScriptExecution:
+def _platform_test_environment(broker: TtyBroker) -> dict:
+    """The scoped child environment of a broker-enabled execution.
+
+    Caller-supplied CODEPLAIN_TTY_* values are stripped before the broker's own are
+    added — the runtime owns that prefix — and the helper's directory is prepended to
+    PATH only here, so no other execution can resolve the executable.
+    """
+    env = {key: value for key, value in os.environ.items() if not key.startswith(tty_protocol.ENV_VAR_PREFIX)}
+    env.update(broker.child_env())
+    assert broker.helper_bin_dir is not None
+    env["PATH"] = broker.helper_bin_dir + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def _run_script(
+    cmd: list[str],
+    script_timeout: float,
+    stop_event: Optional[threading.Event],
+    platform_test_runtime: bool = False,
+) -> _ScriptExecution:
     execution = _ScriptExecution()
     outcome = execution.outcome
     process: Optional[TerminalProcess] = None
@@ -246,9 +267,20 @@ def _run_script(cmd: list[str], script_timeout: float, stop_event: Optional[thre
     if process is None:
         return execution
     _script_started()
+    broker: Optional[TtyBroker] = None
     try:
         try:
-            process.spawn(cmd, stop_event=stop_event, input_driver=INPUT_DRIVER)
+            child_env: Optional[dict] = None
+            input_driver: Optional[TerminalInputDriver] = INPUT_DRIVER
+            if platform_test_runtime:
+                # A broker that cannot start is an environment failure (the except below),
+                # never a spawn with the runtime silently missing: the generated test was
+                # promised the helper and would fail confusingly without it.
+                broker = TtyBroker(process)
+                broker.start()
+                child_env = _platform_test_environment(broker)
+                input_driver = broker
+            process.spawn(cmd, env=child_env, stop_event=stop_event, input_driver=input_driver)
             _await_target(process, script_timeout, stop_event, outcome)
         except RenderCancelledError:
             outcome.cancelled()
@@ -258,8 +290,18 @@ def _run_script(cmd: list[str], script_timeout: float, stop_event: Optional[thre
             # follow it.
             _record_backend_failure(outcome, exc, "while running the script")
         finally:
+            # The broker stops accepting before the target is torn down, so no command
+            # can race the teardown; its artifacts are gone before publication.
+            if broker is not None:
+                broker.close()
             _teardown(process, outcome)
         _collect_backend_state(process, execution)
+        if broker is not None:
+            # The backend's absent-driver note would misdescribe this execution.
+            execution.no_input_note = (
+                " The codeplain-tty broker was attached; the script may be waiting for"
+                " terminal input its test never sent."
+            )
     finally:
         _script_finished()
     return execution
@@ -390,6 +432,7 @@ def execute_script(
     module: Optional[str] = None,
     timeout: Optional[int] = None,
     stop_event: Optional[threading.Event] = None,
+    platform_test_runtime: bool = False,
 ) -> tuple[int, str, Optional[str]]:
     script_timeout = timeout if timeout is not None else SCRIPT_EXECUTION_TIMEOUT
 
@@ -402,7 +445,7 @@ def execute_script(
         cmd = [script_path] + scripts_args
 
     start_time = time.time()
-    execution = _run_script(cmd, script_timeout, stop_event)
+    execution = _run_script(cmd, script_timeout, stop_event, platform_test_runtime)
     elapsed_time = time.time() - start_time
     outcome = execution.outcome
 

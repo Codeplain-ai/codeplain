@@ -1,14 +1,17 @@
 """Tests for the platform-test runtime capability the client advertises.
 
-Phase A of the `codeplain-tty` plan: the descriptor and the REST plumbing exist, but the
-client advertises nothing until the broker's preflight lands. What is asserted here is
-the contract those later phases build on — the version-1 descriptor shape, the gate
-returning None, and the request payloads carrying the capability only when it is given.
+What is asserted here is the capability contract: the version-1 descriptor shape, the
+advertisement following the broker preflight (never a client version), and the request
+payloads carrying the capability only when it is given.
 """
 
+import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 from codeplain_REST_api import CodeplainAPI
+from render_machine import platform_test_runtime
 from render_machine.platform_test_runtime import (
     CODEPLAIN_TTY_COMMANDS,
     PROTOCOL_VERSION,
@@ -67,8 +70,21 @@ def test_the_descriptor_is_the_version_1_contract():
     ]
 
 
-def test_nothing_is_advertised_before_the_broker_preflight_exists():
+def test_advertisement_follows_the_preflight(monkeypatch):
+    monkeypatch.setattr(platform_test_runtime, "platform_test_runtime_available", lambda: False)
     assert advertised_platform_test_runtime() is None
+
+    monkeypatch.setattr(platform_test_runtime, "platform_test_runtime_available", lambda: True)
+    assert advertised_platform_test_runtime() == codeplain_tty_descriptor()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="The broker transport is POSIX-only.")
+def test_the_real_preflight_passes_on_this_platform():
+    platform_test_runtime.platform_test_runtime_available.cache_clear()
+    try:
+        assert platform_test_runtime.platform_test_runtime_available() is True
+    finally:
+        platform_test_runtime.platform_test_runtime_available.cache_clear()
 
 
 def test_the_capability_is_omitted_from_the_payload_by_default():
