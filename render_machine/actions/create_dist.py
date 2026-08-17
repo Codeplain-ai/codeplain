@@ -3,6 +3,7 @@ from typing import Any
 import file_utils
 from plain2code_console import SUCCESS_COLOR, console
 from render_machine.actions.base_action import BaseAction
+from render_machine.platform_test_audit import audit_build_folder
 from render_machine.render_context import RenderContext
 
 
@@ -10,6 +11,9 @@ class CreateDist(BaseAction):
     SUCCESSFUL_OUTCOME = "dist_created"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        # The final portability audit: a build that references Codeplain's private test
+        # runtime is never published or copied.
+        audit_build_folder(render_context.build_folder)
         # Copy build and conformance tests folders to output folders if specified
         if render_context.copy_build:
             file_utils.copy_folder_to_output(
