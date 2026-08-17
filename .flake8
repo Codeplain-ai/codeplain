@@ -20,6 +20,10 @@ exclude =
 per-file-ignores =
     __init__.py: F401
     tests/*: U100
+# plain_modules must call git_preflight.require_git() before importing GitPython,
+# which raises from module scope when git is missing or broken. That call is a
+# statement between imports, so every import below it trips E402.
+    plain_modules.py: E402
 max-complexity = 15
 enable-extensions = U100
 # Plugin-specific configuration
