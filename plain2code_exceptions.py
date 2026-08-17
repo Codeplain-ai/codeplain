@@ -13,6 +13,10 @@ class RenderingCreditBalanceTooLow(Exception):
     pass
 
 
+class ConformanceTestsFixExhausted(Exception):
+    """The server's conformance-fix loop spent its attempt budget on one functionality."""
+
+
 class LLMInternalError(Exception):
     pass
 

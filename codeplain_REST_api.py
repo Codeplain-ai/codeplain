@@ -19,6 +19,7 @@ RETRY_ERROR_CODES = [
 ERROR_CODE_EXCEPTIONS = {
     "FunctionalRequirementTooComplex": plain2code_exceptions.FunctionalRequirementTooComplex,
     "ConflictingRequirements": plain2code_exceptions.ConflictingRequirements,
+    "ConformanceTestsFixExhausted": plain2code_exceptions.ConformanceTestsFixExhausted,
     "RenderingCreditBalanceTooLow": plain2code_exceptions.RenderingCreditBalanceTooLow,
     "LLMInternalError": plain2code_exceptions.LLMInternalError,
     "MissingResource": plain2code_exceptions.MissingResource,
