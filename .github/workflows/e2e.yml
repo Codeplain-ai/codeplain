@@ -60,3 +60,30 @@ jobs:
         env:
           CODEPLAIN_API_KEY: ${{ secrets.CODEPLAIN_API_KEY }}
         run: pytest tests/e2e/ -v --tb=short
+
+  notify-on-failure:
+    name: Notify Slack on failure
+    needs: [e2e-linux, e2e-windows]
+    if: failure()
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_E2E_WEBHOOK_URL }}
+    steps:
+      - name: Determine failed platforms
+        id: platforms
+        run: |
+          failed=""
+          [ "${{ needs.e2e-linux.result }}" = "failure" ] && failed="Linux"
+          if [ "${{ needs.e2e-windows.result }}" = "failure" ]; then
+            [ -n "$failed" ] && failed="$failed and Windows" || failed="Windows"
+          fi
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: Send failure notification to Slack
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": ${{ toJSON(format('[Codeplain Client] E2E tests FAILED on {0}. See <{1}/{2}/actions/runs/{3}|the run log>.', steps.platforms.outputs.failed, github.server_url, github.repository, github.run_id)) }}
+            }
