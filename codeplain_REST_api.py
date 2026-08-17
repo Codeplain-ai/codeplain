@@ -321,6 +321,7 @@ class CodeplainAPI:
         conformance_tests_json,
         all_acceptance_tests,
         run_state: RunState,
+        platform_test_runtime: Optional[dict] = None,
     ):
         endpoint_url = f"{self.api_url}/render_conformance_tests"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -338,6 +339,9 @@ class CodeplainAPI:
             "conformance_tests_json": conformance_tests_json,
             "all_acceptance_tests": all_acceptance_tests,
         }
+
+        if platform_test_runtime is not None:
+            payload["platform_test_runtime"] = platform_test_runtime
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
         return response["patched_response_files"], response["conformance_tests_plan_summary_string"]
@@ -382,6 +386,7 @@ class CodeplainAPI:
         current_testing_frid_high_level_implementation_plan: Optional[str],
         conflicting_requirements_count: int,
         run_state: RunState,
+        platform_test_runtime: Optional[dict] = None,
     ):
         endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -408,6 +413,9 @@ class CodeplainAPI:
         if acceptance_tests is not None:
             payload["acceptance_tests"] = acceptance_tests
 
+        if platform_test_runtime is not None:
+            payload["platform_test_runtime"] = platform_test_runtime
+
         return self.post_request(endpoint_url, headers, payload, run_state)
 
     def render_acceptance_tests(
@@ -422,6 +430,7 @@ class CodeplainAPI:
         required_modules,
         acceptance_test,
         run_state: RunState,
+        platform_test_runtime: Optional[dict] = None,
     ):
         """
         Renders acceptance tests based on the provided parameters.
@@ -460,6 +469,9 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "acceptance_test": acceptance_test,
         }
+
+        if platform_test_runtime is not None:
+            payload["platform_test_runtime"] = platform_test_runtime
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
