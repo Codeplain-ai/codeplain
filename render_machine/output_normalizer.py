@@ -357,7 +357,15 @@ class OutputNormalizer:
         head_lines: int = SCROLLBACK_HEAD_LINES,
         tail_lines: int = SCROLLBACK_TAIL_LINES,
         reply_handler: Optional[Callable[[str, bytes], None]] = None,
+        translate_newlines: bool = False,
     ) -> None:
+        # A PTY's line discipline turns every NL into CR-NL (ONLCR) before the bytes reach
+        # a terminal, so a VT parser may treat a bare linefeed as index-only. A pipe has no
+        # line discipline: fed verbatim, each line would start in the column the previous
+        # one ended in — a whitespace staircase. A backend whose stream never crossed a
+        # line discipline asks for the same translation here, exactly as ONLCR performs
+        # it: on the raw byte stream, with no regard for the sequences it may split.
+        self._translate_newlines = translate_newlines
         self._lock = threading.Lock()
         self._scrollback = _RetainedLines(head_lines, tail_lines)
         self._screen = _RenderingScreen(columns, lines, self._scrollback, reply_handler)
@@ -381,7 +389,9 @@ class OutputNormalizer:
         if not data:
             return
         with self._lock:
-            self.fed_bytes += len(data)
+            self.fed_bytes += len(data)  # what the target wrote, before any translation
+            if self._translate_newlines:
+                data = data.replace(b"\n", b"\r\n")
             for unit in self._guard.frame(data):
                 try:
                     self._stream.feed(unit)

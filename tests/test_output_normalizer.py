@@ -212,6 +212,27 @@ def test_crlf_collapses_and_a_trailing_partial_line_is_kept():
     assert normalizer.text() == "one\ntwo\nno newline here\n"
 
 
+def test_translate_newlines_renders_a_pipe_stream_of_bare_linefeeds():
+    normalizer = OutputNormalizer(columns=20, lines=5, translate_newlines=True)
+    normalizer.feed(b"one\ntwo\nthree\n")
+
+    assert normalizer.text() == "one\ntwo\nthree\n"
+
+
+def test_translate_newlines_leaves_a_crlf_stream_unchanged():
+    normalizer = OutputNormalizer(columns=20, lines=5, translate_newlines=True)
+    normalizer.feed(b"one\r\ntwo\r\nno newline here")
+
+    assert normalizer.text() == "one\ntwo\nno newline here\n"
+
+
+def test_translate_newlines_counts_the_bytes_the_target_wrote():
+    normalizer = OutputNormalizer(columns=20, lines=5, translate_newlines=True)
+    normalizer.feed(b"a\nb\n")
+
+    assert normalizer.fed_bytes == 4
+
+
 def test_nothing_fed_renders_to_nothing():
     normalizer = OutputNormalizer(columns=20, lines=5)
     normalizer.feed(b"")

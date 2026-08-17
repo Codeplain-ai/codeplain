@@ -88,8 +88,10 @@ class LegacyPipeProcess(TerminalProcess):
         # target prints is rendered and nothing is ever owed to it.
         self.query_responder = TerminalQueryResponder()
         # The parser still reports the queries it sees, so they are accounted for on the
-        # render-only side rather than silently dropped.
-        self.normalizer = OutputNormalizer(reply_handler=self.query_responder.answer)
+        # render-only side rather than silently dropped. A pipe has no line discipline to
+        # apply ONLCR, so the normalizer performs that translation itself — without it a
+        # stream of bare linefeeds renders as a whitespace staircase.
+        self.normalizer = OutputNormalizer(reply_handler=self.query_responder.answer, translate_newlines=True)
 
         self._proc: Optional[subprocess.Popen] = None
         self._reader: Optional[threading.Thread] = None

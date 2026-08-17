@@ -134,6 +134,29 @@ def test_raw_bytes_are_kept_verbatim_and_the_transcript_is_normalized(tmp_path, 
     assert backend.normalized_output() == "red\n"
 
 
+def test_multiline_pipe_output_is_rendered_without_a_staircase(tmp_path, backend):
+    """A pipe carries bare linefeeds — no line discipline adds the carriage returns.
+
+    The normalizer is a VT renderer, so feeding it the pipe bytes verbatim would move the
+    cursor down without returning it to column zero: every line would start where the
+    previous one ended, padded with the whitespace of a staircase. The backend emulates
+    ONLCR instead, the same translation the PTY's line discipline applies.
+    """
+    script = make_script(
+        tmp_path,
+        "multiline",
+        """
+        import sys
+
+        sys.stdout.write("one\\ntwo\\nthree\\n")
+        """,
+    )
+
+    assert run(backend, [script]) == 0
+
+    assert backend.normalized_output() == "one\ntwo\nthree\n"
+
+
 def test_a_printed_query_is_rendered_without_creating_an_obligation(tmp_path, backend):
     script = make_script(
         tmp_path,
