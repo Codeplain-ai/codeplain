@@ -129,7 +129,14 @@ function Test-GitAvailable {
     }
 }
 
-# Print install instructions for the current platform and exit. codeplain uses
+# `exit` under `irm ... | iex` closes the user's shell, so exit only for file-based
+# ($PSCommandPath) or unattended runs. Callers must `return` right after this.
+function Stop-Install {
+    $global:LASTEXITCODE = 1
+    if ($PSCommandPath -or $nonInteractive) { exit 1 }
+}
+
+# Print install instructions for the current platform. codeplain uses
 # git to checkpoint the code it renders, and GitPython fails at import time
 # when the git executable is missing, so 'codeplain --status' would die with a
 # raw traceback that says nothing about the actual cause.
@@ -148,7 +155,7 @@ function Assert-Git {
     Write-Host ""
     Write-Host "  ${GRAY}Once Git is installed, restart your terminal and run this installer again.${NC}"
     Write-Host ""
-    exit 1
+    Stop-Install
 }
 
 # Verify an API key against the Codeplain API's /status endpoint.
@@ -193,9 +200,10 @@ Write-Host ""
 # before the user answers any prompts rather than at the --status check below.
 if (-not (Test-GitAvailable)) {
     Assert-Git
+    return
 }
 
-Write-Host "${GREEN}✓${NC} git detected"
+Write-Host "${GREEN}${CHECK}${NC} git detected"
 Write-Host ""
 
 try {
@@ -545,7 +553,8 @@ if ($env:CODEPLAIN_API_KEY) {
         Write-Host $verifyOutput
         Write-Host "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
         Write-Host "  uv tool install --force codeplain"
-        exit 1
+        Stop-Install
+        return
     }
 }
 

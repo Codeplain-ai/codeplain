@@ -90,3 +90,35 @@ jobs:
       # in, where nothing upstream of the script has a terminal to lend it.
       - name: Run Node through the installed execute_script()
         run: nohup python tests/e2e/macos_node_smoke.py < /dev/null
+
+  notify-on-failure:
+    name: Notify Slack on failure
+    needs: [e2e-linux, e2e-windows, e2e-macos]
+    if: failure()
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_E2E_WEBHOOK_URL }}
+      LINUX_RESULT: ${{ needs.e2e-linux.result }}
+      WINDOWS_RESULT: ${{ needs.e2e-windows.result }}
+      MACOS_RESULT: ${{ needs.e2e-macos.result }}
+    steps:
+      - name: Determine failed platforms
+        id: platforms
+        run: |
+          failed=""
+          for entry in "Linux:$LINUX_RESULT" "Windows:$WINDOWS_RESULT" "macOS:$MACOS_RESULT"; do
+            if [ "${entry#*:}" = "failure" ]; then
+              name="${entry%%:*}"
+              if [ -n "$failed" ]; then failed="$failed and $name"; else failed="$name"; fi
+            fi
+          done
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: Send failure notification to Slack
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": ${{ toJSON(format('[Codeplain Client] E2E tests FAILED on {0}. See <{1}/{2}/actions/runs/{3}|the run log>.', steps.platforms.outputs.failed, github.server_url, github.repository, github.run_id)) }}
+            }
