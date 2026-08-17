@@ -12,8 +12,14 @@ from plain2code_exceptions import PlainSyntaxError
 DEFAULT_CONCEPTS = {
     ":ConformanceTests:",
     ":UnitTests:",
+    ":AcceptanceTest:",
     ":AcceptanceTests:",
     ":Implementation:",
+    ":plainDefinitions:",
+    ":plainImplementationReqs:",
+    ":plainFunctionality:",
+    ":plainTestReqs:",
+    ":plainImplementationCode:",
 }
 
 
