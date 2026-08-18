@@ -318,6 +318,25 @@ def create_parser():
 
     _add_arg(
         parser,
+        "--skip-env-check",
+        action="store_true",
+        default=False,
+        help="Skip the environment preflight that runs before rendering starts. "
+        "The preflight verifies that the toolchains, environment variables and services the specs and "
+        "testing scripts depend on are actually available on this machine.",
+    )
+
+    _add_arg(
+        parser,
+        "--env-check-only",
+        action="store_true",
+        default=False,
+        help="Run the environment preflight and exit without rendering. "
+        "Exits with a non-zero status when the environment is not ready.",
+    )
+
+    _add_arg(
+        parser,
         "--test-script-timeout",
         type=int,
         default=None,

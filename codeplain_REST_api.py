@@ -173,6 +173,27 @@ class CodeplainAPI:
         }
         return self.post_request(endpoint_url, headers, payload, None, num_retries=0, silent=True)
 
+    def check_environment(self, environment_context: dict, run_state: RunState) -> dict:
+        """
+        Asks the server which environment checks this project needs before rendering starts.
+
+        Args:
+            environment_context (dict): The specs of every module, their linked resources,
+                                        the configured testing scripts and a description of
+                                        the host machine.
+            run_state (RunState): The current state of the rendering process.
+
+        Returns:
+            dict: A check plan with "checks" (probes the client executes locally) and
+                  "advisories" (findings that need no probe).
+        """
+        endpoint_url = f"{self.api_url}/check_environment"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        # The planned layer is best effort: the caller falls back to the client's own
+        # deterministic checks when this call does not succeed, so it retries only once.
+        return self.post_request(endpoint_url, headers, dict(environment_context), run_state, num_retries=1)
+
     def render_functional_requirement(
         self,
         frid: str,

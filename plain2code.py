@@ -16,6 +16,7 @@ import plain_file
 import plain_modules
 import plain_spec
 from cli_output import print_dry_run_output, print_exit_summary, print_status
+from env_check import format_failure_summary, print_report, run_environment_preflight
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
 from partial_rendering import get_plain_module_render_state, get_render_choices
@@ -24,6 +25,7 @@ from plain2code_console import console
 from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
+    EnvironmentCheckFailed,
     GitNotInstalledError,
     ImportedModuleWithFunctionalitiesError,
     InvalidAPIKey,
@@ -79,6 +81,7 @@ EXPECTED_EXCEPTIONS = (
     UnsupportedResourceType,
     UnsupportedBase64Content,
     GitNotInstalledError,
+    EnvironmentCheckFailed,
     SystemExit,
 )
 
@@ -162,6 +165,37 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI) -> Optional[str]
     return response.get("user_email")
 
 
+def _verify_environment(codeplainAPI, plain_module, args, run_state) -> None:
+    """Check that this machine can build and test the project before any credit is spent.
+
+    A render against a machine that is missing a runtime, a library or a credential
+    cannot succeed -- it loops through failing tests until it gives up. The preflight
+    turns that into a single, actionable failure up front.
+    """
+    report = run_environment_preflight(codeplainAPI, plain_module, args, run_state)
+    print_report(report, verbose=args.verbose)
+
+    if report.has_blocking_findings:
+        raise EnvironmentCheckFailed(format_failure_summary(report))
+
+
+def _run_environment_check_only(plain_module, args, run_state) -> None:
+    """Run the environment preflight on its own, without rendering anything."""
+    if args.skip_env_check:
+        console.warning("--env-check-only and --skip-env-check cannot be combined. There is nothing to check.")
+        return
+
+    codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
+    assert args.api is not None and args.api != "", "API URL is required"
+    codeplainAPI.api_url = args.api
+
+    run_state.user_email = _check_connection(codeplainAPI)
+
+    _verify_environment(codeplainAPI, plain_module, args, run_state)
+
+    console.info("\nThe environment is ready to render.\n")
+
+
 def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> None:
     """Warn when any loaded module (including required modules) defines acceptance tests
     but no conformance tests script is configured.
@@ -205,6 +239,9 @@ def render(  # noqa: C901
     codeplainAPI.api_url = args.api
 
     run_state.user_email = _check_connection(codeplainAPI)
+
+    if not args.skip_env_check:
+        _verify_environment(codeplainAPI, plain_module, args, run_state)
 
     stop_event = threading.Event()
     enter_pause_event = threading.Event()
@@ -392,6 +429,7 @@ def main():  # noqa: C901
 
     exc_info = None
     error_message = None
+    environment_check_failed = False
 
     try:
         # Validate API key is present
@@ -399,8 +437,13 @@ def main():  # noqa: C901
             raise MissingAPIKey(
                 "Your API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
             )
-        render(plain_module, args, run_state, event_bus, default_log_level)
+        if args.env_check_only:
+            _run_environment_check_only(plain_module, args, run_state)
+        else:
+            render(plain_module, args, run_state, event_bus, default_log_level)
     except BaseException as e:
+        environment_check_failed = isinstance(e, EnvironmentCheckFailed)
+
         if isinstance(e, KeyboardInterrupt):
             error_message = "Keyboard interrupt"
         else:
@@ -412,11 +455,19 @@ def main():  # noqa: C901
         if exc_info:
             dump_crash_logs(args, run_state)
             capture_crash(exc_info, run_state, args)
-        print_exit_summary(
-            run_state,
-            args.filename,
-            error_message=error_message,
-        )
+        if args.env_check_only:
+            console.quiet = False
+            if error_message:
+                console.error(error_message)
+        else:
+            print_exit_summary(
+                run_state,
+                args.filename,
+                error_message=error_message,
+            )
+
+    if environment_check_failed:
+        sys.exit(1)
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)

@@ -117,3 +117,9 @@ class GitNotInstalledError(Exception):
     """Raised when git is not installed or not found on PATH."""
 
     pass
+
+
+class EnvironmentCheckFailed(Exception):
+    """Raised when the pre-render environment preflight finds a blocking problem."""
+
+    pass
