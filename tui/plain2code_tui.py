@@ -36,7 +36,6 @@ from usage_summary import format_usage_summary
 
 from .components import (
     CustomFooter,
-    EnvironmentCheckProgress,
     FRIDProgress,
     LogFilterChanged,
     LogLevelFilter,
@@ -174,12 +173,11 @@ class Plain2CodeTUI(App):
                         id="codeplain-header",
                         classes="codeplain-header",
                     )
-                    if self.show_environment_check:
-                        yield EnvironmentCheckProgress(id=TUIComponents.ENVIRONMENT_CHECK.value)
                     yield FRIDProgress(
                         id=TUIComponents.FRID_PROGRESS.value,
                         unittests_script=self.unittests_script,
                         conformance_tests_script=self.conformance_tests_script,
+                        show_environment_check=self.show_environment_check,
                     )
 
                     # Test scripts container with border

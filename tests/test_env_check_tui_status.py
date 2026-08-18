@@ -1,4 +1,4 @@
-"""The environment preflight as the user sees it: its own one-time render-setup panel."""
+"""The environment preflight as the user sees it: one transient row in the module status box."""
 
 import asyncio
 
@@ -8,13 +8,17 @@ from plain2code_events import EnvironmentCheckCompleted, EnvironmentCheckStarted
 from plain2code_state import RunState
 from tui import plain2code_tui as tui_module
 from tui import widget_helpers
-from tui.components import EnvironmentCheckProgress, FRIDProgress, ProgressItem, TUIComponents
+from tui.components import FRIDProgress, ProgressItem, RenderingInfoBox, TUIComponents
 from tui.plain2code_tui import Plain2CodeTUI
 
 
 class FakeProgressItem:
     def __init__(self):
         self.status = None
+        self.removed = False
+
+    def remove(self):
+        self.removed = True
 
 
 class FakeTUI:
@@ -29,9 +33,13 @@ class FakeTUI:
         self.queried.append(selector)
         return self.item
 
-    def call_later(self, callback, widget, status):
-        self.deferred.append((callback, widget, status))
-        widget.status = status
+    def call_later(self, callback, *args):
+        self.deferred.append((callback, args))
+        if args:
+            widget, status = args
+            widget.status = status
+        else:
+            callback()
 
 
 class RecordingEventBus:
@@ -60,8 +68,8 @@ def make_app(event_bus, show_environment_check: bool = True) -> Plain2CodeTUI:
     )
 
 
-class TestSetupPanel:
-    def test_the_panel_animates_while_the_check_runs(self):
+class TestTransientRow:
+    def test_the_row_animates_while_the_check_runs(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_started(tui)
@@ -70,21 +78,24 @@ class TestSetupPanel:
         assert tui.item.status == ProgressItem.PROCESSING
         assert tui.queried == [f"#{TUIComponents.ENVIRONMENT_CHECK_ITEM.value}"]
 
-    def test_a_passing_check_ticks_the_panel(self):
+    def test_a_passing_check_takes_the_row_away(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_completed(tui, passed=True)
 
-        assert tui.item.status == ProgressItem.COMPLETED
+        assert tui.item.removed
+        assert tui.item.status is None
 
-    def test_a_failing_check_stops_the_panel(self):
+    def test_a_failing_check_keeps_the_row(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_completed(tui, passed=False)
 
+        # The row is the reason the render is about to stop, so it stays on screen.
         assert tui.item.status == ProgressItem.STOPPED
+        assert not tui.item.removed
 
-    def test_the_panel_never_touches_the_bottom_status_line(self):
+    def test_the_row_never_touches_the_bottom_status_line(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_started(tui)
@@ -93,22 +104,24 @@ class TestSetupPanel:
 
 
 def mounted_dashboard(show_environment_check: bool):
-    """Mount the dashboard and return (environment-check panel or None, FRID progress rows)."""
+    """Mount the dashboard and return (module-status rows, per-functionality rows)."""
     app = make_app(RecordingEventBus(), show_environment_check=show_environment_check)
     found: dict = {}
 
     async def scenario():
         async with app.run_test():
-            panels = list(app.query(EnvironmentCheckProgress))
-            found["panel"] = panels[0] if panels else None
-            frid_progress = app.query_one(FRIDProgress)
-            found["frid_rows"] = [item.id for item in frid_progress.query(ProgressItem)]
+            info_box = app.query_one(RenderingInfoBox)
+            found["info_rows"] = [item.id for item in info_box.query(ProgressItem)]
+            state_machine = app.query_one(FRIDProgress)
+            found["frid_rows"] = [
+                item.id for item in state_machine.query(ProgressItem) if item.id not in found["info_rows"]
+            ]
 
     asyncio.run(scenario())
-    return found["panel"], found["frid_rows"]
+    return found["info_rows"], found["frid_rows"]
 
 
-class TestPanelPlacement:
+class TestRowPlacement:
     def test_the_check_is_not_one_of_the_per_functionality_steps(self):
         """It runs once per render, so it must not sit among the steps that repeat."""
         _, frid_rows = mounted_dashboard(show_environment_check=True)
@@ -116,19 +129,18 @@ class TestPanelPlacement:
         assert TUIComponents.ENVIRONMENT_CHECK_ITEM.value not in frid_rows
         assert frid_rows[0] == TUIComponents.FRID_PROGRESS_RENDER_FR.value
 
-    def test_the_check_gets_a_panel_of_its_own(self):
-        panel, _ = mounted_dashboard(show_environment_check=True)
+    def test_the_check_rides_along_in_the_module_status_box(self):
+        info_rows, _ = mounted_dashboard(show_environment_check=True)
 
-        assert panel is not None
-        assert panel.id == TUIComponents.ENVIRONMENT_CHECK.value
+        assert info_rows == [TUIComponents.ENVIRONMENT_CHECK_ITEM.value]
 
-    def test_there_is_no_panel_when_the_check_is_skipped(self):
-        panel, frid_rows = mounted_dashboard(show_environment_check=False)
+    def test_nothing_is_added_when_the_check_is_skipped(self):
+        info_rows, frid_rows = mounted_dashboard(show_environment_check=False)
 
-        assert panel is None
+        assert info_rows == []
         assert frid_rows[0] == TUIComponents.FRID_PROGRESS_RENDER_FR.value
 
-    def test_the_panel_is_untouched_by_the_per_functionality_reset(self):
+    def test_the_row_is_untouched_by_the_per_functionality_reset(self):
         """FridReadyHandler resets the per-functionality rows; this one is not among them."""
         assert TUIComponents.ENVIRONMENT_CHECK_ITEM.value not in widget_helpers.FRID_PROGRESS_IDS
 

@@ -123,12 +123,22 @@ def display_environment_check_started(tui) -> None:
 
 
 def display_environment_check_completed(tui, passed: bool) -> None:
-    """Settle the environment preflight row once the checks are done."""
-    update_progress_item_status(
-        tui,
-        TUIComponents.ENVIRONMENT_CHECK_ITEM.value,
-        ProgressItem.COMPLETED if passed else ProgressItem.STOPPED,
-    )
+    """Clear the environment preflight row once the checks are done.
+
+    A passing check has nothing left to say, so its row makes way for the render.
+    A failing one stays, because it is the reason the render is about to stop.
+    """
+    if not passed:
+        update_progress_item_status(tui, TUIComponents.ENVIRONMENT_CHECK_ITEM.value, ProgressItem.STOPPED)
+        return
+
+    try:
+        widget = tui.query_one(f"#{TUIComponents.ENVIRONMENT_CHECK_ITEM.value}", ProgressItem)
+        tui.call_later(widget.remove)
+    except NoMatches:
+        pass
+    except Exception as e:
+        log_to_widget(tui, "ERROR", f"Error removing the environment check row: {e}")
 
 
 def display_error_message(tui, error_message: str):
