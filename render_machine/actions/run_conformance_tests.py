@@ -4,6 +4,7 @@ from typing import Any
 import render_machine.render_utils as render_utils
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
+from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, report_fix_loop_attempt
 from render_machine.platform_test_runtime import platform_test_runtime_available
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
@@ -61,6 +62,14 @@ class RunConformanceTests(BaseAction):
 
         render_context.memory_manager.create_conformance_tests_memory(
             render_context, exit_code, conformance_tests_issue
+        )
+
+        report_fix_loop_attempt(
+            render_context,
+            loop=CONFORMANCE_LOOP,
+            frid=render_context.conformance_tests_running_context.current_testing_frid,
+            passed=exit_code == 0,
+            output=conformance_tests_issue,
         )
 
         if exit_code == 0:
