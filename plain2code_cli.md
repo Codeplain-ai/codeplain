@@ -3,7 +3,8 @@
 ```text
 [1;34musage: [0m[1;35mgenerate_cli.py[0m [[32m-h[0m] [[36m--verbose[0m] [[36m--base-folder [33mBASE_FOLDER[0m] [[36m--build-folder [33mBUILD_FOLDER[0m] [[36m--log-to-file | --no-log-to-file[0m] [[36m--log-file-name [33mLOG_FILE_NAME[0m]
                        [[36m--config-name [33mCONFIG_NAME[0m] [[36m--render-range [33mRENDER_RANGE[0m | [36m--render-from [33mRENDER_FROM[0m] [[36m--force-render[0m] [[36m--unittests-script [33mUNITTESTS_SCRIPT[0m]
-                       [[36m--conformance-tests-script [33mCONFORMANCE_TESTS_SCRIPT[0m] [[36m--prepare-environment-script [33mPREPARE_ENVIRONMENT_SCRIPT[0m] [[36m--test-script-timeout [33mTEST_SCRIPT_TIMEOUT[0m]
+                       [[36m--conformance-tests-script [33mCONFORMANCE_TESTS_SCRIPT[0m] [[36m--prepare-environment-script [33mPREPARE_ENVIRONMENT_SCRIPT[0m] [[36m--skip-env-check[0m] [[36m--env-check-only[0m]
+                       [[36m--test-script-timeout [33mTEST_SCRIPT_TIMEOUT[0m]
                        [[36m--api [33m[API][0m] [[36m--api-key [33mAPI_KEY[0m] [[36m--full-plain[0m] [[36m--dry-run[0m] [[36m--replay-with [33mREPLAY_WITH[0m] [[36m--template-dir [33mTEMPLATE_DIR[0m] [[36m--copy-build[0m] [[36m--build-dest [33mBUILD_DEST[0m]
                        [[36m--copy-conformance-tests[0m] [[36m--conformance-tests-dest [33mCONFORMANCE_TESTS_DEST[0m] [[36m--render-machine-graph[0m] [[36m--logging-config-path [33mLOGGING_CONFIG_PATH[0m] [[36m--headless[0m]
                        [[36m--status[0m] [[36m--version[0m]
@@ -42,6 +43,9 @@ are used as-is.
                         containing generated source code, 2) Path to a subfolder of the module's tests folder (e.g. `plain_modules/module_name/tests/subfoldername`) containing test files.
   [1;36m--prepare-environment-script[0m [1;33mPREPARE_ENVIRONMENT_SCRIPT[0m
                         Path to a shell script that prepares the testing environment. The script should accept the source code folder path as its first argument.
+  [1;36m--skip-env-check[0m      Skip the environment preflight that runs before rendering starts. The preflight verifies that the toolchains, environment variables and services
+                        the specs and testing scripts depend on are actually available on this machine.
+  [1;36m--env-check-only[0m      Run the environment preflight and exit without rendering. Exits with a non-zero status when the environment is not ready.
   [1;36m--test-script-timeout[0m [1;33mTEST_SCRIPT_TIMEOUT[0m
                         Timeout for test scripts in seconds. If not provided, the default timeout of 120 seconds is used.
   [1;36m--api[0m [1;33m[API][0m           Alternative base URL for the API. Default: `https://api.codeplain.ai`
