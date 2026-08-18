@@ -466,3 +466,20 @@ ListItem.-highlight {
     margin: 0 1;
     height: auto;
 }
+
+/* One-time render setup, shown apart from the per-functionality progress */
+EnvironmentCheckProgress {
+  margin: 1 0;
+  height: auto;
+}
+
+.environment-check-title {
+  color: #888;
+  margin-bottom: 0;
+}
+
+.environment-check-box {
+  height: auto;
+  border: solid #888;
+  padding: 0 1;
+}

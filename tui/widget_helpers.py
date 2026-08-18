@@ -119,14 +119,14 @@ def transition_frid_progress(tui, from_status: str | None, to_status: str):
 
 def display_environment_check_started(tui) -> None:
     """Put the environment preflight row into its animated processing state."""
-    update_progress_item_status(tui, TUIComponents.FRID_PROGRESS_ENV_CHECK.value, ProgressItem.PROCESSING)
+    update_progress_item_status(tui, TUIComponents.ENVIRONMENT_CHECK_ITEM.value, ProgressItem.PROCESSING)
 
 
 def display_environment_check_completed(tui, passed: bool) -> None:
     """Settle the environment preflight row once the checks are done."""
     update_progress_item_status(
         tui,
-        TUIComponents.FRID_PROGRESS_ENV_CHECK.value,
+        TUIComponents.ENVIRONMENT_CHECK_ITEM.value,
         ProgressItem.COMPLETED if passed else ProgressItem.STOPPED,
     )
 

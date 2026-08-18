@@ -142,9 +142,12 @@ class TUIComponents(str, Enum):
     RENDER_STATUS_WIDGET = "render-status-widget"
     RENDER_USAGE_WIDGET = "render-usage-widget"
 
+    # One-time render setup, separate from the per-functionality progress
+    ENVIRONMENT_CHECK = "environment-check"
+    ENVIRONMENT_CHECK_ITEM = "environment-check-item"
+
     # FRID Progress widgets
     FRID_PROGRESS = "frid-progress"
-    FRID_PROGRESS_ENV_CHECK = "frid-progress-env-check"
     FRID_PROGRESS_RENDER_FR = "frid-progress-render-fr"
     FRID_PROGRESS_UNIT_TEST = "frid-progress-unit-test"
     FRID_PROGRESS_REFACTORING = "frid-progress-refactoring"
@@ -439,11 +442,29 @@ class TestScriptsContainer(Vertical):
             yield self.testing_widget
 
 
+class EnvironmentCheckProgress(Vertical):
+    """The environment preflight, shown apart from the per-functionality progress.
+
+    It runs once, before the first functionality, so it does not belong among the
+    steps that repeat for every functionality.
+    """
+
+    ENVIRONMENT_CHECK_TEXT = "Checking the environment"
+    TITLE_TEXT = "render setup"
+
+    def compose(self):
+        yield Static(self.TITLE_TEXT, classes="environment-check-title")
+        with Vertical(classes="environment-check-box"):
+            yield ProgressItem(
+                self.ENVIRONMENT_CHECK_TEXT,
+                id=TUIComponents.ENVIRONMENT_CHECK_ITEM.value,
+            )
+
+
 class FRIDProgress(Vertical):
     """A widget to display the status of subcomponent tasks."""
 
     # Display text for progress items (UI-specific)
-    ENVIRONMENT_CHECK_TEXT = "Checking the environment"
     IMPLEMENTING_FUNCTIONALITY_TEXT = "Implementing the functionality"
     UNIT_TEST_VALIDATION_TEXT = "Unit tests"
     REFACTORING_TEXT = "Refactoring"
@@ -456,13 +477,11 @@ class FRIDProgress(Vertical):
         self,
         unittests_script: Optional[str],
         conformance_tests_script: Optional[str],
-        show_environment_check: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.unittests_script = unittests_script
         self.conformance_tests_script = conformance_tests_script
-        self.show_environment_check = show_environment_check
 
     def update_functionality_text(self, text: str) -> None:
         try:
@@ -479,11 +498,6 @@ class FRIDProgress(Vertical):
         yield RenderingInfoBox()
         yield Static("rendering status", classes="frid-state-machine-title")
         with Vertical(classes="frid-state-machine-box"):
-            if self.show_environment_check:
-                yield ProgressItem(
-                    self.ENVIRONMENT_CHECK_TEXT,
-                    id=TUIComponents.FRID_PROGRESS_ENV_CHECK.value,
-                )
             yield ProgressItem(
                 self.IMPLEMENTING_FUNCTIONALITY_TEXT,
                 id=TUIComponents.FRID_PROGRESS_RENDER_FR.value,
