@@ -411,7 +411,7 @@ def test_the_helper_reports_the_runtime_unavailable_outside_a_test_run(tmp_path)
     result = subprocess.run(
         [
             sys.executable,
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "codeplain_tty.py"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plain2code_tty.py"),
             "wait-for",
             "x",
         ],

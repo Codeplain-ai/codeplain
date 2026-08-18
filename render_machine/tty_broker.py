@@ -116,7 +116,7 @@ class TtyBroker(TerminalInputDriver):
         one matching the broker that is serving it, whatever way Codeplain was installed.
         """
         assert self._directory is not None
-        module = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "codeplain_tty.py")
+        module = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plain2code_tty.py")
         bin_dir = os.path.join(self._directory, "bin")
         os.makedirs(bin_dir)
         helper = os.path.join(bin_dir, "codeplain-tty")
