@@ -101,7 +101,15 @@ class FixLoopMetrics:
         parts = [f"[fix-loop] module={module} frid={frid}"]
         for loop in (UNIT_LOOP, CONFORMANCE_LOOP):
             if loop in counters:
-                parts.append(f"{loop}={counters[loop].attempts} {loop}_failed={counters[loop].failures}")
+                parts.append(
+                    f"{loop}={counters[loop].attempts} "
+                    f"{loop}_failed={counters[loop].failures} "
+                    f"{loop}_max_repeat={counters[loop].max_repeat}"
+                )
+        # The per-loop streaks are what a reader needs — the two loops wedge for
+        # different reasons and are worth different responses — but the aggregate stays
+        # because the benchmark series already collected is indexed on this one number,
+        # and dropping it would strand those runs mid-experiment.
         parts.append(f"max_repeat={max(loop.max_repeat for loop in counters.values())}")
         return " ".join(parts)
 

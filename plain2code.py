@@ -137,6 +137,16 @@ def setup_logging(
         handler = LoggingHandler(event_bus, run_state)
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
+    else:
+        # Headless has no TUI to narrate the render and suppresses Rich output, so
+        # without this the process says nothing on stdout for its entire run: a CI or
+        # benchmark job cannot distinguish a render wedged for four hours from a
+        # healthy one until the log file is collected at the end. StreamHandler flushes
+        # per record, so these arrive as they happen.
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setFormatter(file_formatter)
+        stdout_handler.setLevel(configured_log_level)
+        root_logger.addHandler(stdout_handler)
 
     if log_to_file:
         try:

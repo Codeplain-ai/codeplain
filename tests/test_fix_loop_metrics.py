@@ -82,8 +82,14 @@ def test_each_frid_counts_its_own_attempts():
     metrics.record(UNIT_LOOP, module="m", frid="1", passed=True, output="")
     metrics.record(UNIT_LOOP, module="m", frid="2", passed=True, output="")
 
-    assert metrics.frid_summary("m", "1") == "[fix-loop] module=m frid=1 unit=2 unit_failed=1 max_repeat=1"
-    assert metrics.frid_summary("m", "2") == "[fix-loop] module=m frid=2 unit=1 unit_failed=0 max_repeat=1"
+    assert (
+        metrics.frid_summary("m", "1")
+        == "[fix-loop] module=m frid=1 unit=2 unit_failed=1 unit_max_repeat=1 max_repeat=1"
+    )
+    assert (
+        metrics.frid_summary("m", "2")
+        == "[fix-loop] module=m frid=2 unit=1 unit_failed=0 unit_max_repeat=1 max_repeat=1"
+    )
 
 
 def test_a_frid_summary_reports_both_loops_and_the_worst_streak():
@@ -99,6 +105,25 @@ def test_a_frid_summary_reports_both_loops_and_the_worst_streak():
     assert "conformance_failed=3" in summary
     assert "unit=1" in summary
     assert "max_repeat=3" in summary
+
+
+def test_each_loop_reports_its_own_streak():
+    """The aggregate cannot say which loop wedged, and the two wedge for different
+    reasons: a stuck unit loop means the implementation is not moving, a stuck
+    conformance loop can mean the test script never even ran. Reading a run where the
+    unit loop repeated seven times and conformance only three, the single number says
+    7 and invites the reader to attribute it to conformance."""
+    metrics = FixLoopMetrics()
+    for _ in range(7):
+        metrics.record(UNIT_LOOP, module="m", frid="3", passed=False, output="same unit failure")
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="3", passed=False, output="same conformance failure")
+
+    summary = metrics.frid_summary("m", "3")
+
+    assert "unit_max_repeat=7" in summary
+    assert "conformance_max_repeat=3" in summary
+    assert "max_repeat=7" in summary  # the aggregate stays, for continuity of the series
 
 
 def test_an_unseen_frid_has_no_summary():
