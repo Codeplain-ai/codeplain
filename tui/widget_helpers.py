@@ -118,18 +118,17 @@ def transition_frid_progress(tui, from_status: str | None, to_status: str):
 
 
 def display_environment_check_started(tui) -> None:
-    """Show that the environment preflight is running, before any functionality starts."""
-    widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
-    widget.update("[#FFFFFF]Checking that this machine can build and test the project...[/#FFFFFF]")
+    """Put the environment preflight row into its animated processing state."""
+    update_progress_item_status(tui, TUIComponents.FRID_PROGRESS_ENV_CHECK.value, ProgressItem.PROCESSING)
 
 
 def display_environment_check_completed(tui, passed: bool) -> None:
-    """Return the render-status line to its rendering message once the preflight is done."""
-    widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
-    if passed:
-        widget.update("[#FFFFFF]Rendering in progress...[/#FFFFFF]")
-    else:
-        widget.update("[#FFB454]The environment is not ready to render.[/#FFB454]")
+    """Settle the environment preflight row once the checks are done."""
+    update_progress_item_status(
+        tui,
+        TUIComponents.FRID_PROGRESS_ENV_CHECK.value,
+        ProgressItem.COMPLETED if passed else ProgressItem.STOPPED,
+    )
 
 
 def display_error_message(tui, error_message: str):

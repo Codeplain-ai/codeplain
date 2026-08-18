@@ -84,6 +84,7 @@ class Plain2CodeTUI(App):
         conformance_tests_script: str,
         prepare_environment_script: str,
         state_machine_version: str,
+        show_environment_check: bool = False,
         enter_pause_event: threading.Event | None = None,
         on_cancel: Callable[[], None] | None = None,
         default_log_level: str = "INFO",
@@ -103,6 +104,7 @@ class Plain2CodeTUI(App):
         self.unittests_script: Optional[str] = unittests_script
         self.conformance_tests_script: Optional[str] = conformance_tests_script
         self.prepare_environment_script: Optional[str] = prepare_environment_script
+        self.show_environment_check = show_environment_check
         self.state_machine_version = state_machine_version
         self.enter_pause_event = enter_pause_event
         self._on_cancel = on_cancel
@@ -175,6 +177,7 @@ class Plain2CodeTUI(App):
                         id=TUIComponents.FRID_PROGRESS.value,
                         unittests_script=self.unittests_script,
                         conformance_tests_script=self.conformance_tests_script,
+                        show_environment_check=self.show_environment_check,
                     )
 
                     # Test scripts container with border

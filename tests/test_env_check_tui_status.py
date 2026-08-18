@@ -1,4 +1,6 @@
-"""The environment preflight as the user sees it in the TUI status line."""
+"""The environment preflight as the user sees it: a row in the FRID progress box."""
+
+import asyncio
 
 import pytest
 
@@ -6,32 +8,30 @@ from plain2code_events import EnvironmentCheckCompleted, EnvironmentCheckStarted
 from plain2code_state import RunState
 from tui import plain2code_tui as tui_module
 from tui import widget_helpers
-from tui.components import TUIComponents
+from tui.components import ProgressItem, TUIComponents
 from tui.plain2code_tui import Plain2CodeTUI
 
 
-class FakeStatusWidget:
+class FakeProgressItem:
     def __init__(self):
-        self.text = ""
-        self.classes_added = []
-
-    def update(self, text):
-        self.text = text
-
-    def add_class(self, name):
-        self.classes_added.append(name)
+        self.status = None
 
 
 class FakeTUI:
     """Stands in for the app so the helpers can be exercised without a Textual runtime."""
 
     def __init__(self):
-        self.widget = FakeStatusWidget()
+        self.item = FakeProgressItem()
         self.queried = []
+        self.deferred = []
 
     def query_one(self, selector, _widget_type=None):
         self.queried.append(selector)
-        return self.widget
+        return self.item
+
+    def call_later(self, callback, widget, status):
+        self.deferred.append((callback, widget, status))
+        widget.status = status
 
 
 class RecordingEventBus:
@@ -45,7 +45,7 @@ class RecordingEventBus:
         pass
 
 
-def make_app(event_bus) -> Plain2CodeTUI:
+def make_app(event_bus, show_environment_check: bool = True) -> Plain2CodeTUI:
     return Plain2CodeTUI(
         event_bus=event_bus,
         run_state=RunState(spec_filename="test.plain"),
@@ -54,41 +54,73 @@ def make_app(event_bus) -> Plain2CodeTUI:
         unittests_script=None,
         conformance_tests_script=None,
         prepare_environment_script=None,
+        show_environment_check=show_environment_check,
         state_machine_version="0.0.0",
         css_path="styles.css",
     )
 
 
-class TestStatusLine:
-    def test_starting_the_check_replaces_the_rendering_message(self):
+class TestProgressRow:
+    def test_the_row_animates_while_the_check_runs(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_started(tui)
 
-        assert "Checking that this machine can build and test the project" in tui.widget.text
-        assert tui.queried == [f"#{TUIComponents.RENDER_STATUS_WIDGET.value}"]
+        # PROCESSING is the status ProgressItem renders with a running Spinner.
+        assert tui.item.status == ProgressItem.PROCESSING
+        assert tui.queried == [f"#{TUIComponents.FRID_PROGRESS_ENV_CHECK.value}"]
 
-    def test_a_passing_check_hands_the_line_back_to_the_render(self):
+    def test_a_passing_check_completes_the_row(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_completed(tui, passed=True)
 
-        assert "Rendering in progress" in tui.widget.text
+        assert tui.item.status == ProgressItem.COMPLETED
 
-    def test_a_failing_check_says_the_environment_is_not_ready(self):
+    def test_a_failing_check_stops_the_row(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_completed(tui, passed=False)
 
-        assert "not ready to render" in tui.widget.text
+        assert tui.item.status == ProgressItem.STOPPED
 
-    def test_the_status_line_never_says_the_render_started(self):
-        """The whole point is that the TUI stops claiming to implement a functionality."""
+    def test_the_row_never_touches_the_bottom_status_line(self):
         tui = FakeTUI()
 
         widget_helpers.display_environment_check_started(tui)
 
-        assert "Implementing the functionality" not in tui.widget.text
+        assert f"#{TUIComponents.RENDER_STATUS_WIDGET.value}" not in tui.queried
+
+
+def progress_row_ids(show_environment_check: bool) -> list[str]:
+    """Mount the dashboard and read the progress rows in the order they appear."""
+    app = make_app(RecordingEventBus(), show_environment_check=show_environment_check)
+    row_ids: list[str] = []
+
+    async def scenario():
+        async with app.run_test():
+            row_ids.extend(item.id for item in app.query(ProgressItem))
+
+    asyncio.run(scenario())
+    return row_ids
+
+
+class TestRowVisibility:
+    def test_the_row_is_the_first_step_shown(self):
+        row_ids = progress_row_ids(show_environment_check=True)
+
+        assert row_ids[0] == TUIComponents.FRID_PROGRESS_ENV_CHECK.value
+        assert TUIComponents.FRID_PROGRESS_RENDER_FR.value in row_ids
+
+    def test_there_is_no_row_when_the_check_is_skipped(self):
+        row_ids = progress_row_ids(show_environment_check=False)
+
+        assert TUIComponents.FRID_PROGRESS_ENV_CHECK.value not in row_ids
+        assert TUIComponents.FRID_PROGRESS_RENDER_FR.value in row_ids
+
+    def test_the_row_survives_the_first_functionality_starting(self):
+        """FridReadyHandler resets the per-functionality rows; this one is not among them."""
+        assert TUIComponents.FRID_PROGRESS_ENV_CHECK.value not in widget_helpers.FRID_PROGRESS_IDS
 
 
 class TestAppWiring:
@@ -112,7 +144,7 @@ class TestAppWiring:
         assert EnvironmentCheckStarted in event_bus.subscriptions
         assert EnvironmentCheckCompleted in event_bus.subscriptions
 
-    def test_the_handlers_drive_the_status_line(self, monkeypatch):
+    def test_the_handlers_drive_the_progress_row(self, monkeypatch):
         calls = []
         monkeypatch.setattr(tui_module, "display_environment_check_started", lambda tui: calls.append("started"))
         monkeypatch.setattr(
@@ -125,7 +157,7 @@ class TestAppWiring:
 
         assert calls == ["started", ("done", False)]
 
-    def test_a_broken_status_widget_does_not_stop_the_render(self, monkeypatch):
+    def test_a_broken_widget_does_not_stop_the_render(self, monkeypatch):
         def explode(_tui):
             raise RuntimeError("widget is gone")
 

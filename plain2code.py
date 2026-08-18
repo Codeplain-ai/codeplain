@@ -332,6 +332,7 @@ def render(  # noqa: C901
             unittests_script=args.unittests_script,
             conformance_tests_script=args.conformance_tests_script,
             prepare_environment_script=args.prepare_environment_script,
+            show_environment_check=not args.skip_env_check,
             state_machine_version=system_config.client_version,
             enter_pause_event=enter_pause_event,
             on_cancel=run_state.set_render_cancelled,
