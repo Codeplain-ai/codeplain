@@ -20,9 +20,20 @@ class RenderFunctionalRequirement(BaseAction):
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if render_context.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functionality {render_context.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
+            error_msg = (
+                f"The renderer was unable to produce an implementation whose unit tests pass for functionality "
+                f"'{render_context.frid_context.frid}' after rendering it from scratch {MAX_CODE_GENERATION_RETRIES} "
+                f"times. Please review and rewrite the specification."
+            )
             render_context.last_error_message = error_msg
-            return self.ITERATION_LIMIT_EXCEEDED_OUTCOME, None
+            return (
+                self.ITERATION_LIMIT_EXCEEDED_OUTCOME,
+                RenderError.encode(
+                    message=error_msg,
+                    error_type="UNIT_TESTS_FIX_EXHAUSTED",
+                    frid=render_context.frid_context.frid,
+                ).to_payload(),
+            )
 
         render_context.frid_context.functional_requirement_render_attempts += 1
 
