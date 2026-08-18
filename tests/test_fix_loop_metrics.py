@@ -24,7 +24,9 @@ def test_the_same_failure_fingerprints_the_same():
 
 def test_volatile_noise_does_not_change_the_fingerprint():
     """Two runs of one failing suite differ in temp path, duration and address."""
-    first = "Output stored in /tmp/tmpk8flk7f1.script_output\n# duration_ms 1335.821531\nat 0x7f3a2b1c AssertionError: x"
+    first = (
+        "Output stored in /tmp/tmpk8flk7f1.script_output\n# duration_ms 1335.821531\nat 0x7f3a2b1c AssertionError: x"
+    )
     second = "Output stored in /tmp/tmpy0wo02yi.script_output\n# duration_ms 22.5\nat 0x55e1ff90 AssertionError: x"
 
     assert failure_fingerprint(first) == failure_fingerprint(second)
