@@ -68,3 +68,13 @@ def test_delivered_code_is_still_audited_alongside_them(tmp_path):
     (tmp_path / "vault.py").write_text("os.environ['CODEPLAIN_TTY_ENDPOINT']\n")
 
     assert find_platform_references(str(tmp_path)) == ["vault.py"]
+
+
+def test_the_renderers_own_log_is_not_audited(tmp_path):
+    """codeplain.log records broker activity and module names, so auditing it reports the
+    render's own diagnostics as if the application had referenced the helper. Seen on
+    loglens, where the log was the single flagged file."""
+    (tmp_path / "codeplain.log").write_text("DEBUG codeplain: the codeplain-tty broker thread started\n")
+    (tmp_path / "cli.js").write_text("console.log('hi')\n")
+
+    assert find_platform_references(str(tmp_path)) == []

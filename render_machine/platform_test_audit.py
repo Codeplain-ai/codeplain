@@ -31,6 +31,11 @@ INTERNAL_TEST_DIRECTORIES = {"conformance_tests", "acceptance_tests", "dist_conf
 
 MAX_AUDITED_FILE_BYTES = 4 * 1024 * 1024  # a delivered source file larger than this is not source
 
+# Suffixes that are never delivered source. Logs matter most: the renderer's own
+# codeplain.log records broker activity and module names, so auditing it reports the
+# render's diagnostics as if the application had referenced the helper.
+SKIPPED_FILE_SUFFIXES = (".log",)
+
 
 class PlatformBoundaryViolation(Exception):
     """A delivered build references Codeplain's private test tooling."""
@@ -44,6 +49,8 @@ def find_platform_references(build_folder: str) -> List[str]:
             name for name in directories if name not in SKIPPED_DIRECTORIES and name not in INTERNAL_TEST_DIRECTORIES
         ]
         for file_name in file_names:
+            if file_name.endswith(SKIPPED_FILE_SUFFIXES):
+                continue
             path = os.path.join(root, file_name)
             relative = os.path.relpath(path, build_folder)
             if any(marker in file_name for marker in HELPER_REFERENCE_MARKERS):
