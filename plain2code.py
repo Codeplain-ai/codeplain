@@ -166,11 +166,11 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI) -> Optional[str]
 
 
 def _verify_environment(codeplainAPI, plain_module, args, run_state) -> None:
-    """Check that this machine can build and test the project before any credit is spent.
+    """Run the preflight on its own, outside a render.
 
-    A render against a machine that is missing a runtime, a library or a credential
-    cannot succeed -- it loops through failing tests until it gives up. The preflight
-    turns that into a single, actionable failure up front.
+    A render runs its own preflight from inside the render thread (see
+    ``ModuleRenderer``) so the TUI can show it happening. This is the standalone
+    path used by ``--env-check-only``.
     """
     report = run_environment_preflight(codeplainAPI, plain_module, args, run_state)
     print_report(report, verbose=args.verbose)
@@ -239,9 +239,6 @@ def render(  # noqa: C901
     codeplainAPI.api_url = args.api
 
     run_state.user_email = _check_connection(codeplainAPI)
-
-    if not args.skip_env_check:
-        _verify_environment(codeplainAPI, plain_module, args, run_state)
 
     stop_event = threading.Event()
     enter_pause_event = threading.Event()

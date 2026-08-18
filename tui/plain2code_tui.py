@@ -9,6 +9,8 @@ from textual.widgets import ContentSwitcher, Static
 
 from event_bus import EventBus
 from plain2code_events import (
+    EnvironmentCheckCompleted,
+    EnvironmentCheckStarted,
     LogMessageEmitted,
     RenderCompleted,
     RenderContextSnapshot,
@@ -22,6 +24,8 @@ from plain2code_events import (
 from plain2code_state import RunState
 from render_machine.states import States
 from tui.widget_helpers import (
+    display_environment_check_completed,
+    display_environment_check_started,
     display_module_name,
     display_usage_summary,
     log_to_widget,
@@ -140,6 +144,8 @@ class Plain2CodeTUI(App):
         self.event_bus.subscribe(RenderModuleFailed, self.on_render_module_failed)
         self.event_bus.subscribe(LogMessageEmitted, self.on_log_message_emitted)
         self.event_bus.subscribe(RenderPaused, self.on_render_paused)
+        self.event_bus.subscribe(EnvironmentCheckStarted, self.on_environment_check_started)
+        self.event_bus.subscribe(EnvironmentCheckCompleted, self.on_environment_check_completed)
 
         # Live credit-usage line: refresh functionalities / used credits / render time each second.
         self._usage_timer = self.set_interval(self.USAGE_REFRESH_INTERVAL_SECONDS, self._refresh_usage_summary)
@@ -307,6 +313,20 @@ class Plain2CodeTUI(App):
             self._script_outputs_handler.handle(segments, snapshot, previous_state_segments)
 
         self._state_completion_handler.handle(segments, snapshot, previous_state_segments)
+
+    def on_environment_check_started(self, _event: EnvironmentCheckStarted):
+        """Show the environment preflight in the status line while it runs."""
+        try:
+            display_environment_check_started(self)
+        except Exception as e:
+            log_to_widget(self, "WARNING", f"Error showing the environment check: {type(e).__name__}: {e}")
+
+    def on_environment_check_completed(self, event: EnvironmentCheckCompleted):
+        """Restore the status line once the environment preflight is done."""
+        try:
+            display_environment_check_completed(self, event.passed)
+        except Exception as e:
+            log_to_widget(self, "WARNING", f"Error clearing the environment check: {type(e).__name__}: {e}")
 
     def on_render_paused(self, event: RenderPaused):
         footer = self.screen.query_one(CustomFooter)

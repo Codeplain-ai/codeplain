@@ -72,3 +72,17 @@ class RenderModuleStarted(BaseEvent):
 @dataclass
 class RenderPaused(BaseEvent):
     pass
+
+
+@dataclass
+class EnvironmentCheckStarted(BaseEvent):
+    """Event emitted when the pre-render environment preflight starts."""
+
+    pass
+
+
+@dataclass
+class EnvironmentCheckCompleted(BaseEvent):
+    """Event emitted when the pre-render environment preflight finishes."""
+
+    passed: bool

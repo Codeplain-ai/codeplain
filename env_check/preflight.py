@@ -1,9 +1,14 @@
 """The pre-render environment preflight.
 
-The server plans which checks make sense for a project; the client decides what
-it is willing to execute and executes it. A preflight that cannot reach the
-server still runs its deterministic layer, and a preflight that fails for its own
-reasons never blocks a render -- only a failed ``error`` severity check does.
+Two kinds of check make up a preflight. **Static** checks are the fixed set the
+client always runs, derived on its own from the configuration. **Dynamic** checks
+are planned per project by the server from the specs, the linked resources and
+the testing scripts; the client decides what it is willing to execute and
+executes it.
+
+A preflight that cannot reach the server still runs its static checks, and a
+preflight that fails for its own reasons never blocks a render -- only a failed
+``error`` severity check does.
 """
 
 from __future__ import annotations
@@ -39,10 +44,21 @@ def _request_plan(codeplainAPI, plain_module: PlainModule, args, run_state) -> t
 
 def run_environment_preflight(codeplainAPI, plain_module: PlainModule, args, run_state) -> PreflightReport:
     """Run the environment preflight and return its report."""
-    console.debug("Running the environment preflight...")
+    console.info("Checking that this machine can build and test the project...")
 
     static_checks, static_advisories = build_static_plan(args)
     plan, unavailable_reason = _request_plan(codeplainAPI, plain_module, args, run_state)
+
+    if unavailable_reason is not None:
+        console.debug(
+            f"No dynamic checks were planned for this project: {unavailable_reason}. "
+            f"Running the {len(static_checks)} static checks only."
+        )
+    else:
+        console.debug(
+            f"Running {len(static_checks)} static checks and {len(plan.checks)} dynamic checks "
+            f"planned for this project."
+        )
 
     results = run_checks(static_checks + plan.checks)
 

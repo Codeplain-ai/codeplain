@@ -1,11 +1,13 @@
 import argparse
 import threading
 
+from env_check import format_failure_summary, print_report, run_environment_preflight
 from event_bus import EventBus
 from memory_management import MemoryManager
 from partial_rendering import RenderChoice
 from plain2code_console import console
-from plain2code_events import RenderCompleted, RenderFailed
+from plain2code_events import EnvironmentCheckCompleted, EnvironmentCheckStarted, RenderCompleted, RenderFailed
+from plain2code_exceptions import EnvironmentCheckFailed
 from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine.code_renderer import CodeRenderer
@@ -141,7 +143,29 @@ class ModuleRenderer:
 
         return True, False
 
+    def _verify_environment(self) -> None:
+        """Check that this machine can build and test the project before any credit is spent.
+
+        This runs inside the render thread rather than before it, so the environment
+        check is visible in the TUI while it happens instead of the render appearing
+        to start on a functionality it has not reached yet.
+        """
+        if self.args.skip_env_check:
+            return
+
+        self.event_bus.publish(EnvironmentCheckStarted())
+
+        report = run_environment_preflight(self.codeplainAPI, self.plain_module, self.args, self.run_state)
+        print_report(report, verbose=self.args.verbose)
+
+        self.event_bus.publish(EnvironmentCheckCompleted(passed=not report.has_blocking_findings))
+
+        if report.has_blocking_findings:
+            raise EnvironmentCheckFailed(format_failure_summary(report))
+
     def render_module(self) -> None:
+        self._verify_environment()
+
         if self.render_choice is not None and self.render_choice.wipe_later_modules:
             later_module = False
             all_modules = self.plain_module.all_required_modules + [self.plain_module]

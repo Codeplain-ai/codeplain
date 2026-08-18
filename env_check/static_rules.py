@@ -1,9 +1,9 @@
-"""Deterministic checks the client derives on its own, without the server.
+"""The static checks: the fixed set the client derives on its own, without the server.
 
 These cover the failure modes that have nothing to do with what the specs say --
 a script that is not executable, a missing toolchain the renderer itself needs,
-a build folder that cannot be written. They run even when the planned layer is
-unavailable.
+a build folder that cannot be written. They run even when the dynamic checks are
+unavailable, and every one of them carries ORIGIN_STATIC.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import sys
 
-from env_check.types import SEVERITY_ERROR, Advisory, CheckSpec
+from env_check.types import ORIGIN_STATIC, SEVERITY_ERROR, Advisory, CheckSpec
 
 POWERSHELL_SUFFIX = ".ps1"
 
@@ -46,6 +46,7 @@ def _script_checks(args) -> list[CheckSpec]:
                 args={"path": path, "must_be_executable": not on_windows},
                 reason=f"The renderer executes {path} after every functionality it implements.",
                 remediation={"default": f"chmod +x {path}"} if not on_windows else {},
+                origin=ORIGIN_STATIC,
             )
         )
 
@@ -71,6 +72,7 @@ def _script_advisories(args) -> list[Advisory]:
                         "The renderer refuses to run it."
                     ),
                     remediation=f"Provide a PowerShell version of the {label} and point the configuration at it.",
+                    origin=ORIGIN_STATIC,
                 )
             )
         elif not on_windows and is_powershell:
@@ -84,6 +86,7 @@ def _script_advisories(args) -> list[Advisory]:
                         "Provide the shell version of the script instead."
                     ),
                     remediation=f"Point the configuration at the shell (.sh) version of the {label}.",
+                    origin=ORIGIN_STATIC,
                 )
             )
 
@@ -104,6 +107,7 @@ def _toolchain_checks() -> list[CheckSpec]:
                 "linux": "sudo apt-get install git",
                 "win32": "winget install Git.Git",
             },
+            origin=ORIGIN_STATIC,
         )
     ]
 
@@ -120,6 +124,7 @@ def _toolchain_checks() -> list[CheckSpec]:
                     "darwin": "bash ships with macOS; check that /bin/bash is on PATH",
                     "linux": "sudo apt-get install bash",
                 },
+                origin=ORIGIN_STATIC,
             )
         )
 
@@ -140,6 +145,7 @@ def _build_folder_checks(args) -> list[CheckSpec]:
             args={"path": build_folder},
             reason="Generated code, unit tests and conformance tests are all written into the build folder.",
             remediation={"default": f"Make sure {build_folder} (or its parent) is writable."},
+            origin=ORIGIN_STATIC,
         )
     ]
 

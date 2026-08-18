@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from env_check.checks import CHECK_TYPES, InvalidCheckArguments
-from env_check.types import SEVERITIES, SEVERITY_WARNING, Advisory, CheckPlan, CheckSpec
+from env_check.types import ORIGIN_DYNAMIC, SEVERITIES, SEVERITY_WARNING, Advisory, CheckPlan, CheckSpec
 
 MAX_CHECKS = 60
 MAX_ADVISORIES = 30
@@ -67,6 +67,7 @@ def _parse_check(raw: Any, index: int) -> tuple[CheckSpec | None, str | None]:
             args=args,
             reason=_clean_text(raw.get("reason")) or None,
             remediation=_clean_remediation(raw.get("remediation")),
+            origin=ORIGIN_DYNAMIC,
         ),
         None,
     )
@@ -90,6 +91,7 @@ def _parse_advisory(raw: Any, index: int) -> tuple[Advisory | None, str | None]:
             title=title,
             detail=_clean_text(raw.get("detail")),
             remediation=next(iter(remediation.values()), None),
+            origin=ORIGIN_DYNAMIC,
         ),
         None,
     )

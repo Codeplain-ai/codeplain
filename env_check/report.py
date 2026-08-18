@@ -18,9 +18,9 @@ def _emitter_for(severity: str):
     return console.error if severity == SEVERITY_ERROR else console.warning
 
 
-def _print_finding(severity: str, headline: str, lines: list[str]) -> None:
+def _print_finding(severity: str, origin: str, headline: str, lines: list[str]) -> None:
     emit = _emitter_for(severity)
-    emit(f"  {_label_for(severity)} {headline}")
+    emit(f"  {_label_for(severity)} {origin:<8}{headline}")
     for line in lines:
         emit(f"      {line}")
 
@@ -35,7 +35,7 @@ def _print_failure(result: CheckResult) -> None:
     if remediation:
         lines.append(f"Fix: {remediation}")
 
-    _print_finding(result.check.severity, result.check.description, lines)
+    _print_finding(result.check.severity, result.check.origin, result.check.description, lines)
 
 
 def _print_advisory(advisory: Advisory) -> None:
@@ -45,7 +45,7 @@ def _print_advisory(advisory: Advisory) -> None:
     if advisory.remediation:
         lines.append(f"Fix: {advisory.remediation}")
 
-    _print_finding(advisory.severity, advisory.title, lines)
+    _print_finding(advisory.severity, advisory.origin, advisory.title, lines)
 
 
 def print_report(report: PreflightReport, verbose: bool = False) -> None:
@@ -59,7 +59,7 @@ def print_report(report: PreflightReport, verbose: bool = False) -> None:
 
     if not has_findings and not verbose:
         console.info(
-            f"✓ {HEADER}: {len(report.passed)} checks passed.",
+            f"✓ {HEADER}: {len(report.passed)} checks passed ({report.describe_composition()}).",
             color=SUCCESS_COLOR,
         )
         _print_skipped(report, verbose)
@@ -69,7 +69,10 @@ def print_report(report: PreflightReport, verbose: bool = False) -> None:
 
     if verbose:
         for result in report.passed:
-            console.info(f"  OK      {result.check.description} — {result.detail}", color=MUTED_COLOR)
+            console.info(
+                f"  OK      {result.check.origin:<8}{result.check.description} — {result.detail}",
+                color=MUTED_COLOR,
+            )
 
     for result in blocking:
         _print_failure(result)
@@ -81,7 +84,8 @@ def print_report(report: PreflightReport, verbose: bool = False) -> None:
         _print_advisory(advisory)
 
     console.info(
-        f"\n  {len(report.passed)} passed, {len(blocking) + len(blocking_advisories)} blocking, "
+        f"\n  {len(report.passed)} passed ({report.describe_composition()}), "
+        f"{len(blocking) + len(blocking_advisories)} blocking, "
         f"{len(warnings) + len(warning_advisories)} warnings.\n"
     )
 
@@ -97,7 +101,7 @@ def _print_skipped(report: PreflightReport, verbose: bool) -> None:
 
     for result in report.skipped:
         if verbose:
-            console.warning(f"  SKIPPED {result.check.description} — {result.detail}")
+            console.warning(f"  SKIPPED {result.check.origin:<8}{result.check.description} — {result.detail}")
         else:
             console.debug(f"{HEADER}: skipped {result.check.id} — {result.detail}")
 

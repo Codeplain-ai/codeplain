@@ -13,6 +13,11 @@ STATUS_PASSED = "passed"
 STATUS_FAILED = "failed"
 STATUS_SKIPPED = "skipped"
 
+# Where a check came from. Static checks are the fixed set the client always runs;
+# dynamic checks are the ones planned for this particular project.
+ORIGIN_STATIC = "static"
+ORIGIN_DYNAMIC = "dynamic"
+
 
 @dataclass
 class CheckSpec:
@@ -31,6 +36,7 @@ class CheckSpec:
     args: dict[str, Any] = field(default_factory=dict)
     reason: Optional[str] = None
     remediation: dict[str, str] = field(default_factory=dict)
+    origin: str = ORIGIN_STATIC
 
     @property
     def is_blocking(self) -> bool:
@@ -57,6 +63,7 @@ class Advisory:
     title: str
     detail: str
     remediation: Optional[str] = None
+    origin: str = ORIGIN_STATIC
 
     @property
     def is_blocking(self) -> bool:
@@ -111,3 +118,10 @@ class PreflightReport:
     @property
     def has_blocking_findings(self) -> bool:
         return bool(self.blocking_failures) or bool(self.blocking_advisories)
+
+    def count_by_origin(self, origin: str) -> int:
+        return sum(1 for result in self.results if result.check.origin == origin)
+
+    def describe_composition(self) -> str:
+        """Describe how many checks came from each origin, for the log."""
+        return f"{self.count_by_origin(ORIGIN_STATIC)} static and " f"{self.count_by_origin(ORIGIN_DYNAMIC)} dynamic"
