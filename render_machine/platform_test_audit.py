@@ -19,7 +19,7 @@ from typing import List
 
 # The executable name, the module name, and the environment prefix — the same markers
 # the API's response validation uses.
-HELPER_REFERENCE_MARKERS = ("codeplain-tty", "codeplain_tty", "CODEPLAIN_TTY_")
+HELPER_REFERENCE_MARKERS = ("codeplain-tty", "plain2code_tty", "CODEPLAIN_TTY_")
 
 # Directories that carry no delivered source and may be large.
 SKIPPED_DIRECTORIES = {".git", ".venv", "node_modules", "__pycache__", ".tmp", "dist", "build", "target"}
