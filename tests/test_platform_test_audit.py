@@ -43,3 +43,28 @@ def test_vendor_directories_are_not_audited(tmp_path):
     (tmp_path / "app.js").write_text("console.log('clean');\n")
 
     audit_build_folder(str(tmp_path))  # does not raise
+
+
+def test_internal_test_trees_inside_the_build_folder_are_exempt(tmp_path):
+    """A module's build folder can carry its conformance tests, and those are what the
+    helper exists for. Auditing them aborted successful benchmark renders at CreateDist:
+    the build was never published, `generated_code` stayed empty, and the delivered
+    artifact was whatever the harness could salvage."""
+    (tmp_path / "conformance_tests" / "init").mkdir(parents=True)
+    (tmp_path / "conformance_tests" / "init" / "test_init.py").write_text(
+        "subprocess.run(['codeplain-tty', 'wait-for', 'Password:'])\n"
+    )
+    (tmp_path / "conformance_tests" / "conformance_tests.json").write_text('{"codeplain-tty": true}\n')
+    (tmp_path / "vault.py").write_text("print('hello')\n")
+
+    assert find_platform_references(str(tmp_path)) == []
+    audit_build_folder(str(tmp_path))  # does not raise
+
+
+def test_delivered_code_is_still_audited_alongside_them(tmp_path):
+    """Exempting the test tree must not exempt the application beside it."""
+    (tmp_path / "conformance_tests").mkdir()
+    (tmp_path / "conformance_tests" / "test_init.py").write_text("codeplain-tty wait-for\n")
+    (tmp_path / "vault.py").write_text("os.environ['CODEPLAIN_TTY_ENDPOINT']\n")
+
+    assert find_platform_references(str(tmp_path)) == ["vault.py"]

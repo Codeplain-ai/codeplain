@@ -99,3 +99,14 @@ def test_the_trailer_is_flushed_so_it_survives_an_abrupt_exit():
         logger.removeHandler(handler)
 
     assert handler.flush.called
+
+
+def test_a_completed_render_that_still_raised_reports_the_reason(trailer_lines):
+    """A render can finish its functionalities and raise on the way out — publishing the
+    build, for instance. That combination printed a success banner, logged no reason, and
+    exited non-zero, which is how a boundary-audit failure went unnoticed across a whole
+    benchmark run."""
+    lines = trailer_lines(run_state(succeeded=True), error_message="The generated build references ...")
+
+    assert any("outcome=completed" in line for line in lines)
+    assert any("error=The generated build references ..." in line for line in lines)

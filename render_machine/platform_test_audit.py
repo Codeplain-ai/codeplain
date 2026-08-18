@@ -7,9 +7,11 @@ the render on any reference to the helper or its environment prefix, because a d
 application must run in a clean environment where none of Codeplain's test tooling
 exists.
 
-Internal conformance and acceptance tests live outside the build folder (in the
-module's tests tree), so nothing here needs an allowlist: any hit inside the build
-folder is a violation.
+Internal conformance and acceptance tests are exempt. They are what the helper exists
+for, and they do turn up inside the audited tree — a module's build folder can carry a
+`conformance_tests/` subtree, and benchmark renders showed the audit failing them.
+Auditing those is not a stricter boundary, it is a false one: it aborts a successful
+render over test code that is never delivered.
 """
 
 import os
@@ -22,6 +24,11 @@ HELPER_REFERENCE_MARKERS = ("codeplain-tty", "codeplain_tty", "CODEPLAIN_TTY_")
 # Directories that carry no delivered source and may be large.
 SKIPPED_DIRECTORIES = {".git", ".venv", "node_modules", "__pycache__", ".tmp", "dist", "build", "target"}
 
+# Internal test trees, which are allowed to drive the helper and are never delivered.
+# Named separately from the above because skipping them is a boundary decision, not a
+# performance one.
+INTERNAL_TEST_DIRECTORIES = {"conformance_tests", "acceptance_tests", "dist_conformance_tests"}
+
 MAX_AUDITED_FILE_BYTES = 4 * 1024 * 1024  # a delivered source file larger than this is not source
 
 
@@ -33,7 +40,9 @@ def find_platform_references(build_folder: str) -> List[str]:
     """Build-folder-relative paths of files referencing the platform test helper."""
     violations = []
     for root, directories, file_names in os.walk(build_folder):
-        directories[:] = [name for name in directories if name not in SKIPPED_DIRECTORIES]
+        directories[:] = [
+            name for name in directories if name not in SKIPPED_DIRECTORIES and name not in INTERNAL_TEST_DIRECTORIES
+        ]
         for file_name in file_names:
             path = os.path.join(root, file_name)
             relative = os.path.relpath(path, build_folder)

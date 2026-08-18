@@ -35,7 +35,11 @@ def print_exit_summary(
     msg += format_usage_summary(run_state.rendered_functionalities, run_state.render_time_accumulated) + "\n"
     console.print(msg)
 
-    if not run_state.render_succeeded and error_message:
+    # Reported whenever there is one. A render can finish its functionalities and still
+    # raise on the way out — publishing the build, for instance — and that combination
+    # used to print the success banner and swallow the reason entirely, leaving a caller
+    # with a tick mark and a non-zero exit code.
+    if error_message:
         console.error(error_message)
     console.quiet = True
 
@@ -70,7 +74,7 @@ def log_render_trailer(
         f"generated_code={run_state.render_generated_code_path or '-'} "
         f"spec={spec_filename}"
     )
-    if outcome == "failed" and error_message:
+    if error_message:
         logger.error(f"{RENDER_TRAILER_PREFIX} error={error_message}")
 
     # The process may exit immediately after this; an unflushed trailer would defeat the
