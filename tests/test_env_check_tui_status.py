@@ -1,4 +1,4 @@
-"""The environment preflight as the user sees it: one transient row in the module status box."""
+"""The environment preflight as the user sees it: a transient row in the rendering status box."""
 
 import asyncio
 
@@ -8,7 +8,7 @@ from plain2code_events import EnvironmentCheckCompleted, EnvironmentCheckStarted
 from plain2code_state import RunState
 from tui import plain2code_tui as tui_module
 from tui import widget_helpers
-from tui.components import FRIDProgress, ProgressItem, RenderingInfoBox, TUIComponents
+from tui.components import FRIDProgress, ProgressItem, TUIComponents
 from tui.plain2code_tui import Plain2CodeTUI
 
 
@@ -83,6 +83,8 @@ class TestTransientRow:
 
         widget_helpers.display_environment_check_completed(tui, passed=True)
 
+        # It runs once, so once it has passed it must not linger among the steps
+        # that repeat for every functionality.
         assert tui.item.removed
         assert tui.item.status is None
 
@@ -103,45 +105,34 @@ class TestTransientRow:
         assert f"#{TUIComponents.RENDER_STATUS_WIDGET.value}" not in tui.queried
 
 
-def mounted_dashboard(show_environment_check: bool):
-    """Mount the dashboard and return (module-status rows, per-functionality rows)."""
+def progress_rows(show_environment_check: bool) -> list[str]:
+    """Mount the dashboard and read the rendering status rows in the order they appear."""
     app = make_app(RecordingEventBus(), show_environment_check=show_environment_check)
-    found: dict = {}
+    rows: list[str] = []
 
     async def scenario():
         async with app.run_test():
-            info_box = app.query_one(RenderingInfoBox)
-            found["info_rows"] = [item.id for item in info_box.query(ProgressItem)]
-            state_machine = app.query_one(FRIDProgress)
-            found["frid_rows"] = [
-                item.id for item in state_machine.query(ProgressItem) if item.id not in found["info_rows"]
-            ]
+            rows.extend(item.id for item in app.query_one(FRIDProgress).query(ProgressItem))
 
     asyncio.run(scenario())
-    return found["info_rows"], found["frid_rows"]
+    return rows
 
 
 class TestRowPlacement:
-    def test_the_check_is_not_one_of_the_per_functionality_steps(self):
-        """It runs once per render, so it must not sit among the steps that repeat."""
-        _, frid_rows = mounted_dashboard(show_environment_check=True)
+    def test_the_check_leads_the_rendering_status_rows(self):
+        rows = progress_rows(show_environment_check=True)
 
-        assert TUIComponents.ENVIRONMENT_CHECK_ITEM.value not in frid_rows
-        assert frid_rows[0] == TUIComponents.FRID_PROGRESS_RENDER_FR.value
-
-    def test_the_check_rides_along_in_the_module_status_box(self):
-        info_rows, _ = mounted_dashboard(show_environment_check=True)
-
-        assert info_rows == [TUIComponents.ENVIRONMENT_CHECK_ITEM.value]
+        assert rows[0] == TUIComponents.ENVIRONMENT_CHECK_ITEM.value
+        assert rows[1] == TUIComponents.FRID_PROGRESS_RENDER_FR.value
 
     def test_nothing_is_added_when_the_check_is_skipped(self):
-        info_rows, frid_rows = mounted_dashboard(show_environment_check=False)
+        rows = progress_rows(show_environment_check=False)
 
-        assert info_rows == []
-        assert frid_rows[0] == TUIComponents.FRID_PROGRESS_RENDER_FR.value
+        assert TUIComponents.ENVIRONMENT_CHECK_ITEM.value not in rows
+        assert rows[0] == TUIComponents.FRID_PROGRESS_RENDER_FR.value
 
     def test_the_row_is_untouched_by_the_per_functionality_reset(self):
-        """FridReadyHandler resets the per-functionality rows; this one is not among them."""
+        """FridReadyHandler resets the rows that repeat; this one is not among them."""
         assert TUIComponents.ENVIRONMENT_CHECK_ITEM.value not in widget_helpers.FRID_PROGRESS_IDS
 
 

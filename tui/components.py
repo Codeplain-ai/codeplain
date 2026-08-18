@@ -142,7 +142,7 @@ class TUIComponents(str, Enum):
     RENDER_STATUS_WIDGET = "render-status-widget"
     RENDER_USAGE_WIDGET = "render-usage-widget"
 
-    # One-time render setup, shown inside the module status box until it is done
+    # One-time render setup, shown in the rendering status box until it is done
     ENVIRONMENT_CHECK_ITEM = "environment-check-item"
 
     # FRID Progress widgets
@@ -338,17 +338,12 @@ class ProgressItem(Vertical):
 class RenderingInfoBox(Vertical):
     """Responsive container for module and functionality information."""
 
-    ENVIRONMENT_CHECK_TEXT = "Checking the environment"
-
-    def __init__(self, show_environment_check: bool = False, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.module_text = ""
         self.functionality_text = ""
         self.module_widget: Static | None = None
         self.functionality_widget: Static | None = None
-        # The environment check runs once, before the first functionality. Its row
-        # lives here only until it passes, then it is removed.
-        self.show_environment_check = show_environment_check
 
     def update_module(self, text: str) -> None:
         """Update the module name display."""
@@ -379,11 +374,6 @@ class RenderingInfoBox(Vertical):
         self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row")
         yield Static("module status", classes="rendering-info-title")
         with Vertical(classes="rendering-info-box"):
-            if self.show_environment_check:
-                yield ProgressItem(
-                    self.ENVIRONMENT_CHECK_TEXT,
-                    id=TUIComponents.ENVIRONMENT_CHECK_ITEM.value,
-                )
             yield self.module_widget
             yield self.functionality_widget
 
@@ -455,6 +445,7 @@ class FRIDProgress(Vertical):
     """A widget to display the status of subcomponent tasks."""
 
     # Display text for progress items (UI-specific)
+    ENVIRONMENT_CHECK_TEXT = "Checking the environment"
     IMPLEMENTING_FUNCTIONALITY_TEXT = "Implementing the functionality"
     UNIT_TEST_VALIDATION_TEXT = "Unit tests"
     REFACTORING_TEXT = "Refactoring"
@@ -487,9 +478,17 @@ class FRIDProgress(Vertical):
         self.border_title = "FRID Progress"
 
     def compose(self):
-        yield RenderingInfoBox(show_environment_check=self.show_environment_check)
+        yield RenderingInfoBox()
         yield Static("rendering status", classes="frid-state-machine-title")
         with Vertical(classes="frid-state-machine-box"):
+            # The environment check runs once, before the first functionality, so its
+            # row is removed as soon as it passes -- what is left is the set of steps
+            # that really do repeat for every functionality.
+            if self.show_environment_check:
+                yield ProgressItem(
+                    self.ENVIRONMENT_CHECK_TEXT,
+                    id=TUIComponents.ENVIRONMENT_CHECK_ITEM.value,
+                )
             yield ProgressItem(
                 self.IMPLEMENTING_FUNCTIONALITY_TEXT,
                 id=TUIComponents.FRID_PROGRESS_RENDER_FR.value,
