@@ -52,6 +52,11 @@ MAX_PROFILE_ENTRIES = 4000
 # Outputs larger than this are excerpted from the tail only. Some scripts emit megabytes of build logs.
 MAX_OUTPUT_CHARS = 2_000_000
 
+# Retained line hashes per failure sketch. A bottom-k (KMV) sketch: the k smallest line hashes, which lets
+# Jaccard similarity be estimated from two sketches without keeping either output. Exact when both outputs
+# have fewer distinct lines than this, which is the common case.
+SKETCH_SIZE = 256
+
 EXCERPT_MAX_LINES = 60
 EXCERPT_MAX_CHARS = 4000
 
@@ -97,6 +102,16 @@ _DIGITS = re.compile(r"\d+")
 
 def _hash(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def hash_text(text: str) -> str:
+    """A short, stable key for arbitrary text. Used wherever an identity has to be compared, never reversed."""
+    return _hash(text)
+
+
+def hash_line(line: str) -> str:
+    """A short, stable key for one line of code or output, with per-run tokens masked out first."""
+    return _hash(mask_volatile(line))
 
 
 def mask_volatile(line: str) -> str:
@@ -343,3 +358,50 @@ def build_excerpt(output: str, max_lines: int = EXCERPT_MAX_LINES, max_chars: in
         excerpt += f"\n... [{omitted_lines} further lines omitted]"
 
     return excerpt
+
+
+def compute_skeleton_signature(output: str, exit_code: int) -> Optional[str]:
+    """Identity of a run's text with every number blinded, needing no profile.
+
+    The exact signature is defeated by a single unmasked integer that no targeted pattern anticipated - a
+    curl progress meter's transfer rate, a per-run counter in a setup step. Those are the numbers that vary
+    without the run meaning anything different, and there is no way to enumerate them in advance.
+
+    Blinding every digit is far too lossy for content, because it merges "expected 5" with "expected 6". As
+    an *additional* identity alongside the exact one it costs nothing: callers treat a match on either as a
+    repeat, so the only failures it can cause are the harmless kind the exact signature already catches.
+    """
+    normalized = normalize_output(output)
+    if not normalized:
+        return None
+
+    return _hash(f"skeleton:{exit_code}:{'|'.join(sorted(_hash(_skeleton(line)) for line in normalized))}")
+
+
+def compute_sketch(output: str) -> list[str]:
+    """A bounded, order-independent sketch of a run's lines, for estimating how similar two runs are.
+
+    Where the signatures answer "is this the same text?" with a yes or a no, the sketch supports a degree.
+    That matters because the failure modes in between are real: a handful of lines drift while the assertion
+    that matters stays put, and an all-or-nothing hash mints a new identity every round.
+    """
+    line_hashes = sorted({_hash(line) for line in normalize_output(output)})
+    return line_hashes[:SKETCH_SIZE]
+
+
+def sketch_similarity(one: list[str], other: list[str]) -> float:
+    """Jaccard similarity of two sketches, in [0, 1].
+
+    Exact when neither sketch was truncated; a bottom-k estimate when either was. Two empty sketches are
+    reported as dissimilar rather than identical - an absent answer must not read as a match.
+    """
+    if not one or not other:
+        return 0.0
+
+    set_one, set_other = set(one), set(other)
+    bottom_of_union = sorted(set_one | set_other)[:SKETCH_SIZE]
+    if not bottom_of_union:
+        return 0.0
+
+    shared = sum(1 for line_hash in bottom_of_union if line_hash in set_one and line_hash in set_other)
+    return shared / len(bottom_of_union)

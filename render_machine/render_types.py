@@ -90,12 +90,17 @@ class ConformanceTestsRunningContext:
         self.regenerating_conformance_tests: bool = False
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
-        # Fingerprints and readable excerpt of the most recent conformance test run, computed when the tests
-        # are run and consumed when the resulting fix is journalled. The exact fingerprint is available from
-        # the first run; the distinctive one only once the project's boilerplate is known.
+        # Keys and readable excerpt of the most recent conformance test run, computed when the tests are run
+        # and consumed when the resulting fix is journalled. The verbatim and digit-blind keys and the sketch
+        # are available from the first run; the distinctive one only once the project's boilerplate is known.
         self.last_failure_signature: Optional[str] = None
+        self.last_failure_skeleton_signature: Optional[str] = None
+        self.last_failure_sketch: Optional[list[str]] = None
         self.last_failure_distinctive_signature: Optional[str] = None
         self.last_failure_excerpt: Optional[str] = None
+        self.last_failure_exit_code: Optional[int] = None
+        # Note id of the failure the current fix round is responding to, so the attempt can be linked to it.
+        self.last_failure_note_id: Optional[str] = None
         self.code_diff_files: Optional[dict[str, str]] = None
 
     def get_conformance_tests_json(self, module_name: str) -> dict:

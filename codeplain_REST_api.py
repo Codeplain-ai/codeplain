@@ -237,6 +237,8 @@ class CodeplainAPI:
         required_modules,
         unittests_issue,
         run_state: RunState,
+        phase_context: Optional[str] = None,
+        recent_implementation_changes: Optional[str] = None,
     ):
         endpoint_url = f"{self.api_url}/fix_unittests_issue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -250,6 +252,8 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "unittests_issue": unittests_issue,
             "unittest_batch_id": run_state.unittest_batch_id,
+            "phase_context": phase_context,
+            "recent_implementation_changes": recent_implementation_changes,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)

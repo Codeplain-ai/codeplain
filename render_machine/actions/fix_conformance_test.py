@@ -4,10 +4,17 @@ import diff_utils
 import file_utils
 import plain_spec
 from conformance_test_journal import (
+    LOOP_CONFORMANCE,
+    PHASE_INSIDE_CONFORMANCE_FIX,
     PROMPT_FILE_NAME,
-    TARGET_CONFORMANCE_TESTS,
-    TARGET_IMPLEMENTATION,
+    ROLE_IMPLEMENTATION,
+    ROLE_TEST,
+    VERDICT_CONFLICTING_ACCEPTANCE_TESTS,
+    VERDICT_CONFLICTING_REQUIREMENTS,
+    VERDICT_CONFORMANCE_TESTS,
+    VERDICT_IMPLEMENTATION_CODE,
     ConformanceTestJournal,
+    compute_spec_hash,
 )
 from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
@@ -40,27 +47,63 @@ class FixConformanceTest(BaseAction):
             return None
 
         return ConformanceTestJournal.load(
-            render_context.memory_manager.memory_folder, ctx.current_testing_module_name, ctx.current_testing_frid
+            render_context.memory_manager.memory_folder,
+            ctx.current_testing_module_name,
+            ctx.current_testing_frid,
+            spec_hash=compute_spec_hash(ctx.current_testing_frid_specifications),
         )
 
+    VERDICT_BY_ISSUE_REASON_CODE = {
+        ISSUE_REASON_CODE_CONFORMANCE_TESTS: VERDICT_CONFORMANCE_TESTS,
+        ISSUE_REASON_CODE_IMPLEMENTATION_CODE: VERDICT_IMPLEMENTATION_CODE,
+        ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS: VERDICT_CONFLICTING_REQUIREMENTS,
+        ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS: VERDICT_CONFLICTING_ACCEPTANCE_TESTS,
+    }
+
     @classmethod
-    def _record_attempt(cls, render_context: RenderContext, target: str, code_diff_files_content: dict) -> None:
+    def _record_round(
+        cls,
+        render_context: RenderContext,
+        issue_reason_code: int,
+        code_diff_files_content: dict,
+        failure_note: Optional[dict],
+    ) -> None:
         """Journal this round: the failure that prompted it, and the change made in response.
 
-        Recorded after the fix rather than before it, because only then is it known what the fix touched.
+        Recorded after the fix rather than before it, because only then is it known what the fix touched. The
+        keys identifying the failure are computed locally when the tests are run; the description of it comes
+        from the model that reviewed the fix, which read the same output.
         """
         ctx = render_context.conformance_tests_running_context
         journal = cls._load_journal(render_context)
         if journal is None:
             return
 
-        journal.record_attempt(
-            target=target,
-            files_changed=list(code_diff_files_content or {}),
-            diff_text="\n".join(code_diff_files_content.values()) if code_diff_files_content else None,
-            issue_signature=ctx.last_failure_signature,
-            issue_excerpt=ctx.last_failure_excerpt,
+        tags = failure_note or {}
+        failure_note_id = journal.record_failure(
+            loop=LOOP_CONFORMANCE,
+            exit_code=ctx.last_failure_exit_code if ctx.last_failure_exit_code is not None else 1,
+            exact_signature=ctx.last_failure_signature,
+            skeleton_signature=ctx.last_failure_skeleton_signature,
+            sketch=ctx.last_failure_sketch,
             distinctive_signature=ctx.last_failure_distinctive_signature,
+            tags=tags.get("failure_tags"),
+            statement=tags.get("failure_statement"),
+            evidence=tags.get("failure_evidence") or ctx.last_failure_excerpt,
+            canonical_fingerprint=tags.get("canonical_fingerprint"),
+        )
+        ctx.last_failure_note_id = failure_note_id
+
+        verdict = cls.VERDICT_BY_ISSUE_REASON_CODE.get(issue_reason_code, VERDICT_IMPLEMENTATION_CODE)
+        journal.record_attempt(
+            loop=LOOP_CONFORMANCE,
+            verdict=verdict,
+            code_diff_files_content=code_diff_files_content,
+            prompted_by=failure_note_id,
+            phase_context=PHASE_INSIDE_CONFORMANCE_FIX,
+            default_role=ROLE_TEST if verdict == VERDICT_CONFORMANCE_TESTS else ROLE_IMPLEMENTATION,
+            tags=tags.get("fix_tags"),
+            rationale=tags.get("fix_rationale"),
         )
         journal.save(render_context.memory_manager.memory_folder)
 
@@ -149,7 +192,7 @@ class FixConformanceTest(BaseAction):
             style=console.INPUT_STYLE,
         )
 
-        [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
+        fix_result = render_context.codeplain_api.fix_conformance_tests_issue(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
             render_context.plain_source_tree,
@@ -169,6 +212,11 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.conflicting_requirement_count,
             run_state=render_context.run_state,
         )
+        # A third element carries the round's failure note. Unpacked tolerantly so that a server which does
+        # not yet send one degrades to a journal without descriptions rather than to a crash.
+        issue_reason_code, response_files = fix_result[0], fix_result[1]
+        failure_note = fix_result[2] if len(fix_result) > 2 else None
+
         code_diff_files_content = {}
 
         if (
@@ -196,7 +244,7 @@ class FixConformanceTest(BaseAction):
             code_diff_files_content = diff_utils.get_code_diff(response_files, existing_conformance_test_files_content)
             render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
 
-            self._record_attempt(render_context, TARGET_CONFORMANCE_TESTS, code_diff_files_content)
+            self._record_round(render_context, issue_reason_code, code_diff_files_content, failure_note)
 
             return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
         else:
@@ -217,12 +265,12 @@ class FixConformanceTest(BaseAction):
                 ctx.test_that_triggered_code_change = (ctx.current_testing_module_name, ctx.current_testing_frid)
                 ctx.execution_phase = TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
 
-                self._record_attempt(render_context, TARGET_IMPLEMENTATION, code_diff_files_content)
+                self._record_round(render_context, issue_reason_code, code_diff_files_content, failure_note)
 
                 return self.IMPLEMENTATION_CODE_UPDATED, None
             else:
                 # A round that changed nothing is still a round, and knowing it happened is what stops the
                 # same barren approach being taken again.
-                self._record_attempt(render_context, TARGET_IMPLEMENTATION, {})
+                self._record_round(render_context, issue_reason_code, {}, failure_note)
 
                 return self.IMPLEMENTATION_CODE_NOT_UPDATED, None

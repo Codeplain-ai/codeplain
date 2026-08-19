@@ -8,6 +8,7 @@ used by the CodeRenderer to orchestrate the code generation workflow.
 from typing import Any, Callable, Dict, List
 
 import git_utils
+from conformance_test_journal import PHASE_IMPLEMENTATION, PHASE_INSIDE_CONFORMANCE_FIX, PHASE_REFACTORING
 from render_machine import triggers
 from render_machine.actions.analyze_specification_ambiguity import AnalyzeSpecificationAmbiguity
 from render_machine.actions.commit_conformance_tests_changes import CommitConformanceTestsChanges
@@ -38,13 +39,17 @@ class StateMachineConfig:
             States.RENDER_INITIALISED.value: PrepareRepositories(),
             f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}": RenderFunctionalRequirement(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(
+                phase_context=PHASE_IMPLEMENTATION
+            ),
             f"{States.IMPLEMENTING_FRID.value}_{States.STEP_COMPLETED.value}": CommitImplementationCodeChanges(
                 git_utils.FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE
             ),
             f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.READY_FOR_REFACTORING.value}": RefactorCode(),
             f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(
+                phase_context=PHASE_REFACTORING
+            ),
             f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.STEP_COMPLETED.value}": CommitImplementationCodeChanges(
                 git_utils.REFACTORED_CODE_COMMIT_MESSAGE
             ),
@@ -62,7 +67,9 @@ class StateMachineConfig:
                 git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
             ),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(
+                phase_context=PHASE_INSIDE_CONFORMANCE_FIX
+            ),
             States.RENDER_COMPLETED.value: CreateDist(),
             States.RENDER_FAILED.value: ExitWithError(),
         }

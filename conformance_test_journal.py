@@ -1,24 +1,35 @@
-"""A record of what has already been tried while fixing one functionality's conformance tests.
+"""A record of what has already been tried while fixing one functionality's tests.
 
 The fixer sees the current test output, the current test code and the current implementation. What it cannot
 see is everything that led to them: the changes made in earlier rounds, whether each one moved the failure,
 and which hypotheses are already exhausted. Without that it re-tries approaches that have already failed, and
 the cumulative diff of the reverted attempts is invisible because only the surviving state remains on disk.
 
-The journal is written mechanically from data the renderer already holds - the diff of each fix, the reason
-code saying whether the fix targeted the tests or the implementation, and the failure that prompted it. No
-model call is involved in maintaining it.
+The journal holds two kinds of note, because "have we seen this failure before?" and "have we tried this fix
+before?" are different questions over different evidence:
 
-Failure text is stored once per distinct failure and referenced by signature, so a twenty round loop that
-cycles through three failures stores three excerpts rather than twenty. That is also what makes "this is the
-failure we already saw in round 4" fall out of the record instead of having to be inferred.
+* A **failure note** - one observed test failure. Recorded once per distinct failure and referenced by every
+  round it prompted, so a twenty round loop cycling three failures stores three notes rather than twenty.
+* An **attempt note** - one change that was applied and run. Rejected proposals are not recorded; an attempt
+  note is always something that actually reached disk.
 
-Recognising a repeat therefore has to work from the very first round, and in particular without the project's
+Each note follows the same four-part shape:
+
+* ``k`` - keys. Computed mechanically from the output or the diff, so they are a pure function of what
+  happened. Identity has to be deterministic: two byte-identical runs must key alike, and a key must be
+  recomputable under a later comparison rule. Nothing here is model-generated.
+* ``g`` - tags. Supplied by the model that reviewed the round, drawn from closed vocabularies so that two
+  notes can be compared without an embedding index.
+* ``x`` - content. What a reader needs: the failure in the model's words plus the lines it identified as the
+  failure, or the diff plus why it was made.
+* ``l`` - links. Which other notes this one stands in a relationship to. The load-bearing links (repeats,
+  reverts, contradictions) are derived from ``k`` by set arithmetic, never asserted by a model, because a
+  hallucinated revert edge would stop a render.
+
+Recognising a repeat has to work from the very first round, and in particular without the project's
 boilerplate profile: a module's first functionality has no passing run to learn boilerplate from, and that is
-exactly where a fix loop is most likely to grind. So identity comes primarily from the run's own normalized
-text, which needs nothing, and the profile only adds the ability to recognise a failure whose surrounding text
-has moved on. When the failure has stood unchanged for several rounds the journal says so at the top, because
-that single fact is worth more than the list of rows it is derived from.
+exactly where a fix loop is most likely to grind. So identity comes from the run's own text three ways at
+once - verbatim, digit-blind, and by similarity - and a match on any of them is a repeat.
 
 The journal covers one functionality and is discarded once that functionality's tests pass, at which point
 the durable lessons are extracted from it. It is deliberately kept outside the folder memory files are read
@@ -27,6 +38,7 @@ from, so that it is fed to a prompt only where it is wanted.
 
 import json
 import os
+import re
 from typing import Any, Optional
 
 import failure_signature
@@ -34,66 +46,209 @@ from plain2code_console import console
 
 JOURNAL_SUBFOLDER = "conformance_test_journal"
 
-# Distinct failures whose text is retained. A fix loop that produces more distinct failures than this is
-# thrashing, and the oldest ones have stopped being informative.
-MAX_DISTINCT_ISSUES = 8
+# Bumped whenever the note shape changes. A journal written by an older version is discarded rather than
+# migrated: it describes a codebase that has since moved, and half-read history is worse than none.
+JOURNAL_VERSION = 2
 
-# Failure excerpts are held for the whole loop and several may be live at once, so they are capped tighter
+# Distinct failures whose notes are retained. A loop producing more distinct failures than this is thrashing,
+# and the oldest ones have stopped being informative. Notes still in play are never evicted - see
+# _evict_surplus_failures.
+MAX_FAILURE_NOTES = 12
+
+# Failure evidence is held for the whole loop and several notes may be live at once, so it is capped tighter
 # than a single excerpt shown on its own would be.
-ISSUE_EXCERPT_MAX_LINES = 40
-ISSUE_EXCERPT_MAX_CHARS = 2000
+EVIDENCE_MAX_LINES = 40
+EVIDENCE_MAX_CHARS = 2000
 
-# Rounds whose diff is kept in full. Older changes are usually still visible in the current code; what the
-# recent diffs uniquely preserve are the intermediate and reverted states that are not.
+# Rounds whose diff is kept in full, plus any round involved in a revert. Older changes are usually still
+# visible in the current code; what the recent and reverted diffs uniquely preserve are the intermediate
+# states that are not.
 ROUNDS_WITH_FULL_DIFF = 5
-DIFF_MAX_CHARS = 1500
+DIFF_MAX_CHARS_PER_FILE = 1200
+DIFF_MAX_CHARS = 3000
+
+# How alike two runs' sketches must be to count as the same failure. Deliberately near-identical: similarity
+# over whole outputs is dominated by whatever boilerplate they share, so a conformance failure and a unit
+# failure differing in one line out of thirty score 0.94 while being nothing alike. The verbatim and
+# digit-blind keys do the real work; this only catches drift that neither of them anticipated. Treating two
+# runs as distinct is the harmless direction - it costs a little context, where a wrong merge costs
+# correctness.
+SAME_FAILURE_SIMILARITY = 0.98
+
+# Similarity at which two *distinct* failures are worth mentioning as possibly related. Advisory only.
+RELATED_FAILURE_SIMILARITY = 0.90
+
+# How alike one attempt's additions must be to another's removals to call it a revert.
+REVERT_SIMILARITY = 0.80
 
 # Consecutive attempts against an unchanged failure before the journal says so in its own right, rather than
 # leaving it to be inferred from a long list of rows. Two in a row is noise; three is a pattern.
 MIN_REPEATS_TO_REPORT_A_STALL = 3
 
-TARGET_CONFORMANCE_TESTS = "conformance tests"
-TARGET_IMPLEMENTATION = "implementation"
+# Periods checked when looking for a loop that alternates between failures rather than repeating one. An
+# A-B-A-B oscillation never shows an unbroken run, so counting repeats alone cannot see it.
+CYCLE_PERIODS = (2, 3)
+
+# Rendered journal size. A monotonically growing block would make the longest, least converging loops the
+# most expensive per round, which is the wrong way round.
+PROMPT_BYTE_BUDGET = 12000
+ATTEMPTS_ALWAYS_RENDERED = 4
+
+LOOP_CONFORMANCE = "conformance"
+LOOP_UNIT = "unit"
+
+PHASE_IMPLEMENTATION = "implementation"
+PHASE_REFACTORING = "refactoring"
+PHASE_INSIDE_CONFORMANCE_FIX = "inside_conformance_fix"
+
+VERDICT_CONFORMANCE_TESTS = "CONFORMANCE_TESTS"
+VERDICT_IMPLEMENTATION_CODE = "IMPLEMENTATION_CODE"
+VERDICT_CONFLICTING_REQUIREMENTS = "CONFLICTING_REQUIREMENTS"
+VERDICT_CONFLICTING_ACCEPTANCE_TESTS = "CONFLICTING_ACCEPTANCE_TESTS"
+VERDICT_UNIT_TESTS = "UNIT_TESTS"
+
+ROLE_TEST = "test"
+ROLE_IMPLEMENTATION = "impl"
+
+CHANGE_MODIFIED = "modified"
+CHANGE_CREATED = "created"
+CHANGE_DELETED = "deleted"
 
 PROMPT_FILE_NAME = "conformance_test_journal.md"
+
+# Deliberately loose and language agnostic. Used only to notice that a change removed more assertions than it
+# added, which is the shape of a fix that weakens a test rather than repairing one.
+_ASSERTION_LINE = re.compile(
+    r"\b(assert\w*|expect|expects|should\w*|verify|verifyThat|require|check\w*|must\w*|EXPECT_\w+|ASSERT_\w+)\b",
+    re.IGNORECASE,
+)
+
+_DELETED_FILE_DIFF = re.compile(r"^File .* was deleted\.$")
 
 
 def _safe_name(value: str) -> str:
     return "".join(character if character.isalnum() or character in "._-" else "_" for character in value)
 
 
-class ConformanceTestJournal:
-    """Append-only record of the fix rounds for one (module, functionality) pair."""
+def _looks_like_a_test_path(path: str) -> bool:
+    lowered = path.lower()
+    return "test" in lowered or "spec" in lowered
 
-    def __init__(self, module_name: str, frid: str, attempts: Optional[list] = None, issues: Optional[dict] = None):
+
+def describe_change(file_name: str, diff_text: str) -> dict[str, Any]:
+    """The shape of one file's change, as keys that can be compared with another change's keys.
+
+    A diff arrives in one of three forms - a unified diff for a file that was edited, the whole content for a
+    file that was created, and a sentence for one that was deleted. They are told apart here so that every
+    change ends up described the same way, whichever form it arrived in.
+    """
+    added: list[str] = []
+    removed: list[str] = []
+    change = CHANGE_MODIFIED
+
+    if not diff_text:
+        added_lines: list[str] = []
+        removed_lines: list[str] = []
+    elif _DELETED_FILE_DIFF.match(diff_text.strip()):
+        change = CHANGE_DELETED
+        added_lines = []
+        removed_lines = []
+    elif diff_text.startswith("--- ") or "\n@@" in diff_text or diff_text.startswith("@@"):
+        added_lines = []
+        removed_lines = []
+        for line in diff_text.splitlines():
+            if line.startswith("+++") or line.startswith("---"):
+                continue
+            if line.startswith("+"):
+                added_lines.append(line[1:])
+            elif line.startswith("-"):
+                removed_lines.append(line[1:])
+    else:
+        # No diff markers: the renderer hands back whole content for a file that did not exist before.
+        change = CHANGE_CREATED
+        added_lines = diff_text.splitlines()
+        removed_lines = []
+
+    added = sorted({failure_signature.hash_line(line) for line in added_lines if line.strip()})
+    removed = sorted({failure_signature.hash_line(line) for line in removed_lines if line.strip()})
+
+    assertions_added = sum(1 for line in added_lines if _ASSERTION_LINE.search(line))
+    assertions_removed = sum(1 for line in removed_lines if _ASSERTION_LINE.search(line))
+
+    return {
+        "path": file_name,
+        "role": ROLE_TEST if _looks_like_a_test_path(file_name) else ROLE_IMPLEMENTATION,
+        "change": change,
+        "added": added,
+        "removed": removed,
+        "assert_delta": assertions_added - assertions_removed,
+    }
+
+
+class ConformanceTestJournal:
+    """The notes recorded while fixing one (module, functionality) pair."""
+
+    def __init__(
+        self,
+        module_name: str,
+        frid: str,
+        spec_hash: Optional[str] = None,
+        failures: Optional[dict] = None,
+        attempts: Optional[list] = None,
+    ):
         self.module_name = module_name
         self.frid = frid
+        self.spec_hash = spec_hash
+        self.failures: dict[str, dict[str, Any]] = failures or {}
         self.attempts: list[dict[str, Any]] = attempts or []
-        # signature (or a per-round stand-in) -> failure excerpt
-        self.issues: dict[str, str] = issues or {}
+
+    # ========== persistence ==========
 
     @staticmethod
     def journal_path(memory_folder: str, module_name: str, frid: str) -> str:
         return os.path.join(memory_folder, JOURNAL_SUBFOLDER, _safe_name(module_name), f"{_safe_name(frid)}.json")
 
     @classmethod
-    def load(cls, memory_folder: str, module_name: str, frid: str) -> "ConformanceTestJournal":
+    def load(
+        cls, memory_folder: str, module_name: str, frid: str, spec_hash: Optional[str] = None
+    ) -> "ConformanceTestJournal":
+        """The journal for this functionality, or an empty one.
+
+        A journal is discarded rather than read when it was written by an earlier version of this format, or
+        when the functionality's specification has changed since. The second case matters: the journal
+        survives a failed render, and after the user has edited the specification in response to that failure
+        every note in it is advice about a contract that no longer exists.
+        """
         path = cls.journal_path(memory_folder, module_name, frid)
         if not os.path.exists(path):
-            return cls(module_name, frid)
+            return cls(module_name, frid, spec_hash)
 
         try:
             with open(path, "r", encoding="utf-8") as journal_file:
                 content = json.load(journal_file)
-            return cls(
-                module_name=content.get("module", module_name),
-                frid=content.get("frid", frid),
-                attempts=content.get("attempts", []),
-                issues=content.get("issues", {}),
-            )
         except (json.JSONDecodeError, OSError, AttributeError) as exception:
             console.debug(f"Could not read the conformance test journal at {path}: {exception}. Starting a new one.")
-            return cls(module_name, frid)
+            return cls(module_name, frid, spec_hash)
+
+        if content.get("version") != JOURNAL_VERSION:
+            console.debug(f"The conformance test journal at {path} predates the current format. Starting a new one.")
+            return cls(module_name, frid, spec_hash)
+
+        recorded_spec_hash = content.get("spec_hash")
+        if spec_hash is not None and recorded_spec_hash is not None and recorded_spec_hash != spec_hash:
+            console.debug(
+                f"The specification of functionality {frid} has changed since the conformance test journal at "
+                f"{path} was written. Starting a new one."
+            )
+            return cls(module_name, frid, spec_hash)
+
+        return cls(
+            module_name=content.get("module", module_name),
+            frid=content.get("frid", frid),
+            spec_hash=recorded_spec_hash or spec_hash,
+            failures=content.get("failures", {}),
+            attempts=content.get("attempts", []),
+        )
 
     def save(self, memory_folder: str) -> None:
         path = self.journal_path(memory_folder, self.module_name, self.frid)
@@ -101,7 +256,14 @@ class ConformanceTestJournal:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as journal_file:
                 json.dump(
-                    {"module": self.module_name, "frid": self.frid, "issues": self.issues, "attempts": self.attempts},
+                    {
+                        "version": JOURNAL_VERSION,
+                        "module": self.module_name,
+                        "frid": self.frid,
+                        "spec_hash": self.spec_hash,
+                        "failures": self.failures,
+                        "attempts": self.attempts,
+                    },
                     journal_file,
                     indent=2,
                 )
@@ -116,183 +278,645 @@ class ConformanceTestJournal:
         except OSError as exception:
             console.debug(f"Could not delete the conformance test journal at {path}: {exception}.")
 
-    def record_attempt(
-        self,
-        target: str,
-        files_changed: list[str],
-        diff_text: Optional[str] = None,
-        issue_signature: Optional[str] = None,
-        issue_excerpt: Optional[str] = None,
-        distinctive_signature: Optional[str] = None,
-    ) -> None:
-        """Record one fix round: the failure that prompted it and the change it made in response.
+    # ========== recording ==========
 
-        Two identities are kept for the failure. The exact one is always available and recognises a failure
-        that recurs verbatim. The distinctive one appears only once the project's boilerplate is known and
-        recognises the same failure amid text that has changed around it. A match on either makes it a repeat.
+    def record_failure(
+        self,
+        loop: str,
+        exit_code: int,
+        exact_signature: Optional[str] = None,
+        skeleton_signature: Optional[str] = None,
+        sketch: Optional[list[str]] = None,
+        distinctive_signature: Optional[str] = None,
+        tags: Optional[dict] = None,
+        statement: Optional[str] = None,
+        evidence: Optional[str] = None,
+        canonical_fingerprint: Optional[str] = None,
+    ) -> str:
+        """Record an observed failure and return its note id, reusing the note if it has been seen before.
+
+        Reusing the id *is* the record that this failure has recurred; there is no separate "same as" link to
+        assert or to get wrong. Which rule matched is kept so that a merge can be explained after the fact.
         """
         round_number = len(self.attempts) + 1
+        keys = {
+            "loop": loop,
+            "exit_code": exit_code,
+            "exact_sig": exact_signature,
+            "skeleton_sig": skeleton_signature,
+            "distinctive_sig": distinctive_signature,
+            "sketch": sketch or [],
+            "fingerprint_sig": failure_signature.hash_text(canonical_fingerprint) if canonical_fingerprint else None,
+        }
 
-        # Only when the run produced no usable output at all is there no identity; file it under a key that
-        # cannot collide, so its text survives without being mistaken for a repeat of anything.
-        issue_key = issue_signature or f"round-{round_number}"
-        if issue_excerpt:
-            self.issues.setdefault(issue_key, issue_excerpt)
+        existing_id, matched_by = self._find_matching_failure(keys)
+        if existing_id is not None:
+            note = self.failures[existing_id]
+            note["last_round"] = round_number
+            note["seen_count"] = note.get("seen_count", 1) + 1
+            note["matched_by"] = matched_by
+            # A later observation may carry a description where an earlier one had none.
+            if statement and not note["x"].get("statement"):
+                note["x"]["statement"] = statement
+            if evidence and not note["x"].get("evidence"):
+                note["x"]["evidence"] = evidence
+            if tags and not note.get("g"):
+                note["g"] = tags
+            return existing_id
 
-        self.attempts.append(
-            {
-                "round": round_number,
-                "target": target,
-                "files_changed": sorted(files_changed),
-                "diff": diff_text[:DIFF_MAX_CHARS] if diff_text else None,
-                "issue": issue_key,
-                "distinctive_issue": distinctive_signature,
-            }
-        )
+        note_id = f"F{len(self.failures) + 1}"
+        self.failures[note_id] = {
+            "k": keys,
+            "g": tags or {},
+            "x": {"statement": statement, "evidence": self._cap_evidence(evidence)},
+            "l": {"same_root_cause_as": []},
+            "first_round": round_number,
+            "last_round": round_number,
+            "seen_count": 1,
+            "matched_by": None,
+        }
+        self._link_failure_by_fingerprint(note_id)
+        return note_id
 
+    def record_attempt(
+        self,
+        loop: str,
+        verdict: str,
+        code_diff_files_content: Optional[dict] = None,
+        prompted_by: Optional[str] = None,
+        phase_context: Optional[str] = None,
+        default_role: Optional[str] = None,
+        tags: Optional[dict] = None,
+        rationale: Optional[str] = None,
+    ) -> str:
+        """Record one applied change and return its note id.
+
+        Recorded after the change rather than before it, because only then is it known what it touched. A
+        round that changed nothing is still recorded: knowing a barren approach was taken is what stops it
+        being taken again.
+        """
+        round_number = len(self.attempts) + 1
+        note_id = f"A{round_number}"
+
+        changes = [describe_change(file_name, diff) for file_name, diff in (code_diff_files_content or {}).items()]
+        if default_role:
+            for change in changes:
+                change["role"] = default_role
+
+        keys = {
+            "verdict": verdict,
+            "fix_signature": self._fix_signature(changes),
+            "files": changes,
+        }
+
+        note = {
+            "id": note_id,
+            "round": round_number,
+            "loop": loop,
+            "phase_context": phase_context,
+            "k": keys,
+            "g": tags or {},
+            "x": {
+                "diff": self._cap_diff(code_diff_files_content or {}),
+                "rationale": rationale,
+            },
+            "l": {
+                "prompted_by": prompted_by,
+                "reverts": None,
+                "contradicts": None,
+                "same_approach_as": [],
+                "outcome_observed_in": None,
+            },
+        }
+
+        self.attempts.append(note)
+        self._link_attempt(note)
+        self._record_outcome_of_previous_attempt(note)
         self._drop_diffs_from_older_rounds()
-        self._evict_surplus_issues()
+        self._evict_surplus_failures()
+        return note_id
 
-    def _drop_diffs_from_older_rounds(self) -> None:
-        for attempt in self.attempts[:-ROUNDS_WITH_FULL_DIFF]:
-            attempt["diff"] = None
+    # ========== identity ==========
 
-    def _evict_surplus_issues(self) -> None:
-        if len(self.issues) <= MAX_DISTINCT_ISSUES:
+    def _find_matching_failure(self, keys: dict) -> tuple[Optional[str], Optional[str]]:
+        """The note recording this same failure, if one exists, and which rule recognised it.
+
+        Three routes, tried cheapest first. Any one of them is enough: the exact key recognises a failure
+        that recurs verbatim, the digit-blind key recognises one whose only difference is a number nothing
+        anticipated, and the sketch recognises one surfacing amid text that has moved on around it.
+        """
+        for note_id, note in self.failures.items():
+            recorded = note["k"]
+            # Different suites produce different failures by definition, however alike their text.
+            if recorded.get("loop") != keys.get("loop"):
+                continue
+            if recorded.get("exit_code") != keys.get("exit_code"):
+                continue
+
+            if keys.get("exact_sig") and recorded.get("exact_sig") == keys["exact_sig"]:
+                return note_id, "exact"
+            if keys.get("skeleton_sig") and recorded.get("skeleton_sig") == keys["skeleton_sig"]:
+                return note_id, "skeleton"
+            if keys.get("distinctive_sig") and recorded.get("distinctive_sig") == keys["distinctive_sig"]:
+                return note_id, "distinctive"
+
+            similarity = failure_signature.sketch_similarity(recorded.get("sketch") or [], keys.get("sketch") or [])
+            if similarity >= SAME_FAILURE_SIMILARITY:
+                return note_id, f"similarity:{similarity:.2f}"
+
+        return None, None
+
+    def _link_failure_by_fingerprint(self, note_id: str) -> None:
+        """Link failures the model gave the same canonical description, as an advisory relationship only.
+
+        A model's phrasing is not guaranteed stable between rounds, so this is never allowed to make two
+        failures the same failure - it only lets the journal say they look related.
+        """
+        fingerprint = self.failures[note_id]["k"].get("fingerprint_sig")
+        if not fingerprint:
             return
 
-        most_recent_use: dict[str, int] = {}
-        first_use: dict[str, int] = {}
-        for attempt in self.attempts:
-            key = attempt.get("issue")
-            if key:
-                most_recent_use[key] = attempt["round"]
-                first_use.setdefault(key, attempt["round"])
-
-        # The failures still in play are the recently referenced ones, but the one the loop started on is
-        # what says where it went wrong, so it is kept whatever its age.
-        by_recency = sorted(self.issues, key=lambda key: most_recent_use.get(key, 0), reverse=True)
-        earliest = min(self.issues, key=lambda key: first_use.get(key, 0))
-        retained = list(dict.fromkeys([earliest] + by_recency))[:MAX_DISTINCT_ISSUES]
-        self.issues = {key: self.issues[key] for key in retained}
+        for other_id, other in self.failures.items():
+            if other_id == note_id:
+                continue
+            if other["k"].get("fingerprint_sig") == fingerprint:
+                self.failures[note_id]["l"]["same_root_cause_as"].append(other_id)
+                other["l"].setdefault("same_root_cause_as", []).append(note_id)
 
     @staticmethod
-    def _same_failure(one: dict, other: dict) -> bool:
-        """Whether two attempts were prompted by the same failure.
+    def _fix_signature(changes: list[dict]) -> Optional[str]:
+        if not changes:
+            return None
 
-        Either identity is enough. The exact one catches a failure recurring verbatim; the distinctive one
-        catches it recurring amid text that has moved on. A stand-in key minted for a round with no usable
-        output starts with "round-" and matches nothing, itself included.
+        parts = []
+        for change in sorted(changes, key=lambda item: item["path"]):
+            parts.append(f"{change['path']}:{','.join(change['added'])}:{','.join(change['removed'])}")
+        return failure_signature.hash_text("fix:" + "|".join(parts))
+
+    def _link_attempt(self, note: dict) -> None:
+        """Derive this attempt's relationships to earlier ones from its keys alone.
+
+        Links are recorded on the later note only. Writing them to both ends looks harmless until the loop
+        actually oscillates, at which point every attempt reverts several earlier ones and each write
+        overwrites the last, leaving a record of pairs that were never pairs.
         """
-        one_key, other_key = one.get("issue"), other.get("issue")
-        if one_key and other_key and one_key == other_key and not str(one_key).startswith("round-"):
+        for earlier in reversed(self.attempts[:-1]):
+            if self._is_revert_of(note, earlier):
+                note["l"]["reverts"] = earlier["id"]
+                # A revert across loop boundaries is the two fix loops undoing each other, which neither can
+                # see from its own history.
+                if earlier["loop"] != note["loop"]:
+                    note["l"]["contradicts"] = earlier["id"]
+                break
+
+        for earlier in self.attempts[:-1]:
+            if self._is_same_approach(note, earlier):
+                note["l"]["same_approach_as"].append(earlier["id"])
+
+    @staticmethod
+    def _is_revert_of(note: dict, earlier: dict) -> bool:
+        """Whether this attempt put back what an earlier one took out, and took out what it put in."""
+        earlier_by_path = {change["path"]: change for change in earlier["k"]["files"]}
+        overlapping = [change for change in note["k"]["files"] if change["path"] in earlier_by_path]
+        if not overlapping:
+            return False
+
+        for change in overlapping:
+            other = earlier_by_path[change["path"]]
+            if not change["added"] and not change["removed"]:
+                return False
+            forward = failure_signature.sketch_similarity(change["added"], other["removed"])
+            backward = failure_signature.sketch_similarity(change["removed"], other["added"])
+            if forward < REVERT_SIMILARITY or backward < REVERT_SIMILARITY:
+                return False
+
+        return True
+
+    @staticmethod
+    def _is_same_approach(note: dict, earlier: dict) -> bool:
+        if note["k"]["fix_signature"] and note["k"]["fix_signature"] == earlier["k"]["fix_signature"]:
             return True
 
-        one_distinctive, other_distinctive = one.get("distinctive_issue"), other.get("distinctive_issue")
-        return bool(one_distinctive) and one_distinctive == other_distinctive
+        approach = note["g"].get("approach")
+        if not approach or approach != earlier["g"].get("approach"):
+            return False
 
-    def first_round_with_same_failure(self, attempt: dict) -> Optional[int]:
-        """The earliest round prompted by the same failure as this one, if any earlier round was."""
-        for earlier in self.attempts:
-            if earlier["round"] >= attempt["round"]:
-                break
-            if self._same_failure(earlier, attempt):
-                return int(earlier["round"])
-        return None
+        return {change["path"] for change in note["k"]["files"]} == {change["path"] for change in earlier["k"]["files"]}
 
-    def unbroken_repeat_run(self) -> tuple[Optional[int], int]:
-        """How long the failure has stood unchanged: (round it was first seen, consecutive attempts since).
+    def _record_outcome_of_previous_attempt(self, note: dict) -> None:
+        """What the previous attempt achieved is only knowable once the next failure has been observed."""
+        if len(self.attempts) < 2:
+            return
 
-        Measured from the most recent attempt backwards, because what matters is whether the loop is stuck
-        now, not whether it was stuck earlier and then moved on.
+        previous = self.attempts[-2]
+        current_failure = note["l"].get("prompted_by")
+        if not current_failure:
+            return
+
+        previous["l"]["outcome_observed_in"] = current_failure
+
+    # ========== eviction ==========
+
+    def _drop_diffs_from_older_rounds(self) -> None:
+        protected = {attempt["id"] for attempt in self.attempts[-ROUNDS_WITH_FULL_DIFF:]}
+        for attempt in self.attempts:
+            reverts = attempt["l"].get("reverts")
+            if reverts:
+                # Both ends: what a revert uniquely preserves is the state that is no longer on disk.
+                protected.add(attempt["id"])
+                protected.add(reverts)
+
+        for attempt in self.attempts:
+            if attempt["id"] not in protected:
+                attempt["x"]["diff"] = {}
+
+    def _evict_surplus_failures(self) -> None:
+        """Drop failure notes nothing still refers to, newest-referenced kept.
+
+        Notes are evicted whole, together with the rounds that referenced them, so no attempt is ever left
+        pointing at a note that is no longer there. A row saying its failure text has been forgotten spends
+        tokens telling the reader nothing.
         """
-        if not self.attempts:
-            return None, 0
+        if len(self.failures) <= MAX_FAILURE_NOTES:
+            return
 
-        latest = self.attempts[-1]
+        digest = self.analyze()
+        in_play = set(digest["failures_cycling"])
+        if digest["current_failure"]:
+            in_play.add(digest["current_failure"])
+
+        referenced_at: dict[str, int] = {}
+        for attempt in self.attempts:
+            prompted_by = attempt["l"].get("prompted_by")
+            if prompted_by:
+                referenced_at[prompted_by] = attempt["round"]
+
+        earliest = min(self.failures, key=lambda note_id: self.failures[note_id].get("first_round", 0))
+        by_recency = sorted(self.failures, key=lambda note_id: referenced_at.get(note_id, 0), reverse=True)
+        retained = list(dict.fromkeys(list(in_play) + [earliest] + by_recency))[:MAX_FAILURE_NOTES]
+
+        self.failures = {note_id: self.failures[note_id] for note_id in retained}
+        for note in self.failures.values():
+            note["l"]["same_root_cause_as"] = [
+                other for other in note["l"].get("same_root_cause_as", []) if other in self.failures
+            ]
+
+    @staticmethod
+    def _cap_evidence(evidence: Optional[str]) -> Optional[str]:
+        if not evidence:
+            return None
+
+        lines = evidence.splitlines()[:EVIDENCE_MAX_LINES]
+        capped = "\n".join(lines)
+        if len(capped) > EVIDENCE_MAX_CHARS:
+            capped = capped[:EVIDENCE_MAX_CHARS]
+            capped = capped[: capped.rfind("\n")] if "\n" in capped else capped
+        omitted = len(evidence.splitlines()) - len(capped.splitlines())
+        if omitted > 0:
+            capped += f"\n... [{omitted} further lines omitted]"
+        return capped
+
+    @staticmethod
+    def _cap_diff(code_diff_files_content: dict) -> dict[str, str]:
+        capped: dict[str, str] = {}
+        remaining = DIFF_MAX_CHARS
+        for file_name, diff in code_diff_files_content.items():
+            if remaining <= 0:
+                capped[file_name] = "... [diff omitted]"
+                continue
+            allowance = min(DIFF_MAX_CHARS_PER_FILE, remaining)
+            text = diff or ""
+            if len(text) > allowance:
+                text = text[:allowance] + "\n... [truncated]"
+            capped[file_name] = text
+            remaining -= len(text)
+        return capped
+
+    # ========== analysis ==========
+
+    def analyze(self) -> dict[str, Any]:
+        """What the shape of this loop says about whether it is getting anywhere."""
+        failure_sequence = [attempt["l"].get("prompted_by") for attempt in self.attempts]
+
+        return {
+            "rounds": len(self.attempts),
+            "rounds_by_loop": {
+                loop: sum(1 for attempt in self.attempts if attempt["loop"] == loop)
+                for loop in {attempt["loop"] for attempt in self.attempts}
+            },
+            "current_failure": failure_sequence[-1] if failure_sequence else None,
+            "stall_run": self._unbroken_repeat_run(failure_sequence),
+            "cycle": self._detect_cycle(failure_sequence),
+            "failures_cycling": self._failures_cycling(failure_sequence),
+            "revert_pairs": [
+                (attempt["l"]["reverts"], attempt["id"]) for attempt in self.attempts if attempt["l"].get("reverts")
+            ],
+            "contradiction_pairs": [
+                (attempt["l"]["contradicts"], attempt["id"])
+                for attempt in self.attempts
+                if attempt["l"].get("contradicts")
+            ],
+            "assertions_removed_in_rounds": [
+                attempt["round"]
+                for attempt in self.attempts
+                if any(change.get("assert_delta", 0) < 0 for change in attempt["k"]["files"])
+            ],
+        }
+
+    @staticmethod
+    def _unbroken_repeat_run(failure_sequence: list) -> int:
+        """How many attempts in a row the most recent failure has prompted, unchanged."""
+        if not failure_sequence or failure_sequence[-1] is None:
+            return 0
+
+        latest = failure_sequence[-1]
         consecutive = 0
-        for attempt in reversed(self.attempts):
-            if not self._same_failure(attempt, latest) and attempt is not latest:
+        for failure_id in reversed(failure_sequence):
+            if failure_id != latest:
                 break
             consecutive += 1
+        return consecutive
 
-        first_seen = self.first_round_with_same_failure(latest)
-        return (first_seen if first_seen is not None else latest["round"]), consecutive
+    @staticmethod
+    def _detect_cycle(failure_sequence: list) -> Optional[dict]:
+        """A repeating period in the failures, for a loop that alternates rather than stalling.
 
-    def render_for_prompt(self) -> Optional[str]:
-        """The journal as prose, or None when there is nothing worth saying yet."""
+        An unbroken run cannot see A-B-A-B: every attempt differs from the one before it, so by that measure
+        nothing is repeating, while in fact nothing is progressing either.
+        """
+        usable = [failure_id for failure_id in failure_sequence if failure_id]
+        for period in CYCLE_PERIODS:
+            needed = period * 2
+            if len(usable) < needed:
+                continue
+            window = usable[-needed:]
+            if window[:period] == window[period:] and len(set(window)) > 1:
+                return {"period": period, "failures": window[:period]}
+        return None
+
+    @classmethod
+    def _failures_cycling(cls, failure_sequence: list) -> list[str]:
+        cycle = cls._detect_cycle(failure_sequence)
+        if cycle:
+            return list(dict.fromkeys(cycle["failures"]))
+        if cls._unbroken_repeat_run(failure_sequence) >= MIN_REPEATS_TO_REPORT_A_STALL:
+            return [failure_sequence[-1]]
+        return []
+
+    # ========== rendering ==========
+
+    def render_for_prompt(self, byte_budget: int = PROMPT_BYTE_BUDGET) -> Optional[str]:
+        """The journal as prose, or None when there is nothing worth saying yet.
+
+        The digest comes first and is never truncated: that a loop has stopped converging is worth more than
+        any of the rows the conclusion was drawn from. Rows then fill whatever budget is left, chosen for
+        relevance to the failure in hand rather than taken in order.
+        """
         if not self.attempts:
             return None
 
+        digest = self.analyze()
         lines = [
-            f"# Previous attempts at fixing the conformance tests for functionality {self.frid} "
-            f"in module {self.module_name}",
+            f"# Previous attempts at fixing the tests for functionality {self.frid} in module {self.module_name}",
             "",
             "These attempts have already been made. Approaches recorded here as having failed should not be "
             "repeated unless there is a specific reason to believe the circumstances have changed.",
             "",
         ]
+        lines.extend(self._render_digest(digest))
 
-        lines.extend(self._render_stall_warning())
+        header = "\n".join(lines)
+        remaining = max(0, byte_budget - len(header))
 
-        for attempt in self.attempts:
-            round_number = attempt["round"]
-            lines.append(f"## Attempt {round_number}: changed the {attempt['target']}")
+        rendered_rows = []
+        # A failure's text is written out once however many rounds it prompted. Repeating it is how thirty-five
+        # rounds on one failure came to cost thirty-five copies of it.
+        failure_shown_at: dict[str, int] = {}
+        for attempt in self._attempts_worth_rendering(digest):
+            row = self._render_attempt(attempt, failure_shown_at)
+            if len(row) > remaining:
+                break
+            rendered_rows.append(row)
+            remaining -= len(row)
 
-            if attempt["files_changed"]:
-                lines.append(f"Files changed: {', '.join(attempt['files_changed'])}")
-            else:
-                lines.append("No files were changed.")
+        omitted = len(self.attempts) - len(rendered_rows)
+        body = "\n".join(rendered_rows)
+        if omitted > 0:
+            body += f"\n_{omitted} earlier attempts are summarised above but not listed individually._\n"
 
-            repeated_from = self.first_round_with_same_failure(attempt)
-            if repeated_from is not None:
-                lines.append(
-                    f"This attempt was prompted by the same failure as attempt {repeated_from}. Everything "
-                    f"changed in between left that failure exactly as it was."
-                )
+        return (header + "\n" + body).rstrip() + "\n"
 
-            excerpt = self.issues.get(attempt.get("issue") or "")
-            if repeated_from is None:
-                if excerpt:
-                    lines.append("")
-                    lines.append("The failure that prompted this attempt:")
-                    lines.append("```")
-                    lines.append(excerpt)
-                    lines.append("```")
-                else:
-                    # Say so rather than render a bare row, which reads as though nothing had failed.
-                    lines.append("The text of the failure that prompted this attempt is no longer retained.")
+    def render_recent_implementation_changes(self, limit: int = 3) -> Optional[str]:
+        """The implementation changes just made to satisfy a conformance test, for the unit-test fixer.
 
-            if attempt.get("diff"):
-                lines.append("")
-                lines.append("The change made:")
-                lines.append("```")
-                lines.append(attempt["diff"])
-                lines.append("```")
+        Without this the unit-test fixer is the least informed actor in the loop: it sees a unit test failing
+        against implementation code that was deliberately changed moments earlier, with no indication that the
+        change was intentional, and reasonably concludes the implementation is wrong. Restoring what the unit
+        test expected then breaks the conformance test again, and the two loops trade the same lines back and
+        forth without either being able to see the other's history.
+        """
+        deliberate = [
+            attempt
+            for attempt in self.attempts
+            if attempt["loop"] == LOOP_CONFORMANCE and attempt["k"]["verdict"] != VERDICT_CONFORMANCE_TESTS
+        ]
+        if not deliberate:
+            return None
 
+        lines = [
+            "# Implementation changes made to satisfy the conformance tests",
+            "",
+            "The changes below were made deliberately, to make a failing conformance test pass. They are the "
+            "behaviour the conformance tests require. A unit test that now fails because of one of them is "
+            "asserting the behaviour that was there before the change.",
+            "",
+        ]
+
+        for attempt in deliberate[-limit:]:
+            lines.append(
+                f"## Change {attempt['round']}: {', '.join(change['path'] for change in attempt['k']['files'])}"
+            )
+            prompted_by = attempt["l"].get("prompted_by")
+            if prompted_by:
+                lines.append(f"Made in response to: {self._describe_failure(prompted_by)}")
+            if attempt["g"].get("expected_effect"):
+                lines.append(f"Intended effect: {attempt['g']['expected_effect']}")
+            for file_name, diff in (attempt["x"].get("diff") or {}).items():
+                lines.extend([f"`{file_name}`:", "```", diff, "```"])
             lines.append("")
 
         return "\n".join(lines).rstrip() + "\n"
 
-    def _render_stall_warning(self) -> list[str]:
-        """The one thing a stuck loop most needs told, placed where it cannot be missed."""
-        first_seen, consecutive = self.unbroken_repeat_run()
-        if consecutive < MIN_REPEATS_TO_REPORT_A_STALL or first_seen is None:
-            return []
+    def _attempts_worth_rendering(self, digest: dict) -> list[dict]:
+        """The rounds that carry information about the situation now, most recent first."""
+        relevant_ids: list[str] = []
 
-        return [
-            f"## The failure has not changed for {consecutive} attempts",
-            "",
-            f"Every attempt from {first_seen} onwards has been prompted by the same failure, unchanged. None of "
-            "the changes made across those attempts affected it at all.",
-            "",
-            "Continuing to vary the same code is therefore unlikely to help. Whatever is failing has not yet "
-            "been reached by any of these changes: consider whether the failure is happening before the code "
-            "under test runs at all, whether the tests are exercising what they are assumed to exercise, and "
-            "whether the specification requires what the tests assert.",
-            "",
-        ]
+        for first, second in digest["contradiction_pairs"] + digest["revert_pairs"]:
+            relevant_ids.extend([first, second])
+
+        current_failure = digest["current_failure"]
+        if current_failure:
+            relevant_ids.extend(
+                attempt["id"] for attempt in self.attempts if attempt["l"].get("prompted_by") == current_failure
+            )
+
+        relevant_ids.extend(attempt["id"] for attempt in self.attempts[-ATTEMPTS_ALWAYS_RENDERED:])
+
+        by_id = {attempt["id"]: attempt for attempt in self.attempts}
+        ordered = sorted(
+            {note_id for note_id in relevant_ids if note_id in by_id},
+            key=lambda note_id: by_id[note_id]["round"],
+            reverse=True,
+        )
+        return [by_id[note_id] for note_id in ordered]
+
+    def _render_digest(self, digest: dict) -> list[str]:
+        lines = [f"## Where this loop stands after {digest['rounds']} attempts", ""]
+
+        by_loop = ", ".join(
+            f"{count} while fixing the {loop} tests" for loop, count in digest["rounds_by_loop"].items()
+        )
+        if by_loop:
+            lines.append(f"Attempts so far: {by_loop}.")
+
+        if digest["cycle"]:
+            cycling = " and ".join(self._describe_failure(note_id) for note_id in digest["cycle"]["failures"])
+            lines.extend(
+                [
+                    "",
+                    f"**The loop is alternating between {len(digest['cycle']['failures'])} failures rather than "
+                    f"resolving either.** It is cycling between {cycling}. Each change fixes one and brings the "
+                    "other back, so continuing to alternate between them cannot succeed: either one of the two "
+                    "expectations is wrong, or the requirements behind them are in conflict.",
+                ]
+            )
+        elif digest["stall_run"] >= MIN_REPEATS_TO_REPORT_A_STALL:
+            lines.extend(
+                [
+                    "",
+                    f"**The failure has not changed for {digest['stall_run']} attempts.** None of the changes made "
+                    "across those attempts affected it at all. Whatever is failing has not yet been reached by any "
+                    "of them: consider whether the failure happens before the code under test runs, whether the "
+                    "tests exercise what they are assumed to exercise, and whether the specification requires what "
+                    "the tests assert.",
+                ]
+            )
+
+        contradictions = digest["contradiction_pairs"]
+        if contradictions:
+            # One statement, however many pairs. Repeating the same paragraph per pair is how a stuck loop's
+            # own diagnosis becomes the bulk of its prompt.
+            described = ", ".join(
+                f"{self._round_of(later)} undid {self._round_of(earlier)}" for earlier, later in contradictions[-3:]
+            )
+            more = len(contradictions) - len(contradictions[-3:])
+            also = f", and {more} earlier pairs did the same" if more > 0 else ""
+            lines.extend(
+                [
+                    "",
+                    f"**Changes made while fixing one test suite have been undone while fixing the other "
+                    f"{len(contradictions)} times** (attempt {described}{also}). One suite's expectation is being "
+                    "satisfied by breaking the other's. This cannot be resolved by changing the same code again: "
+                    "the two expectations have to be reconciled, or reported as conflicting requirements.",
+                ]
+            )
+
+        removed_in = digest["assertions_removed_in_rounds"]
+        if removed_in:
+            rounds = ", ".join(str(round_number) for round_number in removed_in)
+            subject = f"Attempt {rounds} removed" if len(removed_in) == 1 else f"Attempts {rounds} removed"
+            lines.extend(
+                [
+                    "",
+                    f"{subject} more assertions than they added. Weakening a test does not make the behaviour it "
+                    "checked correct.",
+                ]
+            )
+
+        lines.append("")
+        return lines
+
+    def _round_of(self, attempt_id: Optional[str]) -> str:
+        for attempt in self.attempts:
+            if attempt["id"] == attempt_id:
+                return str(attempt["round"])
+        return "?"
+
+    def _describe_failure(self, note_id: Optional[str]) -> str:
+        note = self.failures.get(note_id or "")
+        if not note:
+            return "an unrecorded failure"
+        statement = (note["x"].get("statement") or "").strip()
+        return statement if statement else f"failure {note_id}"
+
+    def _render_attempt(self, attempt: dict, failure_shown_at: dict[str, int]) -> str:
+        loop_description = "unit-test fix" if attempt["loop"] == LOOP_UNIT else "conformance-test fix"
+        lines = [f"## Attempt {attempt['round']} ({loop_description}), verdict {attempt['k']['verdict']}"]
+
+        files = attempt["k"]["files"]
+        if files:
+            lines.append("Files changed: " + ", ".join(f"{change['path']} ({change['role']})" for change in files))
+        else:
+            lines.append("No files were changed.")
+
+        if attempt["g"].get("approach"):
+            lines.append(f"Approach: {attempt['g']['approach']}.")
+        if attempt["g"].get("expected_effect"):
+            lines.append(f"Expected effect: {attempt['g']['expected_effect']}")
+        if attempt["g"].get("risk"):
+            lines.append(f"Noted risk: {attempt['g']['risk']}.")
+
+        if attempt["l"].get("reverts"):
+            lines.append(f"This attempt undid the change made in attempt {self._round_of(attempt['l']['reverts'])}.")
+        if attempt["l"].get("same_approach_as"):
+            rounds = ", ".join(self._round_of(other) for other in attempt["l"]["same_approach_as"])
+            lines.append(f"This is the same approach already taken in attempt(s) {rounds}.")
+
+        prompted_by = attempt["l"].get("prompted_by")
+        failure = self.failures.get(prompted_by or "")
+        if failure and prompted_by in failure_shown_at:
+            lines.append(
+                f"Prompted by the same failure as attempt {failure_shown_at[prompted_by]}, unchanged. Everything "
+                f"changed in between left it exactly as it was."
+            )
+        elif failure:
+            failure_shown_at[prompted_by] = attempt["round"]
+            lines.append("")
+            lines.append(f"The failure that prompted it: {self._describe_failure(prompted_by)}")
+            if failure["g"].get("failure_phase"):
+                lines.append(f"Failure phase: {failure['g']['failure_phase']}.")
+            if failure["x"].get("evidence"):
+                lines.extend(["```", failure["x"]["evidence"], "```"])
+
+        outcome = attempt["l"].get("outcome_observed_in")
+        if outcome:
+            if outcome == prompted_by:
+                lines.append("After this change the failure was unchanged.")
+            else:
+                lines.append(f"After this change the failure became: {self._describe_failure(outcome)}")
+
+        if attempt["x"].get("diff"):
+            lines.append("")
+            lines.append("The change made:")
+            for file_name, diff in attempt["x"]["diff"].items():
+                lines.extend([f"`{file_name}`:", "```", diff, "```"])
+
+        lines.append("")
+        return "\n".join(lines)
+
+
+def compute_spec_hash(specifications: Any) -> Optional[str]:
+    """A key for the specification a journal was written against.
+
+    The journal outlives a failed render, so the next render of the same functionality would otherwise be
+    handed notes about approaches taken against a specification the user has since rewritten in response to
+    that very failure.
+    """
+    if not specifications:
+        return None
+    return failure_signature.hash_text(json.dumps(specifications, sort_keys=True, default=str))
 
 
 def build_issue_excerpt(output: str) -> Optional[str]:
-    return failure_signature.build_excerpt(output, max_lines=ISSUE_EXCERPT_MAX_LINES, max_chars=ISSUE_EXCERPT_MAX_CHARS)
+    """A readable account of a failure, for the rounds where the model supplied none of its own."""
+    return failure_signature.build_excerpt(output, max_lines=EVIDENCE_MAX_LINES, max_chars=EVIDENCE_MAX_CHARS)

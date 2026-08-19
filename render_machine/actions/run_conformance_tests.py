@@ -38,11 +38,20 @@ class RunConformanceTests(BaseAction):
 
         if exit_code == 0:
             ctx.last_failure_signature = None
+            ctx.last_failure_skeleton_signature = None
+            ctx.last_failure_sketch = None
             ctx.last_failure_distinctive_signature = None
             ctx.last_failure_excerpt = None
+            ctx.last_failure_exit_code = None
+            ctx.last_failure_note_id = None
             return
 
+        ctx.last_failure_exit_code = exit_code
         ctx.last_failure_signature = failure_signature.compute_exact_signature(conformance_tests_issue, exit_code)
+        ctx.last_failure_skeleton_signature = failure_signature.compute_skeleton_signature(
+            conformance_tests_issue, exit_code
+        )
+        ctx.last_failure_sketch = failure_signature.compute_sketch(conformance_tests_issue)
         ctx.last_failure_distinctive_signature = failure_signature.compute_distinctive_signature(
             conformance_tests_issue, exit_code, profile
         )

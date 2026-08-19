@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from conformance_test_journal import TARGET_IMPLEMENTATION, ConformanceTestJournal
+from conformance_test_journal import LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, ConformanceTestJournal
 from memory_management import CONFORMANCE_TEST_MEMORY_SUBFOLDER, MemoryManager
 from render_machine.render_types import ConformanceTestsRunningContext
 
@@ -42,7 +42,15 @@ def memory_manager(render_context, tmp_path):
 def _write_journal(tmp_path, rounds=2):
     journal = ConformanceTestJournal("module", "1")
     for index in range(rounds):
-        journal.record_attempt(TARGET_IMPLEMENTATION, [f"file_{index}.py"], issue_excerpt="E assert 3 == 4")
+        note = journal.record_failure(
+            loop=LOOP_CONFORMANCE, exit_code=1, exact_signature=f"sig-{index}", evidence="E assert 3 == 4"
+        )
+        journal.record_attempt(
+            LOOP_CONFORMANCE,
+            VERDICT_IMPLEMENTATION_CODE,
+            {f"file_{index}.py": "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"},
+            prompted_by=note,
+        )
     journal.save(str(tmp_path))
     return journal
 
