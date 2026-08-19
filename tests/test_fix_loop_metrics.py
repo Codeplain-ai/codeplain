@@ -12,7 +12,14 @@ run — temp paths, durations, addresses — while still separating genuinely di
 failures, since both mistakes destroy the signal in opposite directions.
 """
 
-from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, UNIT_LOOP, FixLoopMetrics, failure_fingerprint
+from render_machine.fix_loop_metrics import (
+    CONFORMANCE_LOOP,
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    UNIT_LOOP,
+    FixLoopMetrics,
+    failure_fingerprint,
+    stalled_reason,
+)
 
 
 def test_the_same_failure_fingerprints_the_same():
@@ -181,3 +188,43 @@ def test_the_render_summary_covers_every_frid_touched():
 def test_the_render_summary_is_empty_when_no_script_ran():
     """A render that failed before any test script must not emit a misleading summary."""
     assert FixLoopMetrics().render_summary() == []
+
+
+def test_a_regenerated_test_is_not_condemned_by_the_old_test_s_stall():
+    """The bug that spent a whole regeneration budget in twenty-eight seconds.
+
+    Regeneration hands the loop a different test. The stall that justified it was measured
+    against the test just deleted, so if it survives, the replacement's very first failure
+    lands on a counter already past the threshold and the replacement is discarded after
+    one attempt. Four benchmark renders burned three regenerations each that way, 7 -> 8 ->
+    9 consecutive failures, all inside half a minute.
+    """
+    metrics = FixLoopMetrics()
+    for _ in range(CONSECUTIVE_FAILURE_THRESHOLD):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="2", passed=False, output="always different %s")
+
+    assert stalled_reason(metrics, CONFORMANCE_LOOP, module="m", frid="2") is not None
+
+    metrics.start_over(CONFORMANCE_LOOP, module="m", frid="2")
+
+    assert stalled_reason(metrics, CONFORMANCE_LOOP, module="m", frid="2") is None
+
+    # One failure of the replacement must not re-trigger the switch on its own.
+    metrics.record(CONFORMANCE_LOOP, module="m", frid="2", passed=False, output="a new failure")
+
+    assert stalled_reason(metrics, CONFORMANCE_LOOP, module="m", frid="2") is None
+
+
+def test_starting_over_keeps_the_work_already_counted():
+    """The cumulative counts answer a different question and the benchmark series is
+    indexed on them, so a reset must not erase them."""
+    metrics = FixLoopMetrics()
+    for _ in range(4):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="2", passed=False, output="identical")
+
+    metrics.start_over(CONFORMANCE_LOOP, module="m", frid="2")
+    summary = metrics.frid_summary("m", "2")
+
+    assert "conformance=4" in summary
+    assert "conformance_failed=4" in summary
+    assert "conformance_max_repeat=4" in summary

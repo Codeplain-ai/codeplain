@@ -99,6 +99,29 @@ class FixLoopMetrics:
         counters.current_repeat = 1
         return None
 
+    def start_over(self, loop: str, module: str, frid: Optional[str]) -> None:
+        """Forgets that this loop is stuck, without forgetting what it has done.
+
+        Called when the loop is handed a genuinely new problem — a regenerated conformance
+        test — rather than another patch against the old one. The evidence of being stuck
+        was evidence about a test that no longer exists, and carrying it over is not a
+        harmless conservatism: the first failure of the replacement test lands on a stall
+        counter that is already past its threshold, so the replacement is condemned on one
+        attempt and regenerated again. A benchmark render spent its whole regeneration
+        budget in twenty-eight seconds that way, three tests discarded after one attempt
+        each, none of them given a chance to be the one that worked.
+
+        The cumulative counts survive, because they answer a different question — how much
+        work this functionality took in total — and the per-render series is indexed on
+        them.
+        """
+        counters = self._counters_for(loop, module, frid)
+        if counters is None:
+            return
+        counters.consecutive_failures = 0
+        counters.current_repeat = 0
+        counters.last_fingerprint = None
+
     def current_streak(self, loop: str, module: str, frid: Optional[str]) -> int:
         """How many times in a row this loop has just failed the same way.
 

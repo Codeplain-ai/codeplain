@@ -13,7 +13,13 @@ from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
-from render_machine.fix_loop_metrics import STRATEGY_SWITCH_PREFIX, UNIT_LOOP, FixLoopMetrics, stalled_reason
+from render_machine.fix_loop_metrics import (
+    CONFORMANCE_LOOP,
+    STRATEGY_SWITCH_PREFIX,
+    UNIT_LOOP,
+    FixLoopMetrics,
+    stalled_reason,
+)
 from render_machine.render_types import (
     AcceptanceTestPhase,
     ConformanceTestsRunningContext,
@@ -416,6 +422,10 @@ class RenderContext:
         ctx.conformance_tests_render_attempts += 1
         ctx.fix_attempts = 0
         ctx.regenerating_conformance_tests = False
+        # The stall that triggered this was measured against the test just deleted. Left
+        # standing, it condemns the replacement on its first failure and the whole
+        # regeneration budget is spent in seconds on tests that never got a second look.
+        self.fix_loop_metrics.start_over(CONFORMANCE_LOOP, module=self.module_name, frid=ctx.current_testing_frid)
 
     def _handle_retry_after_code_change(self):
         """Re-run the test that failed and triggered a code change."""
