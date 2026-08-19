@@ -57,7 +57,10 @@ def _diff(file_name, removed, added):
 @pytest.fixture
 def render_context(tmp_path):
     context = MagicMock()
-    context.memory_manager.memory_folder = str(tmp_path)
+    # The module's own memory and the project's are different folders: lessons and journals belong to the
+    # module, the boilerplate profile to the project whose test script produced the output.
+    context.memory_manager.memory_folder = str(tmp_path / "module")
+    context.memory_manager.project_memory_folder = str(tmp_path / "project")
     context.module_name = "module"
     context.conformance_tests_running_context = ConformanceTestsRunningContext(
         current_testing_module_name="module",
@@ -75,6 +78,10 @@ def _journal(render_context):
     return ConformanceTestJournal.load(render_context.memory_manager.memory_folder, "module", "1")
 
 
+def _memory_folder(render_context):
+    return render_context.memory_manager.memory_folder
+
+
 def _record_conformance_round(render_context, reason_code, code_diff, failure_note=None):
     FixConformanceTest._record_round(render_context, reason_code, code_diff, failure_note)
 
@@ -83,12 +90,25 @@ def _record_conformance_round(render_context, reason_code, code_diff, failure_no
 
 
 def test_every_run_is_added_to_the_profile(render_context):
-    memory_folder = render_context.memory_manager.memory_folder
+    project_folder = render_context.memory_manager.project_memory_folder
 
     RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
     RunConformanceTests._fingerprint_run(render_context, 0, PASSING_OUTPUT)
 
-    assert failure_signature.LineFrequencyProfile.load(memory_folder).run_count == 2
+    assert failure_signature.LineFrequencyProfile.load(project_folder).run_count == 2
+
+
+def test_the_profile_is_kept_for_the_project_and_the_journal_for_the_module(render_context):
+    """One test script serves every module, so what its output looks like is not a module-level fact."""
+    RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
+    _record_conformance_round(render_context, REASON_CODE_IMPLEMENTATION, _diff("a.py", "a", "b"))
+
+    module_folder = render_context.memory_manager.memory_folder
+    project_folder = render_context.memory_manager.project_memory_folder
+
+    assert failure_signature.LineFrequencyProfile.load(project_folder).run_count == 1
+    assert failure_signature.LineFrequencyProfile.load(module_folder).run_count == 0
+    assert _journal(render_context).attempts
 
 
 def test_a_passing_run_leaves_no_failure_to_journal(render_context):
@@ -342,7 +362,7 @@ def test_the_profile_is_not_picked_up_as_a_memory_file(render_context, tmp_path)
 
     RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
 
-    _, memory_files_content = MemoryManager.fetch_memory_files(str(tmp_path))
+    _, memory_files_content = MemoryManager.fetch_memory_files(_memory_folder(render_context))
     assert memory_files_content == {}
 
 
@@ -353,7 +373,7 @@ def test_the_journal_is_not_picked_up_as_a_memory_file(render_context, tmp_path)
     RunConformanceTests._fingerprint_run(render_context, 1, FAILURE_OUTPUT)
     _record_conformance_round(render_context, REASON_CODE_IMPLEMENTATION, _diff("a.py", "a", "b"))
 
-    _, memory_files_content = MemoryManager.fetch_memory_files(str(tmp_path))
+    _, memory_files_content = MemoryManager.fetch_memory_files(_memory_folder(render_context))
     assert PROMPT_FILE_NAME not in memory_files_content
 
 

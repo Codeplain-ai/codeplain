@@ -96,6 +96,17 @@ class PlainModule:
     def module_memory_folder(self):
         return os.path.join(self.module_folder, CODEPLAIN_MEMORY_SUBFOLDER)
 
+    @property
+    def project_memory_folder(self):
+        """Where things true of the whole project are kept, rather than of one module.
+
+        The boilerplate profile belongs here: it describes what one test script prints, which is a property of
+        the project's toolchain and identical for every module in it. Kept per module, each module started
+        blind and relearned the same build log - and a module's profile is at its emptiest during that module's
+        first functionality, which is exactly where a fix loop is most likely to grind.
+        """
+        return os.path.join(self.build_folder, CODEPLAIN_MEMORY_SUBFOLDER)
+
     def get_codeplain_folder(self):
         return os.path.join(self.module_folder, CODEPLAIN_METADATA_FOLDER)
 

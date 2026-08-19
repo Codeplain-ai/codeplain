@@ -44,7 +44,7 @@ from typing import Any, Optional
 import failure_signature
 from plain2code_console import console
 
-JOURNAL_SUBFOLDER = "conformance_test_journal"
+JOURNAL_SUBFOLDER = "fix_journal"
 
 # Bumped whenever the note shape changes. A journal written by an older version is discarded rather than
 # migrated: it describes a codebase that has since moved, and half-read history is worse than none.
@@ -117,7 +117,7 @@ CHANGE_MODIFIED = "modified"
 CHANGE_CREATED = "created"
 CHANGE_DELETED = "deleted"
 
-PROMPT_FILE_NAME = "conformance_test_journal.md"
+PROMPT_FILE_NAME = "fix_journal.md"
 
 # Deliberately loose and language agnostic. Used only to notice that a change removed more assertions than it
 # added, which is the shape of a fix that weakens a test rather than repairing one.
@@ -209,7 +209,13 @@ class ConformanceTestJournal:
 
     @staticmethod
     def journal_path(memory_folder: str, module_name: str, frid: str) -> str:
-        return os.path.join(memory_folder, JOURNAL_SUBFOLDER, _safe_name(module_name), f"{_safe_name(frid)}.json")
+        """One file per functionality under fix.
+
+        Named for both the module and the functionality because a journal can be about a functionality of a
+        module other than the one being rendered - a regression found while rendering something downstream.
+        A directory per module held one file at most and left an empty directory behind once it was deleted.
+        """
+        return os.path.join(memory_folder, JOURNAL_SUBFOLDER, f"{_safe_name(module_name)}--{_safe_name(frid)}.json")
 
     @classmethod
     def load(
@@ -230,17 +236,17 @@ class ConformanceTestJournal:
             with open(path, "r", encoding="utf-8") as journal_file:
                 content = json.load(journal_file)
         except (json.JSONDecodeError, OSError, AttributeError) as exception:
-            console.debug(f"Could not read the conformance test journal at {path}: {exception}. Starting a new one.")
+            console.debug(f"Could not read the fix journal at {path}: {exception}. Starting a new one.")
             return cls(module_name, frid, spec_hash)
 
         if content.get("version") != JOURNAL_VERSION:
-            console.debug(f"The conformance test journal at {path} predates the current format. Starting a new one.")
+            console.debug(f"The fix journal at {path} predates the current format. Starting a new one.")
             return cls(module_name, frid, spec_hash)
 
         recorded_spec_hash = content.get("spec_hash")
         if spec_hash is not None and recorded_spec_hash is not None and recorded_spec_hash != spec_hash:
             console.debug(
-                f"The specification of functionality {frid} has changed since the conformance test journal at "
+                f"The specification of functionality {frid} has changed since the fix journal at "
                 f"{path} was written. Starting a new one."
             )
             return cls(module_name, frid, spec_hash)
@@ -271,15 +277,19 @@ class ConformanceTestJournal:
                     indent=2,
                 )
         except OSError as exception:
-            console.debug(f"Could not write the conformance test journal to {path}: {exception}.")
+            console.debug(f"Could not write the fix journal to {path}: {exception}.")
 
     def delete(self, memory_folder: str) -> None:
         path = self.journal_path(memory_folder, self.module_name, self.frid)
         try:
             if os.path.exists(path):
                 os.remove(path)
+            # An empty directory left behind says a journal is being kept here when none is.
+            journal_folder = os.path.dirname(path)
+            if os.path.isdir(journal_folder) and not os.listdir(journal_folder):
+                os.rmdir(journal_folder)
         except OSError as exception:
-            console.debug(f"Could not delete the conformance test journal at {path}: {exception}.")
+            console.debug(f"Could not delete the fix journal at {path}: {exception}.")
 
     # ========== recording ==========
 

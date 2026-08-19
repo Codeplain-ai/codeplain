@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from conformance_test_journal import LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, ConformanceTestJournal
-from memory_management import CONFORMANCE_TEST_MEMORY_SUBFOLDER, MemoryManager
+from memory_management import PROJECT_LESSONS_FILE_NAME, MemoryManager
 from render_machine.render_types import ConformanceTestsRunningContext
 
 LESSONS_FILE_NAME = "conformance_test_lessons.json"
@@ -36,7 +36,7 @@ def render_context(tmp_path):
 
 @pytest.fixture
 def memory_manager(render_context, tmp_path):
-    return MemoryManager(render_context.codeplain_api, str(tmp_path))
+    return MemoryManager(render_context.codeplain_api, str(tmp_path), str(tmp_path))
 
 
 def _write_journal(tmp_path, rounds=2):
@@ -84,9 +84,7 @@ def test_the_journal_is_discarded_once_its_lessons_have_been_taken(memory_manage
 
 def test_the_lessons_already_on_record_are_sent_so_they_can_be_reconciled(memory_manager, render_context, tmp_path):
     _write_journal(tmp_path)
-    memory_path = os.path.join(str(tmp_path), CONFORMANCE_TEST_MEMORY_SUBFOLDER)
-    os.makedirs(memory_path, exist_ok=True)
-    with open(os.path.join(memory_path, LESSONS_FILE_NAME), "w", encoding="utf-8") as recorded:
+    with open(os.path.join(str(tmp_path), LESSONS_FILE_NAME), "w", encoding="utf-8") as recorded:
         recorded.write('{"lessons": [{"lesson": "an earlier rule"}]}')
 
     memory_manager.consolidate_lessons(render_context)

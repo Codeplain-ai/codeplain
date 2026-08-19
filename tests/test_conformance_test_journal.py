@@ -6,6 +6,7 @@ organised around those three, plus what the record costs to carry.
 """
 
 import json
+import os
 
 import pytest
 
@@ -596,3 +597,36 @@ def test_capping_the_evidence_keeps_the_end_of_it(journal):
     assert "expected 1" in evidence
     assert "earlier lines omitted" in evidence
     assert len(evidence.splitlines()) <= 41
+
+
+def test_one_file_per_functionality_rather_than_a_directory_per_module(tmp_path, journal):
+    """A directory per module held one file at most and was left behind empty once it was deleted."""
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS)
+    journal.save(str(tmp_path))
+
+    path = ConformanceTestJournal.journal_path(str(tmp_path), "module", "1.2")
+    assert path.endswith(os.path.join("fix_journal", "module--1.2.json"))
+    assert os.path.exists(path)
+
+
+def test_deleting_the_last_journal_leaves_no_empty_directory_behind(tmp_path, journal):
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS)
+    journal.save(str(tmp_path))
+    journal_folder = os.path.dirname(ConformanceTestJournal.journal_path(str(tmp_path), "module", "1.2"))
+    assert os.path.isdir(journal_folder)
+
+    journal.delete(str(tmp_path))
+
+    assert not os.path.exists(journal_folder)
+
+
+def test_deleting_one_journal_leaves_another_module_s_in_place(tmp_path, journal):
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS)
+    journal.save(str(tmp_path))
+    other = ConformanceTestJournal("other_module", "1")
+    other.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS)
+    other.save(str(tmp_path))
+
+    journal.delete(str(tmp_path))
+
+    assert os.path.exists(ConformanceTestJournal.journal_path(str(tmp_path), "other_module", "1"))

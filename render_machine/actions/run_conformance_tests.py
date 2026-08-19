@@ -26,7 +26,8 @@ class RunConformanceTests(BaseAction):
         from the surrounding build chatter is that the chatter also shows up when the tests pass.
         """
         ctx = render_context.conformance_tests_running_context
-        memory_folder = render_context.memory_manager.memory_folder
+        # Project level: the profile describes what one test script prints, which is the same for every module.
+        memory_folder = render_context.memory_manager.project_memory_folder
 
         profile = failure_signature.LineFrequencyProfile.load(memory_folder)
         profile.observe(
