@@ -18,10 +18,13 @@ from failure_signature import (
     PROFILE_FILE_NAME,
     LineFrequencyProfile,
     build_excerpt,
+    build_failure_excerpt,
     compute_distinctive_signature,
     compute_exact_signature,
+    line_set_containment,
     mask_volatile,
     normalize_output,
+    sketch_similarity,
 )
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "data", "failure_output", "jest_network_failure.txt")
@@ -493,3 +496,86 @@ def test_the_two_signatures_never_collide(jest_output, passing_output):
     profile = _profile(_passing(passing_output, "module:0"), _failing(jest_output))
 
     assert compute_exact_signature(jest_output, 1) != compute_distinctive_signature(jest_output, 1, profile)
+
+
+# --- containment: did one change take back what another did ----------------------------------------------
+
+
+def test_containment_ignores_what_the_container_did_besides():
+    """Asking whether an earlier change was undone is not asking whether the two changes resemble each other."""
+    added = ["a", "b", "c"]
+    removed_along_with_others = ["a", "b", "c", "d", "e", "f"]
+
+    assert line_set_containment(added, removed_along_with_others) == 1.0
+    assert sketch_similarity(added, removed_along_with_others) == 0.5
+
+
+def test_containment_of_nothing_is_unknown_rather_than_zero():
+    """A change that added nothing cannot have its additions taken back, which is not the same as them staying."""
+    assert line_set_containment([], ["a"]) is None
+    assert line_set_containment(["a"], []) == 0.0
+
+
+def test_containment_is_partial_when_only_some_lines_came_back_out():
+    assert line_set_containment(["a", "b", "c", "d"], ["a", "b"]) == 0.5
+
+
+# --- excerpting from where failures actually appear ------------------------------------------------------
+
+SETUP_NOISE = [
+    "  % Total    % Received % Xferd  Average Speed",
+    "curl: (7) Failed to connect to localhost port 6001",
+    "openjdk 21.0.8 2025-01-01",
+    "[INFO] Scanning for projects...",
+]
+THE_FAILURE = "[ERROR] HttpClientTest.testRetry:88 expected <200> but was <500>"
+
+
+def _run(body_lines):
+    return "\n".join(SETUP_NOISE + body_lines)
+
+
+def test_the_excerpt_is_anchored_on_the_failure_not_on_the_start_of_the_run():
+    output = _run([f"[INFO] building part {index}" for index in range(200)] + [THE_FAILURE])
+
+    excerpt = build_failure_excerpt(output, max_lines=10, max_chars=4000)
+
+    assert "expected <200> but was <500>" in excerpt
+    assert "Scanning for projects" not in excerpt
+    assert "earlier lines omitted" in excerpt
+
+
+def test_a_loud_failure_in_a_setup_step_does_not_capture_the_whole_excerpt():
+    """curl reporting a dead fixture service is a failure too, but it is not the one under test."""
+    output = _run([f"[INFO] building part {index}" for index in range(200)] + [THE_FAILURE])
+
+    excerpt = build_failure_excerpt(output, max_lines=10, max_chars=4000)
+
+    assert "Failed to connect to localhost" not in excerpt
+
+
+def test_the_summary_after_the_failure_is_kept():
+    output = _run([THE_FAILURE, "[INFO] BUILD FAILURE", "[INFO] Total time: 4.2 s"])
+
+    excerpt = build_failure_excerpt(output, max_lines=20, max_chars=4000)
+
+    assert "BUILD FAILURE" in excerpt
+
+
+def test_output_with_no_recognisable_failure_falls_back_to_the_tail():
+    output = "\n".join(f"line number {index}" for index in range(100))
+
+    excerpt = build_failure_excerpt(output, max_lines=3, max_chars=4000)
+
+    assert "line number 99" in excerpt
+    assert "line number 0" not in excerpt
+
+
+def test_the_excerpt_is_unknown_for_empty_output():
+    assert build_failure_excerpt("") is None
+
+
+def test_a_short_run_is_not_reported_as_truncated():
+    excerpt = build_failure_excerpt(THE_FAILURE, max_lines=20, max_chars=4000)
+
+    assert excerpt == THE_FAILURE

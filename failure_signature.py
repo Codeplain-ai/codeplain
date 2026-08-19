@@ -53,14 +53,31 @@ MAX_PROFILE_ENTRIES = 4000
 MAX_OUTPUT_CHARS = 2_000_000
 
 # Retained line hashes per failure sketch. A bottom-k (KMV) sketch: the k smallest line hashes, which lets
-# Jaccard similarity be estimated from two sketches without keeping either output. Exact when both outputs
-# have fewer distinct lines than this, which is the common case.
-SKETCH_SIZE = 256
+# Jaccard similarity be estimated from two sketches without keeping either output.
+#
+# Kept small on purpose. The verbatim and digit-blind keys decide almost every match, and the sketch only acts
+# as a near-identity safety net above SAME_FAILURE_SIMILARITY, which needs nothing like this much resolution.
+# At 256 the sketches were the bulk of every stored journal, which matters because reading the journal is how
+# a person checks that any of this is working.
+SKETCH_SIZE = 64
 
 EXCERPT_MAX_LINES = 60
 EXCERPT_MAX_CHARS = 4000
 
+# Lines kept after the last failure marker, so the excerpt carries the summary that usually follows it.
+TRAILING_CONTEXT_LINES = 5
+
 PROFILE_FILE_NAME = "failure_profile.json"
+
+# Text that marks a line as reporting a failure rather than describing progress. Deliberately a short, loose,
+# framework-agnostic vocabulary: it decides only *where to look* in the output, never what the failure is or
+# whether two failures are the same, so a miss costs a less well chosen excerpt and nothing more.
+_FAILURE_MARKER = re.compile(
+    r"(FAIL(?:ED|URE|S)?\b|\bERROR\b|Exception\b|Traceback|Caused by:|panic:|"
+    r"assert\w*|AssertionError|expected\b.*\b(?:but|actual|got)\b|"
+    r"Failures:\s*[1-9]|Errors:\s*[1-9]|[\u2717\u2718\u00d7])",
+    re.IGNORECASE,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
@@ -389,6 +406,24 @@ def compute_sketch(output: str) -> list[str]:
     return line_hashes[:SKETCH_SIZE]
 
 
+def line_set_containment(subject: list[str], container: list[str]) -> Optional[float]:
+    """How much of ``subject`` is present in ``container``, or None when ``subject`` is empty.
+
+    Deliberately asymmetric, and deliberately not Jaccard. Asking whether one change undid another is asking
+    whether the lines it added were taken back out - not whether the two changes resemble each other. A round
+    that removes everything an earlier round added *and* rearranges half the file has undone it completely,
+    and Jaccard would score that at 0.5 and miss it.
+
+    None rather than 0.0 for an empty subject: a change that added nothing cannot have its additions undone,
+    which is a different statement from having them left in place.
+    """
+    if not subject:
+        return None
+
+    subject_set, container_set = set(subject), set(container)
+    return len(subject_set & container_set) / len(subject_set)
+
+
 def sketch_similarity(one: list[str], other: list[str]) -> float:
     """Jaccard similarity of two sketches, in [0, 1].
 
@@ -405,3 +440,45 @@ def sketch_similarity(one: list[str], other: list[str]) -> float:
 
     shared = sum(1 for line_hash in bottom_of_union if line_hash in set_one and line_hash in set_other)
     return shared / len(bottom_of_union)
+
+
+def build_failure_excerpt(output: str, max_lines: int = EXCERPT_MAX_LINES, max_chars: int = EXCERPT_MAX_CHARS):
+    """A readable account of a failure, taken from where failures actually appear in the output.
+
+    Taking the first lines of a run gives the build banner on every JVM project, and on any project whose test
+    script sets something up first it gives the setup chatter - which is how a fix prompt came to be told that
+    a curl progress meter was the failure.
+
+    So the window is anchored on the *last* line that looks like a failure report and extends backwards. Last
+    rather than first because runners put their failures at the end and their noise at the start, and because
+    a setup step that fails loudly early would otherwise capture the whole excerpt. With no recognisable
+    marker anywhere the tail is used, which is still where a failure is more likely to be than the head.
+    """
+    normalized = normalize_output(output)
+    if not normalized:
+        return None
+
+    last_marker = None
+    for index, line in enumerate(normalized):
+        if _FAILURE_MARKER.search(line):
+            last_marker = index
+
+    end = len(normalized)
+    if last_marker is not None:
+        end = min(len(normalized), last_marker + 1 + TRAILING_CONTEXT_LINES)
+
+    start = max(0, end - max_lines)
+    kept = normalized[start:end]
+
+    excerpt = "\n".join(kept)
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[-max_chars:]
+        excerpt = excerpt[excerpt.find("\n") + 1 :] if "\n" in excerpt else excerpt
+        start = end - excerpt.count("\n") - 1
+
+    if start > 0:
+        excerpt = f"... [{start} earlier lines omitted]\n" + excerpt
+    if end < len(normalized):
+        excerpt += f"\n... [{len(normalized) - end} later lines omitted]"
+
+    return excerpt

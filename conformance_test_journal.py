@@ -48,7 +48,7 @@ JOURNAL_SUBFOLDER = "conformance_test_journal"
 
 # Bumped whenever the note shape changes. A journal written by an older version is discarded rather than
 # migrated: it describes a codebase that has since moved, and half-read history is worse than none.
-JOURNAL_VERSION = 2
+JOURNAL_VERSION = 3
 
 # Distinct failures whose notes are retained. A loop producing more distinct failures than this is thrashing,
 # and the oldest ones have stopped being informative. Notes still in play are never evicted - see
@@ -78,8 +78,11 @@ SAME_FAILURE_SIMILARITY = 0.98
 # Similarity at which two *distinct* failures are worth mentioning as possibly related. Advisory only.
 RELATED_FAILURE_SIMILARITY = 0.90
 
-# How alike one attempt's additions must be to another's removals to call it a revert.
-REVERT_SIMILARITY = 0.80
+# How much of an earlier change a later one must take back to count as undoing it. Containment rather than
+# similarity, and measured only in the directions the earlier change actually went: a round that added lines
+# and never removed any has nothing to be put back, and a round that removes everything an earlier one added
+# has undone it whatever else it did at the same time.
+REVERT_CONTAINMENT = 0.80
 
 # Consecutive attempts against an unchanged failure before the journal says so in its own right, rather than
 # leaving it to be inferred from a long list of rows. Two in a row is noise; three is a pattern.
@@ -449,8 +452,10 @@ class ConformanceTestJournal:
             return None
 
         parts = []
-        for change in sorted(changes, key=lambda item: item["path"]):
-            parts.append(f"{change['path']}:{','.join(change['added'])}:{','.join(change['removed'])}")
+        for change in sorted(changes, key=lambda item: (item.get("role", ""), item["path"])):
+            parts.append(
+                f"{change.get('role', '')}:{change['path']}:{','.join(change['added'])}:{','.join(change['removed'])}"
+            )
         return failure_signature.hash_text("fix:" + "|".join(parts))
 
     def _link_attempt(self, note: dict) -> None:
@@ -474,26 +479,47 @@ class ConformanceTestJournal:
                 note["l"]["same_approach_as"].append(earlier["id"])
 
     @staticmethod
-    def _is_revert_of(note: dict, earlier: dict) -> bool:
-        """Whether this attempt put back what an earlier one took out, and took out what it put in."""
-        earlier_by_path = {change["path"]: change for change in earlier["k"]["files"]}
-        overlapping = [change for change in note["k"]["files"] if change["path"] in earlier_by_path]
+    def _change_key(change: dict) -> tuple[str, str]:
+        """What makes two changes changes to the same file.
+
+        The role belongs in the key: a module and the conformance test project that consumes it both have a
+        `pom.xml`, a `package.json`, a `go.mod`. Comparing one against the other by name alone would report a
+        revert between two files that have nothing to do with each other.
+        """
+        return change.get("role", ""), change["path"]
+
+    @classmethod
+    def _is_revert_of(cls, note: dict, earlier: dict) -> bool:
+        """Whether this attempt took back what an earlier one did to the same files.
+
+        Measured as containment in whichever directions the earlier change actually went - its additions
+        removed again, its removals put back - and only those. Requiring both directions missed the ordinary
+        case entirely: a round that only added lines has an empty removal set, so there is no "put back" to
+        measure, and demanding one made every such revert invisible. Containment rather than similarity
+        because a round that removes everything an earlier one added has undone it even if it rearranged half
+        the file in the same breath, which similarity scores at one half and misses.
+        """
+        earlier_by_key = {cls._change_key(change): change for change in earlier["k"]["files"]}
+        overlapping = [change for change in note["k"]["files"] if cls._change_key(change) in earlier_by_key]
         if not overlapping:
             return False
 
+        measured_any_direction = False
         for change in overlapping:
-            other = earlier_by_path[change["path"]]
-            if not change["added"] and not change["removed"]:
-                return False
-            forward = failure_signature.sketch_similarity(change["added"], other["removed"])
-            backward = failure_signature.sketch_similarity(change["removed"], other["added"])
-            if forward < REVERT_SIMILARITY or backward < REVERT_SIMILARITY:
-                return False
+            other = earlier_by_key[cls._change_key(change)]
+            undone = failure_signature.line_set_containment(other["added"], change["removed"])
+            restored = failure_signature.line_set_containment(other["removed"], change["added"])
+            for measurement in (undone, restored):
+                if measurement is None:
+                    continue
+                measured_any_direction = True
+                if measurement < REVERT_CONTAINMENT:
+                    return False
 
-        return True
+        return measured_any_direction
 
-    @staticmethod
-    def _is_same_approach(note: dict, earlier: dict) -> bool:
+    @classmethod
+    def _is_same_approach(cls, note: dict, earlier: dict) -> bool:
         if note["k"]["fix_signature"] and note["k"]["fix_signature"] == earlier["k"]["fix_signature"]:
             return True
 
@@ -501,16 +527,24 @@ class ConformanceTestJournal:
         if not approach or approach != earlier["g"].get("approach"):
             return False
 
-        return {change["path"] for change in note["k"]["files"]} == {change["path"] for change in earlier["k"]["files"]}
+        return {cls._change_key(change) for change in note["k"]["files"]} == {
+            cls._change_key(change) for change in earlier["k"]["files"]
+        }
 
     def _record_outcome_of_previous_attempt(self, note: dict) -> None:
-        """What the previous attempt achieved is only knowable once the next failure has been observed."""
+        """What the previous attempt achieved is only knowable once the next failure has been observed.
+
+        Only within the same loop. A unit-test fix followed by a conformance failure has not "become" that
+        failure: the unit tests it was fixing went green, and a different suite then failed for its own
+        reasons. Attributing it anyway asserts a causal link that is not there, which is worse than saying
+        nothing - the record is only worth carrying if it can be trusted about what each change did.
+        """
         if len(self.attempts) < 2:
             return
 
         previous = self.attempts[-2]
         current_failure = note["l"].get("prompted_by")
-        if not current_failure:
+        if not current_failure or previous["loop"] != note["loop"]:
             return
 
         previous["l"]["outcome_observed_in"] = current_failure
@@ -563,17 +597,26 @@ class ConformanceTestJournal:
 
     @staticmethod
     def _cap_evidence(evidence: Optional[str]) -> Optional[str]:
+        """Bound the evidence held on a note, keeping the end of it.
+
+        The end, because that is where a failure is: a runner reports its failures after whatever it printed
+        getting there. Cutting from the front here undid the anchoring done upstream - the excerpt arrived
+        already centred on the failure and this dropped the very line it had been centred on.
+        """
         if not evidence:
             return None
 
-        lines = evidence.splitlines()[:EVIDENCE_MAX_LINES]
-        capped = "\n".join(lines)
+        lines = evidence.splitlines()
+        capped_lines = lines[-EVIDENCE_MAX_LINES:]
+        capped = "\n".join(capped_lines)
         if len(capped) > EVIDENCE_MAX_CHARS:
-            capped = capped[:EVIDENCE_MAX_CHARS]
-            capped = capped[: capped.rfind("\n")] if "\n" in capped else capped
-        omitted = len(evidence.splitlines()) - len(capped.splitlines())
+            capped = capped[-EVIDENCE_MAX_CHARS:]
+            capped = capped[capped.find("\n") + 1 :] if "\n" in capped else capped
+            capped_lines = capped.splitlines()
+
+        omitted = len(lines) - len(capped_lines)
         if omitted > 0:
-            capped += f"\n... [{omitted} further lines omitted]"
+            capped = f"... [{omitted} earlier lines omitted]\n" + capped
         return capped
 
     @staticmethod
@@ -867,7 +910,7 @@ class ConformanceTestJournal:
             lines.append(f"Noted risk: {attempt['g']['risk']}.")
 
         if attempt["l"].get("reverts"):
-            lines.append(f"This attempt undid the change made in attempt {self._round_of(attempt['l']['reverts'])}.")
+            lines.append(f"This attempt took back what attempt {self._round_of(attempt['l']['reverts'])} had done.")
         if attempt["l"].get("same_approach_as"):
             rounds = ", ".join(self._round_of(other) for other in attempt["l"]["same_approach_as"])
             lines.append(f"This is the same approach already taken in attempt(s) {rounds}.")
@@ -876,8 +919,8 @@ class ConformanceTestJournal:
         failure = self.failures.get(prompted_by or "")
         if failure and prompted_by in failure_shown_at:
             lines.append(
-                f"Prompted by the same failure as attempt {failure_shown_at[prompted_by]}, unchanged. Everything "
-                f"changed in between left it exactly as it was."
+                f"Prompted by the same failure, unchanged - its text is shown under attempt "
+                f"{failure_shown_at[prompted_by]}. Everything changed in between left it exactly as it was."
             )
         elif failure:
             failure_shown_at[prompted_by] = attempt["round"]
@@ -918,5 +961,10 @@ def compute_spec_hash(specifications: Any) -> Optional[str]:
 
 
 def build_issue_excerpt(output: str) -> Optional[str]:
-    """A readable account of a failure, for the rounds where the model supplied none of its own."""
-    return failure_signature.build_excerpt(output, max_lines=EVIDENCE_MAX_LINES, max_chars=EVIDENCE_MAX_CHARS)
+    """A readable account of a failure, for the rounds where no model described one.
+
+    Anchored on the failure rather than on the start of the output. The unit-test loop has no reviewer to
+    describe its rounds, so this is the only evidence a unit-test failure note carries - and taking the first
+    lines of the run gave the build banner every time.
+    """
+    return failure_signature.build_failure_excerpt(output, max_lines=EVIDENCE_MAX_LINES, max_chars=EVIDENCE_MAX_CHARS)

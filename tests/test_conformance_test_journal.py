@@ -495,8 +495,104 @@ def test_the_issue_excerpt_is_capped_more_tightly_than_a_standalone_one():
     excerpt = build_issue_excerpt("\n".join(f"line number {index}" for index in range(500)))
 
     assert len(excerpt.splitlines()) <= 41
-    assert "further lines omitted" in excerpt
+    assert "earlier lines omitted" in excerpt
+
+
+def test_the_issue_excerpt_is_taken_from_the_failure_not_the_top_of_the_output():
+    """The unit-test loop has no reviewer to describe its rounds, so this excerpt is all its notes carry."""
+    output = "\n".join(
+        [
+            "  % Total    % Received % Xferd  Average Speed",
+            "openjdk 21.0.8 2025-01-01",
+            "[INFO] Scanning for projects...",
+        ]
+        + [f"[INFO] building part {index}" for index in range(300)]
+        + ["[ERROR] HttpClientTest.testRetry:88 expected <200> but was <500>"]
+    )
+
+    excerpt = build_issue_excerpt(output)
+
+    assert "expected <200> but was <500>" in excerpt
+    assert "Scanning for projects" not in excerpt
+    assert "Average Speed" not in excerpt
 
 
 def test_the_issue_excerpt_is_unknown_for_empty_output():
     assert build_issue_excerpt("") is None
+
+
+# --- taking back an earlier change ------------------------------------------------------------------------
+
+ADDS_A_DEPENDENCY = {
+    "pom.xml": "--- a/pom.xml\n+++ b/pom.xml\n@@ -1,2 +1,4 @@\n+<dependency>logback-classic</dependency>\n+<version>1.5.6</version>\n"
+}
+REMOVES_IT_AND_MORE = {
+    "pom.xml": "--- a/pom.xml\n+++ b/pom.xml\n@@ -1,4 +1,3 @@\n-<dependency>logback-classic</dependency>\n"
+    "-<version>1.5.6</version>\n-<version>5.2.1</version>\n-<scope>test</scope>\n+<dependencyManagement/>\n"
+}
+
+
+def test_a_change_that_only_added_lines_is_still_recognised_when_they_are_removed_again(journal):
+    """The ordinary shape of a build-config loop, and the one the first implementation could not see: with an
+    empty removal set there is no "put back" direction to measure, and requiring one hid every such revert."""
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_CONFORMANCE_TESTS, ADDS_A_DEPENDENCY)
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_CONFORMANCE_TESTS, REMOVES_IT_AND_MORE)
+
+    assert journal.attempts[-1]["l"]["reverts"] == "A1"
+
+
+def test_taking_back_an_earlier_change_counts_even_alongside_other_edits(journal):
+    """Containment, not similarity: doing other things at the same time does not make it less of a revert."""
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS)
+    journal.record_attempt(
+        LOOP_CONFORMANCE,
+        VERDICT_IMPLEMENTATION_CODE,
+        {
+            "FunctionExecutor.java": "--- a/FunctionExecutor.java\n+++ b/FunctionExecutor.java\n@@ -1,3 +1,4 @@\n"
+            "-throw new RuntimeException(url);\n+return new ErrorResponse(e);\n+log.debug(url);\n+metrics.count();\n"
+        },
+    )
+
+    assert journal.attempts[-1]["l"]["reverts"] == "A1"
+
+
+def test_a_round_that_changed_nothing_reverts_nothing(journal):
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS)
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, {})
+
+    assert journal.attempts[-1]["l"]["reverts"] is None
+
+
+def test_the_same_filename_in_two_projects_is_not_the_same_file(journal):
+    """A module and the conformance project that consumes it both have a pom.xml."""
+    journal.record_attempt(LOOP_UNIT, VERDICT_UNIT_TESTS, ADDS_A_DEPENDENCY, default_role="impl")
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_CONFORMANCE_TESTS, REMOVES_IT_AND_MORE, default_role="test")
+
+    assert journal.attempts[-1]["l"]["reverts"] is None
+    assert journal.attempts[-1]["l"]["same_approach_as"] == []
+
+
+# --- what a change achieved -------------------------------------------------------------------------------
+
+
+def test_a_failure_in_another_suite_is_not_recorded_as_what_this_change_achieved(journal):
+    """A unit-test fix followed by a conformance failure has not become that failure - the unit tests passed."""
+    unit = journal.record_failure(**failure(UNIT_FAILED, loop=LOOP_UNIT))
+    journal.record_attempt(LOOP_UNIT, VERDICT_UNIT_TESTS, RETURNS, prompted_by=unit)
+    conformance = journal.record_failure(**failure(ASSERTION_FAILED, loop=LOOP_CONFORMANCE))
+    journal.record_attempt(LOOP_CONFORMANCE, VERDICT_IMPLEMENTATION_CODE, THROWS, prompted_by=conformance)
+
+    assert journal.attempts[0]["l"]["outcome_observed_in"] is None
+    assert "the failure became" not in journal.render_for_prompt()
+
+
+def test_capping_the_evidence_keeps_the_end_of_it(journal):
+    """A second cut from the front here would drop the very line the excerpt was anchored on."""
+    output = "\n".join([f"[INFO] building part {index}" for index in range(300)] + ["[ERROR] testFoo:41 expected 1"])
+
+    note = journal.record_failure(loop=LOOP_CONFORMANCE, exit_code=1, evidence=build_issue_excerpt(output))
+
+    evidence = journal.failures[note]["x"]["evidence"]
+    assert "expected 1" in evidence
+    assert "earlier lines omitted" in evidence
+    assert len(evidence.splitlines()) <= 41
