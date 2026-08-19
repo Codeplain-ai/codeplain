@@ -2,12 +2,16 @@
 
 The unit loop has the same problem as the conformance one and a different remedy: its
 escape hatch restarts the functionality from scratch rather than discarding a test file.
-That is destructive enough to be worth a careful threshold, and the benchmark data makes
-the call easy — across three renders every healthy functionality finished with
-`unit_max_repeat=1`, nothing was ever observed between that and the 17 reached by the one
-that wedged. So a streak of three is a state healthy renders do not enter, and reaching
-the same decision on it saves the eleven minutes that render spent grinding to the
-attempt limit.
+That is destructive enough that only one kind of evidence justifies it. Repetition does:
+across three renders every healthy functionality finished with `unit_max_repeat=1`, and
+nothing was observed between that and the 17 reached by the one that wedged, so a streak
+of three is a state healthy renders do not enter.
+
+A run of failures that are merely consecutive does not. That arm was applied here too at
+first, calibrated on conformance recoveries because no unit-loop equivalent existed, and
+it fired on loops that were working: `unit=7 unit_failed=7 unit_max_repeat=1` in two
+renders, both restarted, both 0/10, against 2-3 for every render without a restart. It now
+applies to the conformance loop only.
 """
 
 from unittest.mock import MagicMock, patch
@@ -62,9 +66,30 @@ def test_a_healthy_loop_is_left_alone():
     assert gave_up(context(identical_failures=0)) is False
 
 
-def test_a_unit_loop_that_always_fails_gives_up_without_a_repeat():
+def test_a_unit_loop_failing_every_time_but_differently_is_left_alone():
+    """Measured, not cautious. Two renders showed `unit=7 unit_failed=7
+    unit_max_repeat=1` — seven failures, none alike — and both had their functionality
+    restarted and scored 0/10, where every render without a restart scored 2-3. Seven
+    different failures is a loop working through issues one at a time, and restarting
+    discards all of it.
+
+    The conformance loop keeps this arm; there, failing every time really does mean
+    stuck, and it is what catches a 40-out-of-40 run whose longest identical streak is
+    two."""
     instance = context()
-    for index in range(CONSECUTIVE_FAILURE_THRESHOLD):
+    for index in range(CONSECUTIVE_FAILURE_THRESHOLD * 2):
+        instance.fix_loop_metrics.record(
+            UNIT_LOOP, module=MODULE, frid=FRID, passed=False, output=f"failure number {index}"
+        )
+
+    assert gave_up(instance) is False
+
+
+def test_the_attempt_limit_still_catches_a_unit_loop_that_never_repeats():
+    """Removing the arm does not make such a loop run forever: it stops where it always
+    did, at the attempt limit."""
+    instance = context(attempts=MAX_UNITTEST_FIX_ATTEMPTS)
+    for index in range(CONSECUTIVE_FAILURE_THRESHOLD * 2):
         instance.fix_loop_metrics.record(
             UNIT_LOOP, module=MODULE, frid=FRID, passed=False, output=f"failure number {index}"
         )

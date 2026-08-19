@@ -168,20 +168,36 @@ CONSECUTIVE_FAILURE_THRESHOLD = 6
 STRATEGY_SWITCH_PREFIX = "[strategy-switch]"
 
 
+# Which loops a run of failures — as opposed to a run of *identical* failures — is taken
+# as evidence against. Conformance only, and the asymmetry is measured rather than
+# cautious. On the conformance side the arm is what catches a loop failing 40 times out of
+# 40 with a longest identical run of two, which no streak threshold reaches. On the unit
+# side it fired on loops that were working: two renders showed `unit=7 unit_failed=7
+# unit_max_repeat=1` — seven failures, none alike — and both had their functionality
+# restarted and scored 0/10, where every render without a restart scored 2–3. Six was
+# calibrated on conformance recoveries (the highest failure count on a functionality that
+# then recovered was four) and there was never a unit-loop equivalent to calibrate on.
+#
+# The unit loop keeps the streak arm, where the margin is not in doubt: across three
+# renders every healthy functionality finished with unit_max_repeat=1.
+LOOPS_JUDGED_ON_CONSECUTIVE_FAILURES = (CONFORMANCE_LOOP,)
+
+
 def stalled_reason(metrics: "FixLoopMetrics", loop: str, module: str, frid: Optional[str]) -> Optional[str]:
     """Why this loop looks stuck, or None if it still looks like it is working.
 
-    One definition for both loops. The streak arm fires soonest when a loop is
-    re-submitting the same fix; the consecutive arm is the catch-all for a loop that
-    fails every time while the failures keep changing shape.
+    The streak arm applies to both loops: a loop re-submitting the same fix is stuck
+    whichever loop it is. The consecutive arm applies only where failing every time has
+    been shown to mean stuck rather than busy.
     """
     streak = metrics.current_streak(loop, module, frid)
     if streak >= REPEATED_FAILURE_WARNING_THRESHOLD:
         return f"repeated_failure streak={streak}"
 
-    failures = metrics.consecutive_failures(loop, module, frid)
-    if failures >= CONSECUTIVE_FAILURE_THRESHOLD:
-        return f"no_progress consecutive_failures={failures}"
+    if loop in LOOPS_JUDGED_ON_CONSECUTIVE_FAILURES:
+        failures = metrics.consecutive_failures(loop, module, frid)
+        if failures >= CONSECUTIVE_FAILURE_THRESHOLD:
+            return f"no_progress consecutive_failures={failures}"
 
     return None
 
