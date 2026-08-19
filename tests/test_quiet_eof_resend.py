@@ -138,3 +138,55 @@ def test_a_real_clock_is_used_for_the_quiet_period(target):
     resender.consider()
 
     target.write_input.assert_not_called()
+
+
+class _FakeBroker:
+    """Stands in for TtyBroker; only `served_a_command` matters to the resender."""
+
+    def __init__(self, served: bool = False) -> None:
+        self.served_a_command = served
+
+
+def test_a_broker_no_test_ever_used_still_gets_the_target_its_end_of_file(target):
+    """The cli-password-manager regression.
+
+    Attaching the broker suppresses the spawn-time VEOF. That is right for a test that
+    drives the terminal and wrong for every conformance test that does not -- and the
+    broker is attached to all of them. On the pipe backend those targets saw EOF at once;
+    here they read a terminal that never ended and waited out the full timeout.
+    cli-password-manager scores 15/16 on main and scored 1/16 here, fourteen renders
+    running, because its target prompts for a master password.
+    """
+    resender = _QuietEofResender(target, driverless=False, broker=_FakeBroker(served=False))
+    resender.consider()
+
+    quiet_for(resender, QUIET_BEFORE_EOF_RESEND_SECONDS)
+
+    target.write_input.assert_called_once_with(EOF_BYTE)
+
+
+def test_a_terminal_a_test_is_driving_is_left_alone(target):
+    """Once a test has spoken to the broker it owns the dialogue, and an unsolicited
+    end-of-file would land in the middle of it."""
+    resender = _QuietEofResender(target, driverless=False, broker=_FakeBroker(served=True))
+    resender.consider()
+
+    quiet_for(resender, QUIET_BEFORE_EOF_RESEND_SECONDS)
+
+    target.write_input.assert_not_called()
+
+
+def test_a_test_that_starts_driving_stops_further_deliveries(target):
+    """The broker can go unused for a while and then be called, so the decision is re-made
+    every poll rather than fixed at spawn."""
+    broker = _FakeBroker(served=False)
+    resender = _QuietEofResender(target, driverless=False, broker=broker)
+    resender.consider()
+    quiet_for(resender, QUIET_BEFORE_EOF_RESEND_SECONDS)
+    target.write_input.assert_called_once_with(EOF_BYTE)
+    target.write_input.reset_mock()
+
+    broker.served_a_command = True
+    quiet_for(resender, QUIET_BEFORE_EOF_RESEND_SECONDS)
+
+    target.write_input.assert_not_called()

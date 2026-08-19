@@ -179,6 +179,7 @@ def _await_target(
     stop_event: Optional[threading.Event],
     outcome: _ScriptOutcome,
     driverless: bool = True,
+    broker: Optional[TtyBroker] = None,
 ) -> None:
     """Waits for the target, recording every condition each poll can observe.
 
@@ -192,7 +193,7 @@ def _await_target(
     end-of-file pushed into a terminal the broker is driving.
     """
     deadline = time.monotonic() + script_timeout
-    eof_resender = _QuietEofResender(process, driverless=driverless)
+    eof_resender = _QuietEofResender(process, driverless=driverless, broker=broker)
     while True:
         returncode = process.poll()
         if returncode is not None:
@@ -230,15 +231,30 @@ class _QuietEofResender:
     a noisy stuck script.
     """
 
-    def __init__(self, process: TerminalProcess, driverless: bool) -> None:
+    def __init__(self, process: TerminalProcess, driverless: bool, broker: Optional["TtyBroker"] = None) -> None:
         self._process = process
-        self._enabled = driverless
+        # An attached broker suppresses the spawn-time end-of-file, and that is right only
+        # for a test that drives the terminal. The broker is attached to every conformance
+        # execution, so the ones that never call `codeplain-tty` — the great majority —
+        # got a target whose stdin simply never ended, and any target that read it waited
+        # out its whole timeout. On the legacy pipe backend the same tests saw EOF at once
+        # and passed. `broker.served_a_command` is what separates the two: until a command
+        # arrives nothing is driving this terminal, so the target should be told the input
+        # is over, exactly as a driverless one is.
+        self._broker = broker
+        self._enabled = driverless or broker is not None
         self._resends = 0
         self._seen = -1
         self._since = time.monotonic()
 
     def consider(self) -> None:
         if not self._enabled or self._resends >= MAX_EOF_RESENDS:
+            return
+
+        # A test that has started driving owns this terminal for the rest of the
+        # execution; an unsolicited end-of-file would land in the middle of its dialogue.
+        if self._broker is not None and self._broker.served_a_command:
+            self._enabled = False
             return
 
         produced = len(self._process.normalized_output())
@@ -352,7 +368,7 @@ def _run_script(
                 child_env = _platform_test_environment(broker)
                 input_driver = broker
             process.spawn(cmd, env=child_env, stop_event=stop_event, input_driver=input_driver)
-            _await_target(process, script_timeout, stop_event, outcome, driverless=input_driver is None)
+            _await_target(process, script_timeout, stop_event, outcome, driverless=input_driver is None, broker=broker)
         except RenderCancelledError:
             outcome.cancelled()
         except Exception as exc:

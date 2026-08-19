@@ -82,6 +82,14 @@ class TtyBroker(TerminalInputDriver):
         # Transcript position consumed by the last successful wait-for. Mutated only by
         # the single server thread, which serves one request at a time.
         self._match_cursor = 0
+        # Whether any authenticated command has been served. Attaching the broker
+        # suppresses the spawn-time end-of-file, on the promise that something will answer
+        # the target's reads — but the broker is attached to every conformance execution,
+        # while only a test written against `codeplain-tty` ever makes that promise good.
+        # Until the first command arrives, nothing is driving this terminal and a target
+        # that reads stdin would wait out its whole timeout. Set by the single server
+        # thread, read by the waiter.
+        self._served_a_command = False
         self._server: Optional[threading.Thread] = None
         self._listener: Optional[socket.socket] = None
         self._directory: Optional[str] = None
@@ -139,6 +147,12 @@ class TtyBroker(TerminalInputDriver):
             tty_protocol.ENDPOINT_ENV_VAR: self.endpoint,
             tty_protocol.TOKEN_ENV_VAR: self._token,
         }
+
+    @property
+    def served_a_command(self) -> bool:
+        """Whether a test has actually driven this terminal, as opposed to merely having
+        been offered the means to."""
+        return self._served_a_command
 
     def description(self) -> str:
         return "the codeplain-tty broker is attached to the script's terminal"
@@ -219,6 +233,9 @@ class TtyBroker(TerminalInputDriver):
             )
         if self._closing.is_set():
             return tty_protocol.error_response(tty_protocol.ERROR_SHUTTING_DOWN, "the execution is shutting down")
+        # Authenticated and in-protocol: from here on a test is genuinely driving this
+        # terminal, whatever the command turns out to be and whether or not it succeeds.
+        self._served_a_command = True
         command = request.get("command")
         args = request.get("args")
         if not isinstance(args, dict):
