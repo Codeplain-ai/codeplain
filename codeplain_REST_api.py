@@ -252,9 +252,14 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "unittests_issue": unittests_issue,
             "unittest_batch_id": run_state.unittest_batch_id,
-            "phase_context": phase_context,
-            "recent_implementation_changes": recent_implementation_changes,
         }
+
+        # Sent only when there is something to send. A key carrying null is not the same as an absent key to a
+        # schema validator, and an older server that does not know these fields must not be handed either.
+        if phase_context:
+            payload["phase_context"] = phase_context
+        if recent_implementation_changes:
+            payload["recent_implementation_changes"] = recent_implementation_changes
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 

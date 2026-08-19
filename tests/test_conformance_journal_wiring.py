@@ -355,3 +355,38 @@ def test_the_journal_is_not_picked_up_as_a_memory_file(render_context, tmp_path)
 
     _, memory_files_content = MemoryManager.fetch_memory_files(str(tmp_path))
     assert PROMPT_FILE_NAME not in memory_files_content
+
+
+# --- what reaches the server -----------------------------------------------------------------------------
+
+
+def test_the_optional_unit_test_fields_are_sent_only_when_there_is_something_to_send():
+    """A key carrying null is not an absent key to a schema validator, and it is not what an older server
+    expects either."""
+    from codeplain_REST_api import CodeplainAPI
+
+    api = CodeplainAPI("key", MagicMock())
+    api.api_url = "http://localhost"
+    sent = {}
+    api.post_request = lambda url, headers, payload, run_state: sent.update(payload)
+    run_state = MagicMock(unittest_batch_id=1)
+
+    api.fix_unittests_issue({}, {}, {}, {}, "module", {}, "issue", run_state=run_state)
+    assert "phase_context" not in sent
+    assert "recent_implementation_changes" not in sent
+
+    sent.clear()
+    api.fix_unittests_issue(
+        {},
+        {},
+        {},
+        {},
+        "module",
+        {},
+        "issue",
+        run_state=run_state,
+        phase_context=PHASE_INSIDE_CONFORMANCE_FIX,
+        recent_implementation_changes="# changes",
+    )
+    assert sent["phase_context"] == PHASE_INSIDE_CONFORMANCE_FIX
+    assert sent["recent_implementation_changes"] == "# changes"
