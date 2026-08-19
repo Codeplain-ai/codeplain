@@ -33,6 +33,21 @@ RAW_OUTPUT_SUFFIX = ".raw"
 # `codeplain-tty` broker; unit tests and environment preparation always run without one.
 INPUT_DRIVER: Optional[TerminalInputDriver] = None
 
+# A driverless execution gets one end-of-file at spawn. A program that reconfigures its
+# terminal before reading discards whatever is queued — `getpass` calls
+# `tcsetattr(..., TCSAFLUSH, ...)`, and TCSAFLUSH means exactly that — so the EOF is gone
+# by the time the read happens and the program waits for input nobody will send. It costs
+# the script its whole timeout, and the fix loop reads that as a defect in the code: one
+# benchmark render patched against the resulting failure seventeen times in a row while
+# its conformance loop never failed at all.
+#
+# So the EOF is re-delivered while the target is quiet. With no driver attached there is
+# nothing else a read could be answered with, which is what makes repeating it safe: a
+# program that is reading gets the EOF it was owed, and one that is not is unaffected.
+EOF_BYTE = b"\x04"
+QUIET_BEFORE_EOF_RESEND_SECONDS = 5.0
+MAX_EOF_RESENDS = 3
+
 # Conditions the arbiter chooses between, highest precedence last.
 CONDITION_EXIT = "exit"
 CONDITION_TIMEOUT = "timeout"
@@ -163,18 +178,27 @@ def _await_target(
     script_timeout: float,
     stop_event: Optional[threading.Event],
     outcome: _ScriptOutcome,
+    driverless: bool = True,
 ) -> None:
     """Waits for the target, recording every condition each poll can observe.
 
     No fact ends the wait before the others have been recorded: a target that exits after
     its deadline, or while a cancellation is already set, races with the condition it
     coincides with, and only the rank table decides which of them is published.
+
+    `driverless` reports whether this execution attached an input driver. It has to be
+    passed rather than read from `INPUT_DRIVER`, which is a module default nothing
+    assigns: the driver is chosen per execution, and a broker-backed run must not have
+    end-of-file pushed into a terminal the broker is driving.
     """
     deadline = time.monotonic() + script_timeout
+    eof_resender = _QuietEofResender(process, driverless=driverless)
     while True:
         returncode = process.poll()
         if returncode is not None:
             outcome.target_exited(returncode)
+        else:
+            eof_resender.consider()
         if stop_event is not None and stop_event.is_set():
             outcome.cancelled()
         # An exit observed by this same poll wins over the expired deadline: the target had
@@ -191,6 +215,53 @@ def _await_target(
             stop_event.wait(timeout=POLL_INTERVAL_SECONDS)
         else:
             time.sleep(POLL_INTERVAL_SECONDS)
+
+
+class _QuietEofResender:
+    """Re-delivers end-of-file to a driverless target that has gone quiet.
+
+    Quiet is the only evidence available from outside: the parent cannot see the child's
+    `tcsetattr`, so it watches for a target that is alive and has stopped producing
+    output. That describes a program blocked on a read, and — with no driver attached —
+    also describes a program that has nothing left to say. Both want the same answer.
+
+    Bounded rather than continuous. A target that stays quiet through several deliveries
+    is not waiting on the terminal, and repeating forever would turn a stuck script into
+    a noisy stuck script.
+    """
+
+    def __init__(self, process: TerminalProcess, driverless: bool) -> None:
+        self._process = process
+        self._enabled = driverless
+        self._resends = 0
+        self._seen = -1
+        self._since = time.monotonic()
+
+    def consider(self) -> None:
+        if not self._enabled or self._resends >= MAX_EOF_RESENDS:
+            return
+
+        produced = len(self._process.normalized_output())
+        if produced != self._seen:
+            self._seen = produced
+            self._since = time.monotonic()
+            return
+
+        if time.monotonic() - self._since < QUIET_BEFORE_EOF_RESEND_SECONDS:
+            return
+
+        self._since = time.monotonic()
+        self._resends += 1
+        try:
+            self._process.write_input(EOF_BYTE)
+        except Exception as exc:  # a target that cannot be written to is the wait's problem, not ours
+            self._enabled = False
+            console.debug(f"the end-of-file could not be re-delivered to a quiet target: {exc!r}")
+            return
+        console.debug(
+            f"re-delivered end-of-file to a quiet target "
+            f"(attempt {self._resends} of {MAX_EOF_RESENDS}); the spawn-time one may have been flushed"
+        )
 
 
 def _teardown(process: TerminalProcess, outcome: _ScriptOutcome) -> None:
@@ -281,7 +352,7 @@ def _run_script(
                 child_env = _platform_test_environment(broker)
                 input_driver = broker
             process.spawn(cmd, env=child_env, stop_event=stop_event, input_driver=input_driver)
-            _await_target(process, script_timeout, stop_event, outcome)
+            _await_target(process, script_timeout, stop_event, outcome, driverless=input_driver is None)
         except RenderCancelledError:
             outcome.cancelled()
         except Exception as exc:

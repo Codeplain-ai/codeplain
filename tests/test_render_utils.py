@@ -709,3 +709,39 @@ def test_the_terminal_script_active_flag_spans_spawn_through_teardown(injected_b
 
     assert seen["active_during_teardown"] is True
     assert not render_utils.terminal_script_active()
+
+
+@posix_only
+def test_a_getpass_target_survives_its_terminal_flush_without_a_driver(tmp_path, run_script):
+    """The failure this whole path exists for, on the side that has no broker.
+
+    `getpass` calls `tcsetattr(..., TCSAFLUSH, ...)` before reading, and TCSAFLUSH
+    discards pending input — so the end-of-file queued at spawn is gone by the time the
+    read happens and the target waits for input nobody will send. Unit tests never get a
+    broker (they ship inside the delivered codebase and must not depend on Codeplain's
+    tooling), so before the quiet-period re-delivery this target burned the entire script
+    timeout and the fix loop read that as a defect in the generated code.
+
+    The timeout here is well above the quiet period and well below what a hang costs, so
+    a regression fails the test rather than slowing it down.
+    """
+    script = _make_python_script(
+        tmp_path,
+        "getpass_no_driver",
+        """
+        import getpass
+
+        try:
+            secret = getpass.getpass("Master password: ")
+        except EOFError:
+            secret = "<eof>"
+        print(f"GOT:{secret}")
+        """,
+    )
+
+    exit_code, output, _ = run_script(
+        script, [], SCRIPT_TYPE, timeout=render_utils.QUIET_BEFORE_EOF_RESEND_SECONDS + 20
+    )
+
+    assert exit_code == 0, output
+    assert "GOT:" in output
