@@ -122,12 +122,32 @@ def test_a_stuck_unit_loop_does_not_regenerate_conformance_tests():
     assert decides_to_regenerate(context) is False
 
 
-def test_the_switch_is_spent_once_and_cannot_cycle():
-    """Regeneration draws on the same budget as the attempt-limit path. Once it is used
+def test_the_switch_stops_once_its_budget_is_spent_and_cannot_cycle():
+    """Regeneration draws on the same budget as the attempt-limit path. Once it is spent
     the loop patches to the limit and stops, rather than regenerating forever."""
     spent = render_context(identical_failures=8, render_attempts=MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS)
 
     assert decides_to_regenerate(spent) is False
+
+
+def test_a_functionality_may_be_regenerated_more_than_once():
+    """The budget that mattered. Every benchmark render that failed to publish died at the
+    attempt limit, reachable only after this budget ran out — one regeneration, then twenty
+    fruitless patches. The render that completed needed one regeneration on each of three
+    functionalities; the ones that wedged needed a second on a single functionality and had
+    none. Stopping after the first abandons the render where the move is still working."""
+    # Deliberately not `range(1, MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS)`: a bound derived
+    # from the constant makes the test vacuous at the value it is meant to rule out, and it
+    # passed against a budget of 1 for exactly that reason. One is the count that has to be
+    # named literally here, because one is what the wedged renders got.
+    already_regenerated_once = render_context(identical_failures=8, render_attempts=1)
+
+    assert decides_to_regenerate(already_regenerated_once) is True
+
+    assert MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS >= 2, (
+        "the budget has to allow a second regeneration for the assertion above to mean "
+        "anything; at 1 the loop abandons a functionality the move was still working on"
+    )
 
 
 def test_the_switch_is_announced_in_a_greppable_form():

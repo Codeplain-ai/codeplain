@@ -14,7 +14,27 @@ from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError, TestExecutionPhase
 
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
-MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
+
+# How many times one functionality may have its conformance test regenerated before the
+# loop falls back to patching until the attempt limit. The budget is per functionality —
+# `ConformanceTestsRunningContext` is rebuilt for each one — so this is not a per-render
+# allowance.
+#
+# It was 1, and that was the difference between a render that finished and a render that
+# did not. In a ten-task benchmark run, every render that failed to publish — both
+# examples, unit-test and conformance wedges alike — died at the attempt limit below,
+# which is only reachable once this budget is spent: one regeneration, then twenty fixes
+# that changed nothing, then abandonment. The one render that completed spent exactly one
+# regeneration on each of three separate functionalities and cleared the bar with nothing
+# to spare; the four that wedged hit a functionality needing a second and had none left.
+# Since a regeneration discards a test the loop has already proven it cannot satisfy,
+# stopping at the first one abandons the render at precisely the point the move is working.
+#
+# Three rather than more: each regeneration resets `fix_attempts`, so the worst case for a
+# genuinely unfixable functionality is four rounds of patching instead of two, and that
+# cost lands on renders that were going to fail anyway. Raise it further only on evidence
+# that a fourth regeneration ever rescued anything.
+MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 3
 
 
 class FixConformanceTest(BaseAction):
