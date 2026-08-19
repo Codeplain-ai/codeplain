@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from memory_management import MemoryManager
 from plain_modules import PlainModule
 from render_machine.actions.prepare_repositories import PrepareRepositories
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -46,6 +47,11 @@ def _make_render_context(module: PlainModule, render_conformance_tests: bool) ->
         render_conformance_tests=render_conformance_tests,
         conformance_tests=ConformanceTests(module.build_folder, CONFORMANCE_TESTS_DEFINITION_FILE_NAME),
         base_folder=None,
+        # Preparing the folders is also where the project lessons are carried forward, since it is what
+        # deletes the folder they have to live in.
+        memory_manager=MemoryManager(
+            None, module.module_memory_folder, module.project_memory_folder, predecessor_memory_folder=None
+        ),
     )
 
 

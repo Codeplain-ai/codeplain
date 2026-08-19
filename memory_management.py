@@ -60,37 +60,43 @@ class MemoryManager:
         console.debug(f"Loaded {len(memory_files_content)} memory files.")
         return memory_files, memory_files_content
 
-    @staticmethod
-    def inherit_project_lessons(predecessor_memory_folder: Optional[str], memory_folder: str) -> None:
+    def inherit_project_lessons(self) -> None:
         """Carry the project lessons forward from the module rendered before this one.
 
         Copied rather than merged: the predecessor's file already contains everything inherited from further
         back, so one copy carries the whole chain. Overwriting is deliberate - the file is a snapshot of what
         the chain knew at this point, not an accumulation of this module's own history.
 
-        With no predecessor, or none that has a file, whatever is already here is left alone. That lets the
-        first module in a chain keep accumulating across renders, which is where a project's toolchain facts
-        get their first home.
+        Called once the module's folders have been prepared, not before. Preparing them deletes the module
+        folder outright, `.memory` included, so a copy made any earlier does not survive to be read.
         """
-        if not predecessor_memory_folder:
+        if not self.predecessor_memory_folder:
             return
 
-        source = os.path.join(predecessor_memory_folder, PROJECT_LESSONS_FILE_NAME)
+        source = os.path.join(self.predecessor_memory_folder, PROJECT_LESSONS_FILE_NAME)
         if not os.path.exists(source):
+            console.debug(f"No project lessons to inherit from {self.predecessor_memory_folder}.")
             return
 
-        destination = os.path.join(memory_folder, PROJECT_LESSONS_FILE_NAME)
+        destination = os.path.join(self.memory_folder, PROJECT_LESSONS_FILE_NAME)
         try:
-            os.makedirs(memory_folder, exist_ok=True)
+            os.makedirs(self.memory_folder, exist_ok=True)
             shutil.copyfile(source, destination)
             console.debug(f"Inherited project lessons from {source}.")
         except OSError as exception:
             console.debug(f"Could not inherit project lessons from {source}: {exception}.")
 
-    def __init__(self, codeplain_api, memory_folder: str, project_memory_folder: str):
+    def __init__(
+        self,
+        codeplain_api,
+        memory_folder: str,
+        project_memory_folder: str,
+        predecessor_memory_folder: Optional[str] = None,
+    ):
         self.codeplain_api = codeplain_api
         self.memory_folder = memory_folder
         self.project_memory_folder = project_memory_folder
+        self.predecessor_memory_folder = predecessor_memory_folder
 
     def consolidate_lessons(self, render_context: RenderContext) -> None:
         """Extract what transfers to later functionalities, then discard the journal it came from.

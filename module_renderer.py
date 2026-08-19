@@ -141,9 +141,7 @@ class ModuleRenderer:
             self.codeplainAPI,
             plain_module.module_memory_folder,
             plain_module.project_memory_folder,
-        )
-        MemoryManager.inherit_project_lessons(
-            self._predecessor_memory_folder(plain_module), plain_module.module_memory_folder
+            self._predecessor_memory_folder(plain_module),
         )
         render_context = self._build_render_context_for_module(
             plain_module,
