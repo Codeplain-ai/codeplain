@@ -13,7 +13,7 @@ from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
-from render_machine.fix_loop_metrics import FixLoopMetrics
+from render_machine.fix_loop_metrics import STRATEGY_SWITCH_PREFIX, UNIT_LOOP, FixLoopMetrics, stalled_reason
 from render_machine.render_types import (
     AcceptanceTestPhase,
     ConformanceTestsRunningContext,
@@ -271,6 +271,27 @@ class RenderContext:
     def start_fixing_unit_tests(self, on_limit_exceeded: Callable):
         self.unit_tests_running_context.fix_attempts += 1
         if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
+            on_limit_exceeded()
+            return
+
+        # A unit loop that has stopped moving gets the same answer as one that ran out of
+        # attempts, just sooner. The separation is unusually clean here: across three
+        # benchmark renders every healthy functionality finished with unit_max_repeat=1,
+        # while the one that wedged reached 17 and burned eleven minutes getting to the
+        # attempt limit. Nothing has been observed in between, so acting on a streak of
+        # three risks little and skips that wait.
+        reason = stalled_reason(
+            self.fix_loop_metrics,
+            UNIT_LOOP,
+            module=self.module_name,
+            frid=self.frid_context.frid if self.frid_context else None,
+        )
+        if reason is not None:
+            console.warning(
+                f"{STRATEGY_SWITCH_PREFIX} module={self.module_name} "
+                f"frid={self.frid_context.frid if self.frid_context else None} loop={UNIT_LOOP} "
+                f"{reason} action=give_up_on_patching"
+            )
             on_limit_exceeded()
 
     def _on_unit_test_limit_exceeded_in_implementation(self):

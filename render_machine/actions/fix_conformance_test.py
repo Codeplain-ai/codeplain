@@ -7,7 +7,7 @@ from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
-from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, REPEATED_FAILURE_WARNING_THRESHOLD
+from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, STRATEGY_SWITCH_PREFIX, stalled_reason
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.platform_test_runtime import advertised_platform_test_runtime
 from render_machine.render_context import RenderContext
@@ -15,10 +15,6 @@ from render_machine.render_types import RenderError, TestExecutionPhase
 
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
-
-# Marks the moment the loop stops patching and regenerates the test instead. Greppable
-# on purpose, like the other benchmark markers.
-STRATEGY_SWITCH_PREFIX = "[strategy-switch]"
 
 
 class FixConformanceTest(BaseAction):
@@ -36,23 +32,18 @@ class FixConformanceTest(BaseAction):
     def _should_regenerate_instead_of_patching(render_context: RenderContext) -> bool:
         """Whether the loop has proven that patching the implementation is not working.
 
-        A conformance failure that repeats identically means the last fixes changed
-        nothing the test can see. Benchmark runs put numbers on that: across a wedged
-        cli-password-manager render the conformance loop failed 20 times on one
-        functionality with a streak of 8, while its unit loop never failed once — the
-        implementation was not what needed changing. Left alone the loop spent 5h20m
-        that way and still scored 1/16, and the same signature appears on bookshelf-api,
-        so it is not one spec's quirk.
+        Two shapes of stuck, both observed on real renders. A failure that repeats
+        identically means the last fixes changed nothing the test can see — one wedged
+        cli-password-manager render failed conformance 20 times on a functionality with a
+        streak of 8 while its unit loop never failed once. A loop can also fail every
+        single time while the failures keep changing: a task-manager render went 40 for
+        40 with a longest identical run of two, which no streak threshold can catch.
+        `stalled_reason` covers both.
 
         Regenerating the conformance test is a genuinely different move: it discards the
         test the loop cannot satisfy rather than editing code against it again. That path
         already exists for the attempt limit; this reaches it as soon as there is
         evidence, instead of after twenty blind patches.
-
-        The threshold is the one the warning already uses. Three is validated in both
-        directions by a single run: a healthy functionality repeated twice and then
-        recovered, so two would fire on renders that are fine, while the wedged one went
-        from three to eight and never recovered.
         """
         ctx = render_context.conformance_tests_running_context
 
@@ -61,22 +52,23 @@ class FixConformanceTest(BaseAction):
         if ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS:
             return False
 
-        streak = render_context.fix_loop_metrics.current_streak(
+        reason = stalled_reason(
+            render_context.fix_loop_metrics,
             CONFORMANCE_LOOP,
             module=render_context.module_name,
             frid=ctx.current_testing_frid,
         )
-        if streak < REPEATED_FAILURE_WARNING_THRESHOLD:
+        if reason is None:
             return False
 
         console.warning(
             f"{STRATEGY_SWITCH_PREFIX} module={render_context.module_name} "
-            f"frid={ctx.current_testing_frid} conformance_streak={streak} "
+            f"frid={ctx.current_testing_frid} loop={CONFORMANCE_LOOP} {reason} "
             f"action=regenerate_conformance_tests"
         )
         console.info(
-            f"Patching the implementation has not changed what the conformance tests for functionality "
-            f"{ctx.current_testing_frid} report, {streak} times running. Regenerating those tests instead."
+            f"Patching the implementation has not made the conformance tests for functionality "
+            f"{ctx.current_testing_frid} pass ({reason}). Regenerating those tests instead."
         )
         return True
 

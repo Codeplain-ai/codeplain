@@ -1,25 +1,28 @@
 """Tests for switching strategy when the conformance fix loop stops making progress.
 
-The loop's failure mode is not slowness, it is repetition: it re-sends the same fix
-request, gets back a patch that changes nothing the test can see, and does it again. A
-wedged cli-password-manager render failed conformance 20 times on one functionality with
-a streak of 8 while its unit loop never failed once, spent 5h20m, and still scored 1/16.
-The same signature appears on bookshelf-api, so it is not one spec's quirk.
+The loop's failure mode is not slowness, and it comes in two shapes. It can re-send the
+same fix request and get back a patch that changes nothing the test can see — a wedged
+cli-password-manager render failed conformance 20 times on one functionality with a
+streak of 8 while its unit loop never failed once. Or it can fail every single time while
+the failures keep changing shape — a task-manager render went 40 for 40 with a longest
+identical run of two, which no streak threshold can catch. Both burn the whole budget.
 
 Regenerating the conformance test is the different move — it discards the test the loop
 cannot satisfy instead of editing code against it again. These tests pin when that
-happens, and just as importantly when it does not: the threshold has to sit above what a
-healthy functionality does, or every good render pays for it.
+happens, and just as importantly when it does not: both thresholds have to sit above what
+a healthy functionality does, or every good render pays for it.
 """
 
 from unittest.mock import MagicMock, patch
 
-from render_machine.actions.fix_conformance_test import (
-    MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS,
+from render_machine.actions.fix_conformance_test import MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS, FixConformanceTest
+from render_machine.fix_loop_metrics import (
+    CONFORMANCE_LOOP,
+    CONSECUTIVE_FAILURE_THRESHOLD,
     STRATEGY_SWITCH_PREFIX,
-    FixConformanceTest,
+    UNIT_LOOP,
+    FixLoopMetrics,
 )
-from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, UNIT_LOOP, FixLoopMetrics
 
 MODULE = "vault_cli"
 FRID = "2"
@@ -110,8 +113,54 @@ def test_the_switch_is_announced_in_a_greppable_form():
     assert STRATEGY_SWITCH_PREFIX in announced
     assert f"module={MODULE}" in announced
     assert f"frid={FRID}" in announced
-    assert "conformance_streak=4" in announced
+    assert "loop=conformance" in announced
+    assert "repeated_failure streak=4" in announced
     assert "action=regenerate_conformance_tests" in announced
+
+
+def failing_differently(context, times):
+    for index in range(times):
+        context.fix_loop_metrics.record(
+            CONFORMANCE_LOOP, module=MODULE, frid=FRID, passed=False, output=f"failure number {index}"
+        )
+    return context
+
+
+def test_a_loop_that_always_fails_regenerates_even_without_a_repeat():
+    """The case a streak trigger cannot see at any threshold: a task-manager render
+    failed a functionality's conformance tests 40 times out of 40 while its longest
+    identical run was two, exhausted its whole budget, and the switch stayed silent."""
+    context = failing_differently(render_context(), CONSECUTIVE_FAILURE_THRESHOLD)
+
+    assert decides_to_regenerate(context) is True
+
+
+def test_a_loop_short_of_the_consecutive_bound_is_left_alone():
+    context = failing_differently(render_context(), CONSECUTIVE_FAILURE_THRESHOLD - 1)
+
+    assert decides_to_regenerate(context) is False
+
+
+def test_a_pass_clears_the_consecutive_count():
+    """A loop that gets a test passing is making progress, however many failures it took
+    to get there."""
+    context = failing_differently(render_context(), CONSECUTIVE_FAILURE_THRESHOLD)
+    context.fix_loop_metrics.record(CONFORMANCE_LOOP, module=MODULE, frid=FRID, passed=True, output="")
+    failing_differently(context, 1)
+
+    assert decides_to_regenerate(context) is False
+
+
+def test_the_consecutive_arm_is_announced_with_its_own_reason():
+    """The two arms mean different things to a reader, so the marker distinguishes
+    them rather than reporting one cause for both."""
+    context = failing_differently(render_context(), CONSECUTIVE_FAILURE_THRESHOLD)
+
+    with patch("render_machine.actions.fix_conformance_test.console") as console:
+        FixConformanceTest._should_regenerate_instead_of_patching(context)
+
+    announced = console.warning.call_args[0][0]
+    assert f"no_progress consecutive_failures={CONSECUTIVE_FAILURE_THRESHOLD}" in announced
 
 
 def test_the_action_returns_the_regeneration_outcome_and_marks_the_context():

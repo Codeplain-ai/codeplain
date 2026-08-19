@@ -57,6 +57,11 @@ class _LoopCounters:
     max_repeat: int = 1
     last_fingerprint: Optional[str] = None
     current_repeat: int = 0
+    # Failures since the last pass, whether or not they look alike. A loop can fail every
+    # single time without ever repeating itself — one benchmark render went 40 for 40 on
+    # a functionality whose longest identical run was two — and a streak counter cannot
+    # see that at any threshold.
+    consecutive_failures: int = 0
 
 
 @dataclass
@@ -79,9 +84,11 @@ class FixLoopMetrics:
         if passed:
             counters.last_fingerprint = None
             counters.current_repeat = 0
+            counters.consecutive_failures = 0
             return None
 
         counters.failures += 1
+        counters.consecutive_failures += 1
         fingerprint = failure_fingerprint(output)
         if fingerprint == counters.last_fingerprint:
             counters.current_repeat += 1
@@ -101,12 +108,21 @@ class FixLoopMetrics:
         because nothing was recorded under one either — `report_fix_loop_attempt` skips
         those runs.
         """
+        counters = self._counters_for(loop, module, frid)
+        return counters.current_repeat if counters else 0
+
+    def consecutive_failures(self, loop: str, module: str, frid: Optional[str]) -> int:
+        """How many times in a row this loop has failed, regardless of how it failed."""
+        counters = self._counters_for(loop, module, frid)
+        return counters.consecutive_failures if counters else 0
+
+    def _counters_for(self, loop: str, module: str, frid: Optional[str]) -> Optional[_LoopCounters]:
         if frid is None:
-            return 0
+            return None  # nothing is recorded without one — report_fix_loop_attempt skips those runs
         counters = self._counters.get((module, str(frid)))
         if not counters or loop not in counters:
-            return 0
-        return counters[loop].current_repeat
+            return None
+        return counters[loop]
 
     def frid_summary(self, module: str, frid: str) -> Optional[str]:
         """One greppable line per FRID, or None if no script ran for it."""
@@ -139,6 +155,35 @@ class FixLoopMetrics:
 # a patch legitimately addresses something else first; by three the loop is re-patching
 # against a failure it is not moving.
 REPEATED_FAILURE_WARNING_THRESHOLD = 3
+
+# How many failures in a row — alike or not — before the loop is called stuck anyway.
+# Repetition proves futility quickly but is not necessary for it: a benchmark render
+# failed a functionality's conformance tests 40 times out of 40 with a longest identical
+# run of two, which no streak threshold can catch. The highest failure count seen on a
+# functionality that then recovered is four, so this sits above that with margin.
+CONSECUTIVE_FAILURE_THRESHOLD = 6
+
+# Marks the moment a loop stops patching and does something else instead. Greppable on
+# purpose, like the other benchmark markers.
+STRATEGY_SWITCH_PREFIX = "[strategy-switch]"
+
+
+def stalled_reason(metrics: "FixLoopMetrics", loop: str, module: str, frid: Optional[str]) -> Optional[str]:
+    """Why this loop looks stuck, or None if it still looks like it is working.
+
+    One definition for both loops. The streak arm fires soonest when a loop is
+    re-submitting the same fix; the consecutive arm is the catch-all for a loop that
+    fails every time while the failures keep changing shape.
+    """
+    streak = metrics.current_streak(loop, module, frid)
+    if streak >= REPEATED_FAILURE_WARNING_THRESHOLD:
+        return f"repeated_failure streak={streak}"
+
+    failures = metrics.consecutive_failures(loop, module, frid)
+    if failures >= CONSECUTIVE_FAILURE_THRESHOLD:
+        return f"no_progress consecutive_failures={failures}"
+
+    return None
 
 
 def report_fix_loop_attempt(render_context, loop: str, frid: Optional[str], passed: bool, output: str) -> None:
