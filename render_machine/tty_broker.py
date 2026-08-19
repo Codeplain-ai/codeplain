@@ -57,6 +57,12 @@ REQUEST_READ_TIMEOUT_SECONDS = 5.0
 
 POLL_INTERVAL_SECONDS = 0.05
 
+# How long an idle accept() waits before looking at the closing flag again. Closing a
+# socket does not wake a blocked accept() in another thread on Linux, so without a bound
+# here the server thread parks forever and close() can only give up on it: one thread and
+# one socket held open per broker, for the life of the render.
+ACCEPT_POLL_SECONDS = 0.25
+
 # How long close() waits for the server thread after closing the listener under it.
 CLOSE_JOIN_SECONDS = 5.0
 
@@ -99,6 +105,7 @@ class TtyBroker(TerminalInputDriver):
         try:
             listener.bind(self.endpoint)
             listener.listen(8)
+            listener.settimeout(ACCEPT_POLL_SECONDS)  # so shutdown does not depend on a client arriving
         except OSError:
             listener.close()
             self._remove_artifacts()
@@ -167,6 +174,8 @@ class TtyBroker(TerminalInputDriver):
         while not self._closing.is_set():
             try:
                 connection, _ = listener.accept()
+            except socket.timeout:
+                continue  # nobody called; go back and look at the closing flag
             except OSError:  # the listener was closed under the loop — expected shutdown
                 return
             try:

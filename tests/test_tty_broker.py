@@ -22,7 +22,7 @@ import pytest
 
 from render_machine import tty_protocol
 from render_machine.terminal_process import InputDisposition, InputWriteResult, TerminalInputDriver
-from render_machine.tty_broker import TtyBroker, broker_supported
+from render_machine.tty_broker import ACCEPT_POLL_SECONDS, CLOSE_JOIN_SECONDS, TtyBroker, broker_supported
 
 posix_only = pytest.mark.skipif(
     sys.platform == "win32",
@@ -274,6 +274,84 @@ def test_close_removes_every_artifact_and_stops_the_server():
     instance.close()
     assert not os.path.exists(directory)
     instance.close()  # idempotent
+
+
+def live_broker_threads() -> list:
+    return [thread for thread in threading.enumerate() if thread.name == "codeplain-tty-broker" and thread.is_alive()]
+
+
+def test_the_server_stops_when_told_to_without_the_listener_being_closed():
+    """The decisive case, and the only one that reproduces the defect off Linux.
+
+    Closing a socket interrupts a blocked accept() on macOS/BSD but NOT on Linux, so the
+    leak is invisible on a developer laptop and certain in the benchmark container — a
+    render there logged the give-up message on 275 of 275 broker closes. Asserting the
+    loop honours the closing flag on its own, with the listener left open, pins the
+    behaviour everywhere instead of on whichever platform happens to be kind."""
+    instance = TtyBroker(FakeProcess())
+    instance.start()
+    try:
+        instance._closing.set()
+        instance._server.join(timeout=ACCEPT_POLL_SECONDS * 8)
+
+        assert not instance._server.is_alive()
+    finally:
+        instance.close()
+
+
+def test_close_leaves_no_server_thread_behind():
+    """Closing a socket does not wake a blocked accept() in another thread on Linux, so a
+    broker whose accept() has no bound parks forever and close() can only give up on it.
+    A render runs one broker per test-script execution, so that is a thread and a socket
+    leaked on every conformance run — a benchmark render reached 275 before finishing.
+    Artifacts being gone is not evidence the thread went with them."""
+    before = len(live_broker_threads())
+    instance = TtyBroker(FakeProcess())
+    instance.start()
+    instance.close()
+
+    assert len(live_broker_threads()) == before
+
+
+def test_close_does_not_wait_out_the_join_bound():
+    """The leak was silent because close() still returns — it just burns the full join
+    timeout first and logs a debug line. Shutdown has to be prompt, not merely eventual."""
+    instance = TtyBroker(FakeProcess())
+    instance.start()
+
+    started = time.monotonic()
+    instance.close()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < CLOSE_JOIN_SECONDS / 2
+
+
+def test_brokers_do_not_accumulate_threads_across_executions():
+    """One broker per test-script execution is the real usage pattern; the cost of the
+    leak is that it compounds over a render."""
+    before = len(live_broker_threads())
+    for _ in range(5):
+        instance = TtyBroker(FakeProcess())
+        instance.start()
+        instance.close()
+
+    assert len(live_broker_threads()) == before
+
+
+def test_the_server_still_serves_after_idling_through_accept_polls():
+    """The bound makes accept() wake repeatedly; a client arriving after several idle
+    cycles must still be served rather than dropped by the polling loop."""
+    process = FakeProcess()
+    instance = TtyBroker(process)
+    instance.start()
+    try:
+        time.sleep(ACCEPT_POLL_SECONDS * 3)
+        response = command(instance, tty_protocol.COMMAND_SEND_TEXT, {"text": "x"})
+
+        assert "error" not in response
+        assert process.written
+    finally:
+        instance.close()
 
 
 def test_the_broker_is_a_typed_input_driver(broker):
