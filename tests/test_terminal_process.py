@@ -629,7 +629,10 @@ def test_a_failing_reader_thread_construction_rolls_back_every_channel(monkeypat
 
 
 def test_write_input_reports_whole_item_admission():
-    with terminal(command=["/bin/sh", "-c", "read line; printf 'got:%s' \"$line\""], input_driver=object()) as process:
+    # The first read consumes the end-of-file queued at spawn; the second proves the
+    # terminal is still open afterwards and later input is delivered normally. On a
+    # pseudoterminal VEOF ends a read, it does not close the channel.
+    with terminal(command=["/bin/sh", "-c", "read spawn_eof; read line; printf 'got:%s' \"$line\""]) as process:
         result = process.write_input(b"payload\n")
         assert result.disposition is InputDisposition.ACCEPTED
         assert result.accepted_bytes == len(b"payload\n")
@@ -638,7 +641,7 @@ def test_write_input_reports_whole_item_admission():
 
 
 def test_write_input_reports_backpressure_for_an_oversized_item():
-    with terminal(command=["/bin/sh", "-c", "sleep 5"], input_driver=object()) as process:
+    with terminal(command=["/bin/sh", "-c", "sleep 5"]) as process:
         result = process.write_input(b"x" * (_posix_pty.MAX_INPUT_ITEM_BYTES + 1))
         assert result.disposition is InputDisposition.BACKPRESSURE
         assert result.accepted_bytes == 0
@@ -1390,7 +1393,7 @@ def test_close_during_an_in_flight_fragmented_item_fails_its_receipt_once(tmp_pa
     script = make_script(tmp_path, "fragmented_close", "sleep 10\n")
     process = _posix_pty.PosixPtyProcess()
     try:
-        process.spawn([script], input_driver=object())
+        process.spawn([script])
         real_write = process._write_master
         state = {"calls": 0}
 
@@ -1443,7 +1446,7 @@ def test_close_finishes_an_in_flight_compound_item_before_failing_its_receipt(tm
         finished.append(termios.tcgetattr(process._bundle.master_fd))  # the reader still owns it
 
     try:
-        process.spawn([script], input_driver=object())
+        process.spawn([script])
 
         def held_write(fd, data):
             raise BlockingIOError(errno.EAGAIN, "held mid-item")
@@ -1471,7 +1474,7 @@ def test_a_saturated_doorbell_is_only_a_coalesced_notification(tmp_path):
     script = make_script(tmp_path, "doorbell", "sleep 10\n")
     process = _posix_pty.PosixPtyProcess()
     try:
-        process.spawn([script], input_driver=object())
+        process.spawn([script])
         while True:  # fill the doorbell to EAGAIN
             try:
                 os.write(process._wakeup_w, b"\x01" * 4096)
@@ -1499,7 +1502,7 @@ def test_a_fragmented_logical_write_keeps_its_suffix_ahead_of_later_items(tmp_pa
     written = []
     released = threading.Event()
     try:
-        process.spawn([script], input_driver=object())
+        process.spawn([script])
         real_write = process._write_master
         state = {"held": False}
 
@@ -1586,7 +1589,7 @@ def test_output_in_flight_at_close_reaches_the_decoded_channel(tmp_path):
 
     process._read_once = parked_read_once
     try:
-        process.spawn([script], input_driver=object())
+        process.spawn([script])
         deadline = time.monotonic() + SPAWN_TIMEOUT
         while parked["calls"] < 2 and time.monotonic() < deadline:
             time.sleep(0.02)
@@ -1607,7 +1610,7 @@ def test_write_input_after_the_reader_closed_the_master_touches_nothing(tmp_path
     process = _posix_pty.PosixPtyProcess()
     unrelated = None
     try:
-        process.spawn(["/bin/sh", "-c", "printf bye"], input_driver=object())
+        process.spawn(["/bin/sh", "-c", "printf bye"])
         assert wait_for_exit(process) == 0
         deadline = time.monotonic() + SPAWN_TIMEOUT
         while process._bundle.master_fd is not None and time.monotonic() < deadline:

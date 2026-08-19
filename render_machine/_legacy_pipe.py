@@ -44,7 +44,6 @@ from render_machine.terminal_process import (
     TERMINAL_ROWS,
     InputDisposition,
     InputWriteResult,
-    TerminalInputDriver,
     TerminalLaunchError,
     TerminalProcess,
     child_environment,
@@ -111,7 +110,6 @@ class LegacyPipeProcess(TerminalProcess):
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[TerminalInputDriver] = None,
     ) -> None:
         if self._spawned:
             raise RuntimeError("LegacyPipeProcess instances are single-use")

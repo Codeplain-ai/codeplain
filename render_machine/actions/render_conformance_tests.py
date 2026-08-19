@@ -7,7 +7,6 @@ from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
-from render_machine.platform_test_runtime import advertised_platform_test_runtime
 from render_machine.render_context import RenderContext
 from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
 
@@ -127,7 +126,6 @@ class RenderConformanceTests(BaseAction):
             ),
             all_acceptance_tests,
             run_state=render_context.run_state,
-            platform_test_runtime=advertised_platform_test_runtime(),
         )
 
         render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
@@ -180,7 +178,6 @@ class RenderConformanceTests(BaseAction):
             render_context.get_required_modules_functionalities(),
             acceptance_test,
             run_state=render_context.run_state,
-            platform_test_runtime=advertised_platform_test_runtime(),
         )
         conformance_tests_folder_name = (
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()

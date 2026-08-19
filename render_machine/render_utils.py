@@ -1,4 +1,3 @@
-import os
 import sys
 import tempfile
 import threading
@@ -9,16 +8,13 @@ import file_utils
 import plain_spec
 from plain2code_console import MUTED_COLOR, RETRY_COLOR, SUCCESS_COLOR, console
 from plain2code_exceptions import RenderCancelledError
-from render_machine import tty_protocol
 from render_machine.terminal_process import (
     ENVIRONMENT_ERROR_EXIT_CODE,
     NO_INPUT_NOTE,
-    TerminalInputDriver,
     TerminalProcess,
     TerminalProcessError,
     create_terminal_process,
 )
-from render_machine.tty_broker import TtyBroker
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
@@ -28,22 +24,15 @@ POLL_INTERVAL_SECONDS = 0.2
 # discoverable from the returned path and cleanable by the same convention.
 RAW_OUTPUT_SUFFIX = ".raw"
 
-# The driver a non-broker execution gets: none. Only an execution that asked for the
-# platform-test runtime (conformance and acceptance runs) attaches the per-execution
-# `codeplain-tty` broker; unit tests and environment preparation always run without one.
-INPUT_DRIVER: Optional[TerminalInputDriver] = None
-
-# A driverless execution gets one end-of-file at spawn. A program that reconfigures its
-# terminal before reading discards whatever is queued — `getpass` calls
+# Every execution gets one end-of-file at spawn. A program that reconfigures its terminal
+# before reading discards whatever is queued — `getpass` calls
 # `tcsetattr(..., TCSAFLUSH, ...)`, and TCSAFLUSH means exactly that — so the EOF is gone
 # by the time the read happens and the program waits for input nobody will send. It costs
-# the script its whole timeout, and the fix loop reads that as a defect in the code: one
-# benchmark render patched against the resulting failure seventeen times in a row while
-# its conformance loop never failed at all.
+# the script its whole timeout, and the fix loop reads that as a defect in the code.
 #
-# So the EOF is re-delivered while the target is quiet. With no driver attached there is
-# nothing else a read could be answered with, which is what makes repeating it safe: a
-# program that is reading gets the EOF it was owed, and one that is not is unaffected.
+# So the EOF is re-delivered while the target is quiet. Nothing else answers a test
+# script's terminal reads, which is what makes repeating it safe: a program that is
+# reading gets the EOF it was owed, and one that is not is unaffected.
 EOF_BYTE = b"\x04"
 QUIET_BEFORE_EOF_RESEND_SECONDS = 5.0
 MAX_EOF_RESENDS = 3
@@ -178,22 +167,15 @@ def _await_target(
     script_timeout: float,
     stop_event: Optional[threading.Event],
     outcome: _ScriptOutcome,
-    driverless: bool = True,
-    broker: Optional[TtyBroker] = None,
 ) -> None:
     """Waits for the target, recording every condition each poll can observe.
 
     No fact ends the wait before the others have been recorded: a target that exits after
     its deadline, or while a cancellation is already set, races with the condition it
     coincides with, and only the rank table decides which of them is published.
-
-    `driverless` reports whether this execution attached an input driver. It has to be
-    passed rather than read from `INPUT_DRIVER`, which is a module default nothing
-    assigns: the driver is chosen per execution, and a broker-backed run must not have
-    end-of-file pushed into a terminal the broker is driving.
     """
     deadline = time.monotonic() + script_timeout
-    eof_resender = _QuietEofResender(process, driverless=driverless, broker=broker)
+    eof_resender = _QuietEofResender(process)
     while True:
         returncode = process.poll()
         if returncode is not None:
@@ -219,42 +201,27 @@ def _await_target(
 
 
 class _QuietEofResender:
-    """Re-delivers end-of-file to a driverless target that has gone quiet.
+    """Re-delivers end-of-file to a target that has gone quiet.
 
     Quiet is the only evidence available from outside: the parent cannot see the child's
     `tcsetattr`, so it watches for a target that is alive and has stopped producing
-    output. That describes a program blocked on a read, and — with no driver attached —
-    also describes a program that has nothing left to say. Both want the same answer.
+    output. That describes a program blocked on a read, and also describes a program that
+    has nothing left to say. Both want the same answer.
 
     Bounded rather than continuous. A target that stays quiet through several deliveries
     is not waiting on the terminal, and repeating forever would turn a stuck script into
     a noisy stuck script.
     """
 
-    def __init__(self, process: TerminalProcess, driverless: bool, broker: Optional["TtyBroker"] = None) -> None:
+    def __init__(self, process: TerminalProcess) -> None:
         self._process = process
-        # An attached broker suppresses the spawn-time end-of-file, and that is right only
-        # for a test that drives the terminal. The broker is attached to every conformance
-        # execution, so the ones that never call `codeplain-tty` — the great majority —
-        # got a target whose stdin simply never ended, and any target that read it waited
-        # out its whole timeout. On the legacy pipe backend the same tests saw EOF at once
-        # and passed. `broker.served_a_command` is what separates the two: until a command
-        # arrives nothing is driving this terminal, so the target should be told the input
-        # is over, exactly as a driverless one is.
-        self._broker = broker
-        self._enabled = driverless or broker is not None
+        self._enabled = True
         self._resends = 0
         self._seen = -1
         self._since = time.monotonic()
 
     def consider(self) -> None:
         if not self._enabled or self._resends >= MAX_EOF_RESENDS:
-            return
-
-        # A test that has started driving owns this terminal for the rest of the
-        # execution; an unsolicited end-of-file would land in the middle of its dialogue.
-        if self._broker is not None and self._broker.served_a_command:
-            self._enabled = False
             return
 
         produced = len(self._process.normalized_output())
@@ -324,25 +291,10 @@ def _collect_backend_state(process: TerminalProcess, execution: _ScriptExecution
         _record_backend_failure(execution.outcome, exc, "while reporting its result")
 
 
-def _platform_test_environment(broker: TtyBroker) -> dict:
-    """The scoped child environment of a broker-enabled execution.
-
-    Caller-supplied CODEPLAIN_TTY_* values are stripped before the broker's own are
-    added — the runtime owns that prefix — and the helper's directory is prepended to
-    PATH only here, so no other execution can resolve the executable.
-    """
-    env = {key: value for key, value in os.environ.items() if not key.startswith(tty_protocol.ENV_VAR_PREFIX)}
-    env.update(broker.child_env())
-    assert broker.helper_bin_dir is not None
-    env["PATH"] = broker.helper_bin_dir + os.pathsep + env.get("PATH", "")
-    return env
-
-
 def _run_script(
     cmd: list[str],
     script_timeout: float,
     stop_event: Optional[threading.Event],
-    platform_test_runtime: bool = False,
 ) -> _ScriptExecution:
     execution = _ScriptExecution()
     outcome = execution.outcome
@@ -354,21 +306,10 @@ def _run_script(
     if process is None:
         return execution
     _script_started()
-    broker: Optional[TtyBroker] = None
     try:
         try:
-            child_env: Optional[dict] = None
-            input_driver: Optional[TerminalInputDriver] = INPUT_DRIVER
-            if platform_test_runtime:
-                # A broker that cannot start is an environment failure (the except below),
-                # never a spawn with the runtime silently missing: the generated test was
-                # promised the helper and would fail confusingly without it.
-                broker = TtyBroker(process)
-                broker.start()
-                child_env = _platform_test_environment(broker)
-                input_driver = broker
-            process.spawn(cmd, env=child_env, stop_event=stop_event, input_driver=input_driver)
-            _await_target(process, script_timeout, stop_event, outcome, driverless=input_driver is None, broker=broker)
+            process.spawn(cmd, stop_event=stop_event)
+            _await_target(process, script_timeout, stop_event, outcome)
         except RenderCancelledError:
             outcome.cancelled()
         except Exception as exc:
@@ -377,18 +318,8 @@ def _run_script(
             # follow it.
             _record_backend_failure(outcome, exc, "while running the script")
         finally:
-            # The broker stops accepting before the target is torn down, so no command
-            # can race the teardown; its artifacts are gone before publication.
-            if broker is not None:
-                broker.close()
             _teardown(process, outcome)
         _collect_backend_state(process, execution)
-        if broker is not None:
-            # The backend's absent-driver note would misdescribe this execution.
-            execution.no_input_note = (
-                " The codeplain-tty broker was attached; the script may be waiting for"
-                " terminal input its test never sent."
-            )
     finally:
         _script_finished()
     return execution
@@ -486,7 +417,7 @@ def _publish_timeout(
     reply_detail: str,
     no_input_note: str,
 ) -> tuple[int, str, Optional[str]]:
-    diagnostics = no_input_note if INPUT_DRIVER is None else ""
+    diagnostics = no_input_note
     if reply_failed:
         diagnostics += f" Terminal replies the script asked for could not be delivered: {reply_detail}."
 
@@ -519,7 +450,6 @@ def execute_script(
     module: Optional[str] = None,
     timeout: Optional[int] = None,
     stop_event: Optional[threading.Event] = None,
-    platform_test_runtime: bool = False,
 ) -> tuple[int, str, Optional[str]]:
     script_timeout = timeout if timeout is not None else SCRIPT_EXECUTION_TIMEOUT
 
@@ -532,7 +462,7 @@ def execute_script(
         cmd = [script_path] + scripts_args
 
     start_time = time.time()
-    execution = _run_script(cmd, script_timeout, stop_event, platform_test_runtime)
+    execution = _run_script(cmd, script_timeout, stop_event)
     elapsed_time = time.time() - start_time
     outcome = execution.outcome
 

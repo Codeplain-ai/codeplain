@@ -422,7 +422,7 @@ class _FakeTerminalProcess(TerminalProcess):
         self.closed = False
         self.reader_running = True
 
-    def spawn(self, command, cwd=None, env=None, terminal_size=(80, 24), stop_event=None, input_driver=None):
+    def spawn(self, command, cwd=None, env=None, terminal_size=(80, 24), stop_event=None):
         if self.spawn_error is not None:
             raise self.spawn_error
 
@@ -648,7 +648,7 @@ def test_a_script_that_cannot_be_executed_is_an_environment_error(tmp_path, run_
 
 
 @posix_only
-def test_the_timeout_message_names_the_absent_input_driver(tmp_path, run_script):
+def test_the_timeout_message_explains_the_end_of_file_the_target_was_given(tmp_path, run_script):
     script = _make_python_script(
         tmp_path,
         "reads_forever",
@@ -666,8 +666,8 @@ def test_the_timeout_message_names_the_absent_input_driver(tmp_path, run_script)
     exit_code, output, output_file = run_script(script, [], SCRIPT_TYPE, timeout=2)
 
     assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
-    assert "no input driver was attached" in output.lower()
-    assert "no input driver was attached" in Path(output_file).read_text().lower()
+    assert "an end-of-file was queued" in output.lower()
+    assert "an end-of-file was queued" in Path(output_file).read_text().lower()
 
 
 def test_a_backend_that_delivers_end_of_file_states_the_default_note():
@@ -712,15 +712,14 @@ def test_the_terminal_script_active_flag_spans_spawn_through_teardown(injected_b
 
 
 @posix_only
-def test_a_getpass_target_survives_its_terminal_flush_without_a_driver(tmp_path, run_script):
-    """The failure this whole path exists for, on the side that has no broker.
+def test_a_getpass_target_survives_its_terminal_flush(tmp_path, run_script):
+    """The failure this whole path exists for.
 
     `getpass` calls `tcsetattr(..., TCSAFLUSH, ...)` before reading, and TCSAFLUSH
     discards pending input — so the end-of-file queued at spawn is gone by the time the
-    read happens and the target waits for input nobody will send. Unit tests never get a
-    broker (they ship inside the delivered codebase and must not depend on Codeplain's
-    tooling), so before the quiet-period re-delivery this target burned the entire script
-    timeout and the fix loop read that as a defect in the generated code.
+    read happens and the target waits for input nobody will send. Before the quiet-period
+    re-delivery this target burned the entire script timeout, and the fix loop read that
+    as a defect in the generated code.
 
     The timeout here is well above the quiet period and well below what a hang costs, so
     a regression fails the test rather than slowing it down.

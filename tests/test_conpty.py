@@ -1200,7 +1200,7 @@ def test_a_script_that_reads_input_runs_to_the_timeout_and_says_why(tmp_path, na
     exit_code, output = run_script(script, timeout=15)
 
     assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
-    assert "no input driver was attached" in output.lower()
+    assert "no synthetic end-of-file" in output.lower()
     assert "end-of-file" in output.lower()
 
 

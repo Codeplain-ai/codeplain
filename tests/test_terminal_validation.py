@@ -681,7 +681,7 @@ def test_a_script_never_reads_the_renderers_terminal_on_either_backend(
 
 # --- The no-input contract -------------------------------------------------------
 #
-# The repeatedly-reading case — the timeout message naming the absent input driver — is
+# The repeatedly-reading case — the timeout message describing the end-of-file given — is
 # asserted in `tests/test_render_utils.py` and is not repeated here.
 
 SINGLE_READ_PROGRAM = """

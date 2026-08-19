@@ -9,7 +9,6 @@ from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
 from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, STRATEGY_SWITCH_PREFIX, stalled_reason
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
-from render_machine.platform_test_runtime import advertised_platform_test_runtime
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError, TestExecutionPhase
 
@@ -217,7 +216,6 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
             render_context.conformance_tests_running_context.conflicting_requirement_count,
             run_state=render_context.run_state,
-            platform_test_runtime=advertised_platform_test_runtime(),
             stalled_reason=stall_context,
         )
         code_diff_files_content = {}

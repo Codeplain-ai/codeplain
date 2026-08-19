@@ -52,7 +52,6 @@ from render_machine.terminal_process import (
     InputDisposition,
     InputWriteResult,
     TerminalEnvironmentError,
-    TerminalInputDriver,
     TerminalLaunchError,
     TerminalProcess,
     TerminalProcessError,
@@ -477,7 +476,6 @@ class PosixPtyProcess(TerminalProcess):
         self._spawned = False
         self._closed = False
         self._acked = False
-        self._input_driver: Optional[TerminalInputDriver] = None
 
         self._bundle: Optional[_ReaderBundle] = None
         self._reader: Optional[threading.Thread] = None
@@ -513,7 +511,6 @@ class PosixPtyProcess(TerminalProcess):
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[TerminalInputDriver] = None,
         handshake_timeout: float = HANDSHAKE_TIMEOUT_SECONDS,
     ) -> None:
         """Allocates the terminal, launches the target, and returns once it is running."""
@@ -521,7 +518,6 @@ class PosixPtyProcess(TerminalProcess):
             raise RuntimeError("PosixPtyProcess instances are single-use")
         self._spawned = True
         self._stop_event = stop_event if stop_event is not None else threading.Event()
-        self._input_driver = input_driver
         deadline = time.monotonic() + handshake_timeout
         try:
             self._check_cancelled()
@@ -775,11 +771,10 @@ class PosixPtyProcess(TerminalProcess):
         return False
 
     def _acknowledge(self, deadline: float) -> None:
-        """Records the group, delivers the no-driver VEOF, and only then releases the target."""
+        """Records the group, delivers the VEOF, and only then releases the target."""
         assert self._proc is not None
         self._pgid = self._proc.pid  # recorded BEFORE the target can run
-        if self._input_driver is None:
-            self._inject_veof(deadline)
+        self._inject_veof(deadline)
         self._pre_ack_hook()
         self._acked = True
         ack_w = self._ack_w

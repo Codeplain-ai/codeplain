@@ -83,15 +83,15 @@ READER_STALL_DETAIL = "the terminal output reader did not terminate within its s
 OWNER_PARENT = "parent"
 OWNER_READER = "reader"
 
-# What a timeout diagnostic says when no input driver was attached. The spawn-time
+# What a timeout diagnostic says about the input the target was given. The spawn-time
 # end-of-file is best-effort by nature: a program that flushes or reconfigures its
 # terminal before reading — getpass's TCSAFLUSH, a curses initialization — discards the
 # queued byte and then blocks on input nothing will send. ConPTY, which cannot deliver
 # an end-of-file at all, states its own note instead.
 NO_INPUT_NOTE = (
-    " No input driver was attached to the script's terminal; a single end-of-file was "
-    "queued at spawn, but a program that flushes or reconfigures its terminal before "
-    "reading discards it and is left waiting for input that never arrives."
+    " An end-of-file was queued at the script's terminal at spawn and re-delivered while "
+    "the target stayed quiet; a program still waiting after that is blocked on something "
+    "other than the input it was given."
 )
 
 
@@ -107,20 +107,6 @@ class InputDisposition(Enum):
 class InputWriteResult:
     disposition: InputDisposition
     accepted_bytes: int
-
-
-class TerminalInputDriver:
-    """The typed contract for what a backend accepts as `input_driver`.
-
-    An attached driver is a promise that something will answer the target's terminal
-    reads for the whole execution, which changes spawn behavior: the POSIX backend does
-    not queue its spawn-time VEOF. Only an object that keeps that promise — today the
-    per-execution `codeplain-tty` broker — may implement this.
-    """
-
-    def description(self) -> str:
-        """One clause for diagnostics: what is driving the terminal's input."""
-        raise NotImplementedError
 
 
 class TerminalProcessError(Exception):
@@ -172,7 +158,6 @@ class TerminalProcess:
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[TerminalInputDriver] = None,
     ) -> None:
         raise NotImplementedError
 
@@ -244,7 +229,7 @@ class TerminalProcess:
         raise NotImplementedError
 
     def no_input_note(self) -> str:
-        """What a timeout diagnostic says about this backend's absent input driver.
+        """What a timeout diagnostic says about the end-of-file this backend can give.
 
         A backend that gives the target end-of-file at spawn needs nothing beyond the
         default; one that cannot says so itself. The note belongs to the backend that ran,

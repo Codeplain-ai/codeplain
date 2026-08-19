@@ -21,7 +21,7 @@ Two platform asymmetries are deliberate and documented here rather than hidden:
 * The job is a stronger containment than a POSIX process group. It survives `setpgid`-style
   escapes and the kernel enforces it, whereas PTY hangup delivers a signal a target may
   ignore.
-* There is no synthetic end-of-file. POSIX injects `VEOF` when no input driver is attached;
+* There is no synthetic end-of-file. POSIX injects `VEOF` at spawn;
   ConPTY has no parent-side equivalent that keeps the input channel open, and the channel
   has to stay open for the graceful control byte and for terminal-query replies. A script
   that reads input therefore blocks until the execution timeout rather than seeing EOF.
@@ -66,7 +66,6 @@ from render_machine.terminal_process import (
     TERMINAL_ROWS,
     InputWriteResult,
     TerminalEnvironmentError,
-    TerminalInputDriver,
     TerminalProcess,
     TerminalProcessError,
     terminal_child_environment,
@@ -165,8 +164,8 @@ CONTROL_C_BYTE = b"\x03"
 # unlike the other backends it cannot hand the target end-of-file, so a script that reads
 # terminal input really does block until the execution timeout.
 NO_INPUT_NOTE = (
-    " No input driver was attached to the script's terminal, and on Windows the terminal carries "
-    "no synthetic end-of-file, so a script that waits for terminal input blocks until the timeout."
+    " On Windows the terminal carries no synthetic end-of-file, so a script that waits for "
+    "terminal input blocks until the timeout."
 )
 
 
@@ -1070,7 +1069,6 @@ class ConPtyProcess(TerminalProcess):
         env: Optional[dict] = None,
         terminal_size: Tuple[int, int] = (TERMINAL_COLUMNS, TERMINAL_ROWS),
         stop_event: Optional[threading.Event] = None,
-        input_driver: Optional[TerminalInputDriver] = None,
         spawn_timeout: float = HANDSHAKE_TIMEOUT_SECONDS,
     ) -> None:
         if self._spawned:

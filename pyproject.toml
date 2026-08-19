@@ -41,7 +41,6 @@ dev = [
 
 [project.scripts]
 codeplain = "plain2code:main"
-codeplain-tty = "plain2code_tty:main"
 
 # Derive the version from the git tag (e.g. v0.3.8 -> 0.3.8). The version is
 # baked into the package metadata at build time; system_config.py reads it back
