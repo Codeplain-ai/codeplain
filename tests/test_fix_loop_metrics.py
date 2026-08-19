@@ -126,6 +126,42 @@ def test_each_loop_reports_its_own_streak():
     assert "max_repeat=7" in summary  # the aggregate stays, for continuity of the series
 
 
+def test_the_current_streak_is_readable_after_the_fact():
+    """The fix action runs after the test action and has to ask again, from its own call
+    site, rather than relying on what record() returned to someone else."""
+    metrics = FixLoopMetrics()
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="same")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 3
+
+
+def test_the_current_streak_resets_when_the_failure_changes():
+    metrics = FixLoopMetrics()
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="same")
+    metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="different")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 1
+
+
+def test_the_current_streak_clears_when_the_loop_passes():
+    metrics = FixLoopMetrics()
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="same")
+    metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=True, output="")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 0
+
+
+def test_an_unrun_loop_has_no_streak():
+    metrics = FixLoopMetrics()
+    metrics.record(UNIT_LOOP, module="m", frid="1", passed=False, output="boom")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 0
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "9") == 0
+
+
 def test_an_unseen_frid_has_no_summary():
     assert FixLoopMetrics().frid_summary("m", "9") is None
 

@@ -92,6 +92,22 @@ class FixLoopMetrics:
         counters.current_repeat = 1
         return None
 
+    def current_streak(self, loop: str, module: str, frid: Optional[str]) -> int:
+        """How many times in a row this loop has just failed the same way.
+
+        `record` returns the streak as it happens, which is enough to warn but not to
+        decide: the fix action runs after the test action and needs to ask the question
+        again, from its own call site. A missing frid answers zero rather than raising,
+        because nothing was recorded under one either — `report_fix_loop_attempt` skips
+        those runs.
+        """
+        if frid is None:
+            return 0
+        counters = self._counters.get((module, str(frid)))
+        if not counters or loop not in counters:
+            return 0
+        return counters[loop].current_repeat
+
     def frid_summary(self, module: str, frid: str) -> Optional[str]:
         """One greppable line per FRID, or None if no script ran for it."""
         counters = self._counters.get((module, str(frid)))
