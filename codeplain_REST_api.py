@@ -388,6 +388,7 @@ class CodeplainAPI:
         conflicting_requirements_count: int,
         run_state: RunState,
         platform_test_runtime: Optional[dict] = None,
+        stalled_reason: Optional[str] = None,
     ):
         endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -416,6 +417,11 @@ class CodeplainAPI:
 
         if platform_test_runtime is not None:
             payload["platform_test_runtime"] = platform_test_runtime
+
+        # Sent only once the loop has stopped moving. Omitted otherwise, so an
+        # ordinary fix request is byte-identical to what it was.
+        if stalled_reason is not None:
+            payload["stalled_reason"] = stalled_reason
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 

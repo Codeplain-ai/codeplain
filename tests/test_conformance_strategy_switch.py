@@ -22,6 +22,7 @@ from render_machine.fix_loop_metrics import (
     STRATEGY_SWITCH_PREFIX,
     UNIT_LOOP,
     FixLoopMetrics,
+    stalled_reason,
 )
 
 MODULE = "vault_cli"
@@ -32,6 +33,12 @@ def render_context(identical_failures=0, render_attempts=0, output="AssertionErr
     context = MagicMock()
     context.module_name = MODULE
     context.fix_loop_metrics = FixLoopMetrics()
+    # (issue reason, response files) — an implementation-code answer that changed
+    # nothing, which is the shape the tests below care about reaching.
+    context.codeplain_api.fix_conformance_tests_issue.return_value = [
+        FixConformanceTest.ISSUE_REASON_CODE_IMPLEMENTATION_CODE,
+        {},
+    ]
     for _ in range(identical_failures):
         context.fix_loop_metrics.record(CONFORMANCE_LOOP, module=MODULE, frid=FRID, passed=False, output=output)
 
@@ -41,12 +48,33 @@ def render_context(identical_failures=0, render_attempts=0, output="AssertionErr
     ctx.conformance_tests_render_attempts = render_attempts
     ctx.fix_attempts = 4  # mid-loop: well below the attempt limit
     ctx.regenerating_conformance_tests = False
+    # A MagicMock would answer truthily and silently skip the ask-first rung.
+    ctx.asked_with_stall_context = False
     return context
 
 
 def decides_to_regenerate(context):
+    """The predicate alone, given whatever `stalled_reason` makes of the recorded runs."""
+    reason = stalled_reason(
+        context.fix_loop_metrics,
+        CONFORMANCE_LOOP,
+        module=context.module_name,
+        frid=context.conformance_tests_running_context.current_testing_frid,
+    )
     with patch("render_machine.actions.fix_conformance_test.console"):
-        return FixConformanceTest._should_regenerate_instead_of_patching(context)
+        return FixConformanceTest._should_regenerate_instead_of_patching(context, reason)
+
+
+def announced_by_predicate(context):
+    reason = stalled_reason(
+        context.fix_loop_metrics,
+        CONFORMANCE_LOOP,
+        module=context.module_name,
+        frid=context.conformance_tests_running_context.current_testing_frid,
+    )
+    with patch("render_machine.actions.fix_conformance_test.console") as console:
+        FixConformanceTest._should_regenerate_instead_of_patching(context, reason)
+    return console.warning.call_args[0][0]
 
 
 def test_a_loop_that_repeats_a_failure_three_times_regenerates_the_test():
@@ -106,10 +134,7 @@ def test_the_switch_is_announced_in_a_greppable_form():
     """Benchmark runs are read by tooling before they are read by a person."""
     context = render_context(identical_failures=4)
 
-    with patch("render_machine.actions.fix_conformance_test.console") as console:
-        FixConformanceTest._should_regenerate_instead_of_patching(context)
-
-    announced = console.warning.call_args[0][0]
+    announced = announced_by_predicate(context)
     assert STRATEGY_SWITCH_PREFIX in announced
     assert f"module={MODULE}" in announced
     assert f"frid={FRID}" in announced
@@ -156,17 +181,69 @@ def test_the_consecutive_arm_is_announced_with_its_own_reason():
     them rather than reporting one cause for both."""
     context = failing_differently(render_context(), CONSECUTIVE_FAILURE_THRESHOLD)
 
-    with patch("render_machine.actions.fix_conformance_test.console") as console:
-        FixConformanceTest._should_regenerate_instead_of_patching(context)
-
-    announced = console.warning.call_args[0][0]
+    announced = announced_by_predicate(context)
     assert f"no_progress consecutive_failures={CONSECUTIVE_FAILURE_THRESHOLD}" in announced
+
+
+def execute_through_to_the_request(context):
+    """Runs execute() past the early returns, standing in for the file and spec helpers
+    it would otherwise reach. Only the request the action builds is under test here."""
+    module = "render_machine.actions.fix_conformance_test"
+    with (
+        patch(f"{module}.console"),
+        patch(f"{module}.plain_spec"),
+        patch(f"{module}.diff_utils"),
+        patch(f"{module}.file_utils"),
+        patch(f"{module}.MemoryManager") as memory,
+        patch(f"{module}.ImplementationCodeHelpers") as helpers,
+    ):
+        memory.fetch_memory_files.return_value = ({}, {})
+        helpers.fetch_existing_files.return_value = ({}, {})
+        helpers.get_code_diff.return_value = {}
+        context.conformance_tests.fetch_existing_conformance_test_files.return_value = ({}, {})
+        return FixConformanceTest().execute(context, {"previous_conformance_tests_issue": "boom"})
+
+
+def test_a_stuck_loop_first_asks_again_saying_so():
+    """The middle rung. Before discarding the test, the loop sends one more fix request
+    that reports it is stuck, so the request differs from the ones that achieved nothing
+    — the failures it kept patching were often timeouts and missing entry points rather
+    than wrong answers, and nothing in an unchanged request says so."""
+    context = render_context(identical_failures=3)
+
+    outcome, _ = execute_through_to_the_request(context)
+
+    assert outcome != FixConformanceTest.REGENERATE_CONFORMANCE_TESTS_OUTCOME
+    assert context.conformance_tests_running_context.asked_with_stall_context is True
+    sent = context.codeplain_api.fix_conformance_tests_issue.call_args.kwargs
+    assert sent["stalled_reason"] == "repeated_failure streak=3"
+
+
+def test_an_ordinary_request_carries_no_stall_reason():
+    """A loop still converging must send exactly what it sent before."""
+    context = render_context(identical_failures=1)
+
+    execute_through_to_the_request(context)
+
+    assert context.codeplain_api.fix_conformance_tests_issue.call_args.kwargs["stalled_reason"] is None
+
+
+def test_a_loop_still_stuck_after_asking_regenerates():
+    """The third rung: asking differently was tried and changed nothing."""
+    context = render_context(identical_failures=3)
+    context.conformance_tests_running_context.asked_with_stall_context = True
+
+    with patch("render_machine.actions.fix_conformance_test.console"):
+        outcome, _ = FixConformanceTest().execute(context, {"previous_conformance_tests_issue": "boom"})
+
+    assert outcome == FixConformanceTest.REGENERATE_CONFORMANCE_TESTS_OUTCOME
 
 
 def test_the_action_returns_the_regeneration_outcome_and_marks_the_context():
     """The early return has to reach the state machine the same way the attempt-limit
     path does, or the render carries on patching regardless of the decision."""
     context = render_context(identical_failures=3)
+    context.conformance_tests_running_context.asked_with_stall_context = True
 
     with patch("render_machine.actions.fix_conformance_test.console"):
         outcome, payload = FixConformanceTest().execute(context, {"previous_conformance_tests_issue": "boom"})
@@ -180,6 +257,7 @@ def test_the_api_is_not_asked_for_another_patch_when_switching():
     """The point of the switch is to stop spending fix requests on a test the loop
     cannot satisfy."""
     context = render_context(identical_failures=3)
+    context.conformance_tests_running_context.asked_with_stall_context = True
 
     with patch("render_machine.actions.fix_conformance_test.console"):
         FixConformanceTest().execute(context, {"previous_conformance_tests_issue": "boom"})

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 import diff_utils
 import file_utils
@@ -29,7 +29,7 @@ class FixConformanceTest(BaseAction):
     ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS = 3
 
     @staticmethod
-    def _should_regenerate_instead_of_patching(render_context: RenderContext) -> bool:
+    def _should_regenerate_instead_of_patching(render_context: RenderContext, reason: Optional[str]) -> bool:
         """Whether the loop has proven that patching the implementation is not working.
 
         Two shapes of stuck, both observed on real renders. A failure that repeats
@@ -52,12 +52,6 @@ class FixConformanceTest(BaseAction):
         if ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS:
             return False
 
-        reason = stalled_reason(
-            render_context.fix_loop_metrics,
-            CONFORMANCE_LOOP,
-            module=render_context.module_name,
-            frid=ctx.current_testing_frid,
-        )
         if reason is None:
             return False
 
@@ -88,7 +82,27 @@ class FixConformanceTest(BaseAction):
                 ctx.regenerating_conformance_tests = True
                 return self.REGENERATE_CONFORMANCE_TESTS_OUTCOME, None
 
-        if self._should_regenerate_instead_of_patching(render_context):
+        stalled = stalled_reason(
+            render_context.fix_loop_metrics,
+            CONFORMANCE_LOOP,
+            module=render_context.module_name,
+            frid=ctx.current_testing_frid,
+        )
+        # Three rungs, cheapest first. A stuck loop first gets one request that says so —
+        # the same fix asked differently, which the benchmark evidence says is worth
+        # trying because the failures it kept patching were often timeouts and missing
+        # entry points rather than wrong answers. Only when that changes nothing does it
+        # discard the test, and only then does it give up.
+        stall_context = None
+        if stalled and not ctx.asked_with_stall_context:
+            ctx.asked_with_stall_context = True
+            stall_context = stalled
+            console.warning(
+                f"{STRATEGY_SWITCH_PREFIX} module={render_context.module_name} "
+                f"frid={ctx.current_testing_frid} loop={CONFORMANCE_LOOP} {stalled} "
+                f"action=ask_with_stall_context"
+            )
+        elif self._should_regenerate_instead_of_patching(render_context, stalled):
             ctx.regenerating_conformance_tests = True
             return self.REGENERATE_CONFORMANCE_TESTS_OUTCOME, None
 
@@ -184,6 +198,7 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.conflicting_requirement_count,
             run_state=render_context.run_state,
             platform_test_runtime=advertised_platform_test_runtime(),
+            stalled_reason=stall_context,
         )
         code_diff_files_content = {}
 

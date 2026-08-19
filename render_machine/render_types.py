@@ -89,6 +89,11 @@ class ConformanceTestsRunningContext:
 
         self.regenerating_conformance_tests: bool = False
 
+        # Whether this functionality has already had one fix request that told the
+        # API the loop was stuck. Once spent, a still-stuck loop stops asking and
+        # discards the test instead, so the middle rung cannot repeat.
+        self.asked_with_stall_context: bool = False
+
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
         self.previous_conformance_tests_issue_old: Optional[str] = None
         self.previous_conformance_tests_issue_frid: Optional[str] = None
