@@ -24,6 +24,7 @@ from plain2code_console import console
 from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
+    ConformanceTestsFixExhausted,
     GitNotInstalledError,
     ImportedModuleWithFunctionalitiesError,
     InvalidAPIKey,
@@ -73,6 +74,7 @@ EXPECTED_EXCEPTIONS = (
     InvalidAPIKey,
     OutdatedClientVersion,
     ConflictingRequirements,
+    ConformanceTestsFixExhausted,
     RenderingCreditBalanceTooLow,
     NetworkConnectionError,
     ModuleDoesNotExistError,
