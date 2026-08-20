@@ -67,8 +67,10 @@ class Plain2CodeConsole(Console):
         logger.log(level, " ".join(map(str, args)), extra={"log_color": color})
         style = base_style + Style(color=color) if color else base_style
         # Log messages must render exactly as logged: don't interpret square brackets
-        # in interpolated content (error texts, file names) as Rich markup.
+        # in interpolated content (error texts, file names) as Rich markup, and don't
+        # let the repr highlighter restyle brackets and numbers inside them.
         kwargs.setdefault("markup", False)
+        kwargs.setdefault("highlight", False)
         super().print(*args, **kwargs, style=style)
 
     def print_list(self, items, style=None):
