@@ -63,8 +63,12 @@ class Plain2CodeConsole(Console):
 
         The optional color is applied by the terminal (via style) and forwarded to
         the TUI as the "log_color" record attribute; the file log stays plain text.
+
+        `spec_content=True` marks a message carrying the user's specification text, so a
+        sink that is not the user's own log file can filter on it.
         """
-        logger.log(level, " ".join(map(str, args)), extra={"log_color": color})
+        spec_content = kwargs.pop("spec_content", False)
+        logger.log(level, " ".join(map(str, args)), extra={"log_color": color, "spec_content": spec_content})
         style = base_style + Style(color=color) if color else base_style
         # Log messages must render exactly as logged: don't interpret square brackets
         # in interpolated content (error texts, file names) as Rich markup.

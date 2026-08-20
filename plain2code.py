@@ -43,11 +43,14 @@ from plain2code_exceptions import (
 )
 from plain2code_logger import (
     LOGGER_NAME,
+    NARRATION_HANDLER_NAME,
     CrashLogHandler,
     ElapsedTimeFormatter,
     IndentedFormatter,
     LoggingHandler,
+    SpecContentFilter,
     dump_crash_logs,
+    stop_narrating,
 )
 from plain2code_state import RunState
 from plain2code_telemetry import capture_crash, initialize_telemetry
@@ -123,6 +126,19 @@ def setup_logging(
         handler = LoggingHandler(event_bus, run_state)
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
+    else:
+        # Headless has no TUI to narrate the render and suppresses Rich output, so
+        # without this the process says nothing on stdout for its entire run: a CI job
+        # cannot distinguish a render wedged for hours from a healthy one until the
+        # log file is collected at the end. StreamHandler flushes
+        # per record, so these arrive as they happen.
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setFormatter(file_formatter)
+        stdout_handler.setLevel(configured_log_level)
+        # Progress, not payloads: the log file keeps everything, this sink does not.
+        stdout_handler.addFilter(SpecContentFilter())
+        stdout_handler.set_name(NARRATION_HANDLER_NAME)
+        root_logger.addHandler(stdout_handler)
 
     if log_to_file:
         try:
@@ -412,6 +428,7 @@ def main():  # noqa: C901
         if exc_info:
             dump_crash_logs(args, run_state)
             capture_crash(exc_info, run_state, args)
+        stop_narrating()
         print_exit_summary(
             run_state,
             args.filename,
