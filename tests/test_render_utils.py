@@ -1,13 +1,19 @@
 """Characterization of `render_machine.render_utils.execute_script()`.
 
-The behaviour asserted here is the behaviour of the pipe-based implementation as it
-stands today: exit-code passthrough, stderr merged into stdout, the timeout result,
-cancellation, and the pipe-buffer case the drain thread exists for. The PTY backend
-that replaces the pipe path has to reproduce all of it.
+The behaviour asserted here is the contract the callers depend on: exit-code passthrough,
+stderr merged into stdout, the timeout result with its partial output, cancellation, and
+output that outruns the buffer without deadlocking. It was written against the pipe
+implementation and now runs against the terminal backend, which has to reproduce all of
+it. Two things legitimately changed with the backend: the transcript is rendered rather
+than concatenated, so it is bounded by the retained scrollback, and the script's
+descriptors are a terminal, so `isatty()` is true — while the terminal it gets is still
+never Codeplain's own.
+
+The outcome arbiter is exercised separately, against an injected backend, because the
+conditions it ranks race with each other and cannot be provoked reliably from a script.
 
 Scripts are executed for real, so every case that runs one is POSIX-only; the Windows
-branch of `execute_script()` accepts `.ps1` files only. `_sanitize_script_output()` is
-platform-neutral and is exercised everywhere.
+branch of `execute_script()` accepts `.ps1` files only.
 """
 
 import contextlib
@@ -16,6 +22,7 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
 import textwrap
 import threading
 import time
@@ -24,7 +31,15 @@ from pathlib import Path
 import pytest
 
 from plain2code_exceptions import RenderCancelledError
-from render_machine import render_utils
+from render_machine import render_utils, terminal_process
+from render_machine._legacy_pipe import LegacyPipeProcess
+from render_machine.terminal_process import (
+    ENVIRONMENT_ERROR_EXIT_CODE,
+    READER_STALL_DETAIL,
+    TerminalLaunchError,
+    TerminalProcess,
+    TerminalProcessError,
+)
 
 posix_only = pytest.mark.skipif(
     sys.platform == "win32",
@@ -61,6 +76,25 @@ def _make_python_script(directory: Path, name: str, program: str) -> str:
     return str(script_path)
 
 
+RAW_ARTIFACT_GLOB = f"*.script_*{render_utils.RAW_OUTPUT_SUFFIX}"
+
+
+@pytest.fixture(autouse=True)
+def no_orphaned_raw_transcripts():
+    """Every raw transcript must be reachable from the path execute_script() returned.
+
+    Runs around every case in this module, including the ones that never call the
+    `run_script` fixture, so an artifact nobody can name shows up as a failure here.
+    """
+    temp_dir = Path(tempfile.gettempdir())
+    before = set(temp_dir.glob(RAW_ARTIFACT_GLOB))
+
+    yield
+
+    orphaned = set(temp_dir.glob(RAW_ARTIFACT_GLOB)) - before
+    assert not orphaned, f"raw transcripts left behind: {sorted(str(path) for path in orphaned)}"
+
+
 @pytest.fixture
 def run_script():
     """Calls execute_script() and removes the output files it leaves behind."""
@@ -75,8 +109,10 @@ def run_script():
     yield _run
 
     for output_file in output_files:
-        with contextlib.suppress(OSError):
-            os.remove(output_file)
+        # The raw transcript is a derived sibling, so the returned path names both.
+        for path in (output_file, output_file + render_utils.RAW_OUTPUT_SUFFIX):
+            with contextlib.suppress(OSError):
+                os.remove(path)
 
 
 @posix_only
@@ -88,6 +124,31 @@ def test_successful_script_returns_zero_with_its_output(tmp_path, run_script):
     assert exit_code == 0
     assert "ran with first second" in output
     assert os.path.isfile(output_file)
+
+
+@posix_only
+def test_the_raw_transcript_is_a_named_sibling_of_the_published_output(tmp_path, run_script):
+    """The unrendered bytes are findable from the returned path, so they can be cleaned up."""
+    script = _make_shell_script(tmp_path, "coloured", 'printf "\\033[31mred\\033[0m\\n"\n')
+
+    exit_code, _, output_file = run_script(script, [], SCRIPT_TYPE, timeout=30)
+
+    raw_file = Path(output_file + render_utils.RAW_OUTPUT_SUFFIX)
+    assert exit_code == 0
+    assert b"\033[31m" in raw_file.read_bytes()
+
+
+@posix_only
+def test_both_transcripts_are_readable_only_by_their_owner(tmp_path, run_script):
+    """Script output carries whatever the script was given, so neither transcript may take
+    the process umask."""
+    script = _make_shell_script(tmp_path, "secretish", 'printf "token=abc123\\n"\n')
+
+    _, _, output_file = run_script(script, [], SCRIPT_TYPE, timeout=30)
+
+    for path in (output_file, output_file + render_utils.RAW_OUTPUT_SUFFIX):
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode & 0o077 == 0, f"{path} is {oct(mode)}, readable beyond its owner"
 
 
 @posix_only
@@ -136,7 +197,10 @@ def test_output_larger_than_the_pipe_buffer_is_captured_without_deadlock(tmp_pat
     exit_code, output, _ = run_script(script, [], SCRIPT_TYPE, timeout=60)
 
     assert exit_code == 0
-    assert output.count("x") == LARGE_OUTPUT_BYTES
+    # The transcript is rendered from the screen, so it keeps the retained scrollback
+    # rather than every byte — but the run completes and its last line survives, which is
+    # what the drain exists to guarantee.
+    assert output.count("x") > 100_000
     assert output.rstrip().endswith("END-OF-OUTPUT")
 
 
@@ -158,13 +222,36 @@ def test_script_exceeding_the_timeout_returns_124_and_keeps_partial_output(tmp_p
 
 
 @posix_only
-def test_set_stop_event_cancels_the_script(tmp_path):
-    script = _make_shell_script(tmp_path, "cancellable", "sleep 30\n")
+def test_a_set_stop_event_cancels_the_script_without_ever_launching_it(tmp_path, monkeypatch):
+    """Cancellation is not a race the target gets to win: it never starts.
+
+    A backend that launches first and notices the event afterwards has already let the
+    script run whatever side effects it opens with. Whether the sentinel survives that
+    depends on which of the two wins the microseconds, so the launch itself is what is
+    asserted: both backends reach the target through `subprocess.Popen`, so a call that
+    never happens is the proof, and the sentinel is the visible consequence.
+    """
+    sentinel = tmp_path / "the-target-ran"
+    script = _make_shell_script(tmp_path, "cancellable", f'touch "{sentinel}"\nsleep 30\n')
+    launched = []
+
+    def refuse_to_launch(*args, **kwargs):
+        launched.append(args[0] if args else kwargs.get("args"))
+        raise AssertionError("the target was launched after cancellation had already been observed")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse_to_launch)
     stop_event = threading.Event()
     stop_event.set()
+    cancelled = False
 
-    with pytest.raises(RenderCancelledError):
+    try:
         render_utils.execute_script(script, [], SCRIPT_TYPE, timeout=30, stop_event=stop_event)
+    except RenderCancelledError:
+        cancelled = True
+
+    assert not launched
+    assert not sentinel.exists()
+    assert cancelled
 
 
 @posix_only
@@ -178,20 +265,27 @@ def test_script_without_a_path_is_resolved_against_the_working_directory(tmp_pat
     assert "resolved from the working directory" in output
 
 
-@pytest.mark.parametrize(
-    "script_output, expected",
-    [
-        ("plain output", "plain output"),
-        ("", ""),
-        (f"before{CLEAR_SCREEN}after", "after"),
-        (f"first{CLEAR_SCREEN}second{CLEAR_SCREEN}third", "third"),
-        (f"before\033[H{CLEAR_SCREEN}\033[3Jafter", "after"),
-        (f"trailing{CLEAR_SCREEN}", ""),
-        ("\033[31mred\033[0m", "\033[31mred\033[0m"),
-    ],
-)
-def test_sanitize_script_output_keeps_only_what_follows_the_last_screen_clear(script_output, expected):
-    assert render_utils._sanitize_script_output(script_output) == expected
+@posix_only
+def test_a_repainted_screen_yields_one_frame_and_no_escape_sequences(tmp_path, run_script):
+    """What the screen-clear sanitizer used to approximate, now done by rendering it."""
+    script = _make_python_script(
+        tmp_path,
+        "repainting",
+        f"""
+        import sys
+
+        for frame in range(3):
+            sys.stdout.write("{CLEAR_SCREEN}\\033[H")
+            sys.stdout.write("\\033[32mframe %d\\033[0m\\n" % frame)
+        sys.stdout.flush()
+        """,
+    )
+
+    exit_code, output, _ = run_script(script, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == 0
+    assert output == "frame 2\n"
+    assert "\033[" not in output
 
 
 # --- The terminal-isolation guard ------------------------------------------------
@@ -276,7 +370,8 @@ def test_terminal_bytes_reach_a_child_that_inherits_stdin(tmp_path, terminal_on_
 
 
 @posix_only
-def test_script_stdin_is_at_eof_and_never_reads_the_terminal(tmp_path, run_script, terminal_on_stdin):
+def test_script_stdin_is_a_terminal_of_its_own_and_never_the_renderers(tmp_path, run_script, terminal_on_stdin):
+    """The script gets a terminal — just not this one, and with nothing queued on it."""
     script = _make_python_script(tmp_path, "stdin_probe", STDIN_PROBE_PROGRAM)
     os.write(terminal_on_stdin, KEYSTROKES.encode())
 
@@ -286,7 +381,344 @@ def test_script_stdin_is_at_eof_and_never_reads_the_terminal(tmp_path, run_scrip
 
     assert exit_code == 0
     report = _probe_report(output)
-    assert report["isatty"] is False
-    assert report["data"] == ""
+    assert report["isatty"] is True
+    assert report["data"] == ""  # the spawn-time VEOF, never the keystrokes above
+    assert KEYSTROKES.strip() not in output
     assert report["read_seconds"] < IMMEDIATE_EOF_SECONDS
     assert elapsed < CONTROL_PROBE_TIMEOUT_SECONDS
+
+
+# --- The outcome arbiter ---------------------------------------------------------
+#
+# Every condition below can be observed while another is already being cleaned up, so
+# the cases are driven through an injected backend rather than through a real script:
+# the point is which condition wins, not how it arose.
+
+# execute_script() accepts only .ps1 on Windows, and that check runs before the
+# injected backend is reached, so the fake name has to match the platform.
+FAKE_SCRIPT = "arbiter.ps1" if sys.platform == "win32" else "arbiter.sh"
+FAKE_OUTPUT = "fake transcript\n"
+READER_FAILURE = RuntimeError("the master descriptor went away")
+REPLY_DETAIL = "cursor-position reply discarded before delivery"
+
+
+class _FakeTerminalProcess(TerminalProcess):
+    """A backend whose outcome is scripted, including failures discovered during teardown.
+
+    Its reader is modelled rather than assumed: `reader_running` stays true until a
+    `close()` that actually joined it, so a case can leave a reader alive past the join
+    bound and the barrier has something real to hold.
+    """
+
+    def __init__(
+        self,
+        exit_code=None,
+        spawn_error=None,
+        poll_error=None,
+        reader_fails_while_running=False,
+        reader_fails_on_close=False,
+        reader_outlives_close=False,
+        teardown_error=None,
+        reply_failed=False,
+    ):
+        self.reader_failed = threading.Event()
+        self.reader_exc = None
+        self.exit_code = exit_code
+        self.spawn_error = spawn_error
+        self.poll_error = poll_error
+        self.reader_fails_while_running = reader_fails_while_running
+        self.reader_fails_on_close = reader_fails_on_close
+        self.reader_outlives_close = reader_outlives_close
+        self.teardown_error = teardown_error
+        self._reply_failed = reply_failed
+        self.terminated = False
+        self.closed = False
+        self.reader_running = True
+
+    def spawn(self, command, cwd=None, env=None, terminal_size=(80, 24), stop_event=None):
+        if self.spawn_error is not None:
+            raise self.spawn_error
+
+    def poll(self):
+        if self.poll_error is not None:
+            raise self.poll_error
+        if self.reader_fails_while_running:  # an independent failure, while the target runs
+            self.reader_exc = READER_FAILURE
+            self.reader_failed.set()
+        return self.exit_code
+
+    def read_output(self):
+        return FAKE_OUTPUT
+
+    def read_raw_output(self):
+        return FAKE_OUTPUT.encode()
+
+    def normalized_output(self):
+        return FAKE_OUTPUT
+
+    @property
+    def terminal_reply_failed(self):
+        return self._reply_failed
+
+    def terminal_reply_detail(self):
+        return REPLY_DETAIL if self._reply_failed else ""
+
+    def write_input(self, data):
+        raise AssertionError("the arbiter cases never write input")
+
+    def terminate_tree(self, grace=0.0):
+        self.terminated = True
+        if self.reader_fails_on_close:  # discovered while the grace period runs
+            self.reader_exc = READER_FAILURE
+            self.reader_failed.set()
+        if self.teardown_error is not None:
+            raise self.teardown_error
+
+    def close(self):
+        self.closed = True
+        if self.reader_outlives_close:
+            self._publish_reader_stall()  # the join bound expired with the reader alive
+        self.reader_running = False
+
+
+@pytest.fixture
+def injected_backend(monkeypatch):
+    """Installs a scripted backend at the single construction site."""
+    installed = {}
+
+    def _install(**kwargs):
+        process = _FakeTerminalProcess(**kwargs)
+        installed["process"] = process
+        monkeypatch.setattr(render_utils, "create_terminal_process", lambda: process)
+        return process
+
+    yield _install
+
+
+RAISES_CANCELLED = "raises RenderCancelledError"
+
+# Every case is decided within a single poll: a zero timeout makes the deadline already
+# expired when it is first read, and the stop event is set before the call. Nothing waits
+# on the clock, so the racing pairs below are as deterministic as the single conditions.
+ARBITER_CASES = [
+    # name, backend kwargs, stop_event set, timeout, expected exit code
+    ("the deadline alone", {}, False, 0, render_utils.TIMEOUT_ERROR_EXIT_CODE),
+    ("the deadline with a reader failure", {"reader_fails_on_close": True}, False, 0, ENVIRONMENT_ERROR_EXIT_CODE),
+    # An exit observed in the same poll as the expired deadline wins: the target had
+    # already finished on its own before anything acted on the timeout.
+    ("the deadline with an exit observed in the same poll", {"exit_code": 3}, False, 0, 3),
+    ("a cancellation alone", {}, True, 30, RAISES_CANCELLED),
+    ("a cancellation with a query failure", {"reply_failed": True}, True, 30, RAISES_CANCELLED),
+    ("a cancellation with a reader failure", {"reader_fails_on_close": True}, True, 30, ENVIRONMENT_ERROR_EXIT_CODE),
+    ("a cancellation with the deadline expired", {}, True, 0, RAISES_CANCELLED),
+    ("a cancellation with an exit observed in the same poll", {"exit_code": 3}, True, 30, RAISES_CANCELLED),
+    ("a nonzero exit alone", {"exit_code": 3}, False, 30, 3),
+    (
+        "a nonzero exit with a query failure",
+        {"exit_code": 3, "reply_failed": True},
+        False,
+        30,
+        ENVIRONMENT_ERROR_EXIT_CODE,
+    ),
+    # A passing exit is published even when a reply failed delivery: the script succeeded
+    # without it, and teardown itself discards replies admitted in a final output burst.
+    (
+        "a zero exit with a query failure",
+        {"exit_code": 0, "reply_failed": True},
+        False,
+        30,
+        0,
+    ),
+    (
+        "a launch failure",
+        {"spawn_error": TerminalLaunchError("openpty failed")},
+        False,
+        30,
+        ENVIRONMENT_ERROR_EXIT_CODE,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case_name, backend_kwargs, cancelled, timeout, expected",
+    ARBITER_CASES,
+    ids=[case[0] for case in ARBITER_CASES],
+)
+def test_the_arbiter_ranks_every_condition_that_can_race(
+    case_name, backend_kwargs, cancelled, timeout, expected, injected_backend, run_script
+):
+    process = injected_backend(**backend_kwargs)
+    stop_event = threading.Event()
+    if cancelled:
+        stop_event.set()
+
+    if expected is RAISES_CANCELLED:
+        with pytest.raises(RenderCancelledError):
+            render_utils.execute_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=timeout, stop_event=stop_event)
+    else:
+        exit_code, _, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=timeout, stop_event=stop_event)
+        assert exit_code == expected
+
+    # Teardown runs before publication on every path, and it joined the reader: nothing
+    # can append to the transcript or publish a failure after the outcome was decided.
+    assert process.closed
+    assert process.reader_running is False
+
+
+def test_a_reader_failure_during_teardown_names_the_reader(injected_backend, run_script):
+    injected_backend(exit_code=0, reader_fails_on_close=True)
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "reader" in issue
+
+
+def test_an_undeliverable_reply_names_the_query_that_went_unanswered(injected_backend, run_script):
+    """Escalated only on a failing exit: a passing one proves the reply did not matter."""
+    injected_backend(exit_code=3, reply_failed=True)
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert REPLY_DETAIL in issue
+
+
+def test_a_reader_failure_while_the_target_runs_is_an_environment_error(injected_backend, run_script):
+    """An active reader that dies is infrastructure, not the exit status it coincides with."""
+    injected_backend(exit_code=0, reader_fails_while_running=True)
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "reader" in issue
+
+
+def test_a_reader_that_outlives_the_join_bound_is_an_environment_error(injected_backend, run_script):
+    """close() cannot report a released backend while its reader is still running."""
+    process = injected_backend(exit_code=0, reader_outlives_close=True)
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert READER_STALL_DETAIL in issue
+    assert process.reader_running is True  # exactly the state the barrier has to catch
+
+
+def test_a_backend_that_raises_something_unforeseen_on_spawn_still_returns_69(injected_backend, run_script):
+    """Thread.start() failing is a RuntimeError, and must not escape the tuple contract."""
+    injected_backend(spawn_error=RuntimeError("can't start new thread"))
+
+    exit_code, issue, output_file = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "can't start new thread" in issue
+    assert os.path.isfile(output_file)
+
+
+def test_a_backend_that_raises_while_polling_still_returns_69(injected_backend, run_script):
+    injected_backend(poll_error=OSError("the child could not be waited on"))
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "the child could not be waited on" in issue
+
+
+def test_a_teardown_failure_does_not_displace_the_launch_failure_it_followed(injected_backend, run_script):
+    injected_backend(
+        spawn_error=TerminalLaunchError("openpty failed"),
+        teardown_error=TerminalProcessError("the process group could not be signalled"),
+    )
+
+    exit_code, issue, _ = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert "could not be executed: openpty failed" in issue  # the launch failure leads
+    assert issue.index("openpty failed") < issue.index("could not be signalled")
+
+
+def test_a_launch_failure_is_reported_on_the_environment_channel_and_never_as_127(injected_backend, run_script):
+    injected_backend(spawn_error=TerminalLaunchError("the launcher hung before exec"))
+
+    exit_code, issue, output_file = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert exit_code != 127
+    assert "the launcher hung before exec" in issue
+    assert os.path.isfile(output_file)
+
+
+@posix_only
+def test_a_script_that_cannot_be_executed_is_an_environment_error(tmp_path, run_script):
+    """The real path: the launcher cannot exec the target, so nothing reaches the patcher."""
+    missing = str(tmp_path / "not-a-real-script.sh")
+
+    exit_code, issue, _ = run_script(missing, [], SCRIPT_TYPE, timeout=30)
+
+    assert exit_code == ENVIRONMENT_ERROR_EXIT_CODE
+    assert missing in issue
+
+
+@posix_only
+def test_the_timeout_message_explains_the_end_of_file_the_target_was_given(tmp_path, run_script):
+    script = _make_python_script(
+        tmp_path,
+        "reads_forever",
+        """
+        import os
+        import sys
+
+        while True:
+            if not os.read(0, 1):
+                sys.stdout.write("stdin closed\\n")
+                sys.stdout.flush()
+        """,
+    )
+
+    exit_code, output, output_file = run_script(script, [], SCRIPT_TYPE, timeout=2)
+
+    assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
+    assert "an end-of-file was queued" in output.lower()
+    assert "an end-of-file was queued" in Path(output_file).read_text().lower()
+
+
+def test_a_backend_that_delivers_end_of_file_states_the_default_note():
+    """POSIX injects the terminal's EOF byte at spawn and the pipe backend hands the child
+    DEVNULL, so neither has anything to add to the default note."""
+    assert LegacyPipeProcess().no_input_note() == terminal_process.NO_INPUT_NOTE
+
+
+def test_the_timeout_diagnostic_carries_the_note_of_the_backend_that_ran(injected_backend, run_script):
+    """The note comes from the backend, not from sys.platform: under the escape hatch on
+    Windows the pipe backend delivers end-of-file at once, so a platform-keyed note would
+    describe a backend that never ran."""
+    note = " This backend states its own note."
+    process = injected_backend()
+    process.no_input_note = lambda: note
+
+    exit_code, output, output_file = run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=0)
+
+    assert exit_code == render_utils.TIMEOUT_ERROR_EXIT_CODE
+    assert note in output
+    assert note in Path(output_file).read_text()
+
+
+def test_the_terminal_script_active_flag_spans_spawn_through_teardown(injected_backend, run_script):
+    """The full shutdown budget is only owed while a backend is live, so the flag must
+    cover teardown — the phase that budget exists for — and clear once it is done."""
+    process = injected_backend(exit_code=0)
+    seen = {}
+    original_close = process.close
+
+    def recording_close():
+        seen["active_during_teardown"] = render_utils.terminal_script_active()
+        original_close()
+
+    process.close = recording_close
+
+    assert not render_utils.terminal_script_active()
+    run_script(FAKE_SCRIPT, [], SCRIPT_TYPE, timeout=30)
+
+    assert seen["active_during_teardown"] is True
+    assert not render_utils.terminal_script_active()
