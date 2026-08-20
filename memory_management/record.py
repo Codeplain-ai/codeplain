@@ -55,6 +55,10 @@ class InterventionTarget(str, Enum):
     IMPLEMENTATION = "IMPLEMENTATION"
     CONFORMANCE_TESTS = "CONFORMANCE_TESTS"
     NONE = "NONE"
+    # The changed files are recorded, but which of them are implementation and which
+    # are tests is not known. Unit-test fixes land in one response with no such split,
+    # and classifying by file path would be a guess rather than an observation.
+    UNCLASSIFIED = "UNCLASSIFIED"
 
 
 class AttributionConfidence(str, Enum):
@@ -134,8 +138,9 @@ class Intervention:
     target: str
     files_changed: list[str] = field(default_factory=list)
     lines_changed: int = 0
-    touched_implementation: bool = False
-    touched_test_files: bool = False
+    # ``None`` means not determined, which is different from a determined ``False``.
+    touched_implementation: Optional[bool] = None
+    touched_test_files: Optional[bool] = None
 
     def signature(self) -> str:
         """Stable identity of this intervention, used to deduplicate records."""

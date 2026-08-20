@@ -23,6 +23,7 @@ def make_record(
     files_changed=("code/src/tasks.py",),
     resolved=False,
     occurrences=1,
+    suite=Suite.CONFORMANCE.value,
 ):
     record = build_record(
         scope=Scope(
@@ -30,7 +31,7 @@ def make_record(
             frid="2.3",
             testing_module="backend",
             testing_frid="2.1",
-            suite=Suite.CONFORMANCE.value,
+            suite=suite,
             test_name=test_name,
         ),
         failure=Failure(fingerprint=fingerprint, signature=signature, excerpt=signature, exit_code=1),
@@ -192,3 +193,77 @@ def test_mode_filters_by_status(mode, expected_statuses):
     selected = select_records(records, depth=12, fingerprint=TARGET_FINGERPRINT, mode=mode)
 
     assert sorted({record.status for record in selected}) == sorted(expected_statuses)
+
+
+# --- suite separation ------------------------------------------------------------
+
+
+def test_same_suite_records_outrank_cross_suite_records():
+    """A unit-test fix should see unit-test evidence before conformance evidence."""
+    conformance_record = make_record(
+        suite=Suite.CONFORMANCE.value,
+        fingerprint=OTHER_FINGERPRINT,
+        test_name="user_can_add_task",
+        files_changed=("code/src/tasks.py",),
+    )
+    unittest_record = make_record(
+        suite=Suite.UNITTEST.value,
+        fingerprint=OTHER_FINGERPRINT,
+        test_name=None,
+        files_changed=("code/src/tasks.py",),
+    )
+
+    ranked = rank_records(
+        [conformance_record, unittest_record],
+        files_changed=["code/src/tasks.py"],
+        suite=Suite.UNITTEST.value,
+    )
+
+    assert [record.scope.suite for record in ranked] == [Suite.UNITTEST.value, Suite.CONFORMANCE.value]
+
+
+def test_cross_suite_records_are_still_reachable():
+    """Both loops change the same code, so the other surface is demoted, not hidden."""
+    conformance_record = make_record(
+        suite=Suite.CONFORMANCE.value,
+        fingerprint=OTHER_FINGERPRINT,
+        test_name="user_can_add_task",
+        files_changed=("code/src/tasks.py",),
+    )
+
+    ranked = rank_records(
+        [conformance_record],
+        files_changed=["code/src/tasks.py"],
+        suite=Suite.UNITTEST.value,
+    )
+
+    assert [record.memory_id for record in ranked] == [conformance_record.memory_id]
+
+
+def test_cross_suite_record_never_outranks_a_same_suite_fingerprint_match():
+    exact_unittest_match = make_record(suite=Suite.UNITTEST.value, test_name=None, files_changed=("code/src/a.py",))
+    cross_suite_file_overlap = make_record(
+        suite=Suite.CONFORMANCE.value,
+        fingerprint=OTHER_FINGERPRINT,
+        test_name="user_can_add_task",
+        files_changed=("code/src/a.py",),
+    )
+
+    ranked = rank_records(
+        [cross_suite_file_overlap, exact_unittest_match],
+        fingerprint=TARGET_FINGERPRINT,
+        files_changed=["code/src/a.py"],
+        suite=Suite.UNITTEST.value,
+    )
+
+    assert ranked[0].memory_id == exact_unittest_match.memory_id
+
+
+def test_omitting_suite_leaves_ranking_suite_blind():
+    """Existing callers that do not care about the surface are unaffected."""
+    conformance_record = make_record(suite=Suite.CONFORMANCE.value, files_changed=("code/src/a.py",))
+    unittest_record = make_record(suite=Suite.UNITTEST.value, test_name=None, files_changed=("code/src/b.py",))
+
+    ranked = rank_records([conformance_record, unittest_record], fingerprint=TARGET_FINGERPRINT)
+
+    assert len(ranked) == 2

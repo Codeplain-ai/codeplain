@@ -67,7 +67,7 @@ class FixConformanceTest(BaseAction):
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )
-        memory_files_content = render_context.retrieve_memory_for_current_failure(previous_conformance_tests_issue)
+        memory_files_content = render_context.retrieve_memory_for_conformance_failure(previous_conformance_tests_issue)
         (
             existing_conformance_test_files,
             existing_conformance_test_files_content,

@@ -30,6 +30,12 @@ from memory_management.record import MemoryRecord, Status
 _DEPTH_BY_ATTEMPTS = ((0, 0), (2, 3), (5, 6))
 _MAX_DEPTH = 12
 
+# Records from a different test surface rank below every same-surface match. A unit-test
+# failure and a conformance failure never share a fingerprint (different runners, different
+# output), but they can share the files an intervention touched, which is worth surfacing
+# once the same-surface evidence is exhausted.
+_CROSS_SUITE_PENALTY = 10
+
 _BM25_K1 = 1.5
 _BM25_B = 0.75
 _TOKEN_PATTERN = re.compile(r"[a-z0-9_]+")
@@ -130,6 +136,7 @@ def rank_records(
     files_changed: Optional[Iterable[str]] = None,
     signature: Optional[str] = None,
     mode: MemoryMode = MemoryMode.ALL,
+    suite: Optional[str] = None,
 ) -> list[MemoryRecord]:
     """Order records by relevance to the failure currently being worked on."""
     allowed = _allowed_statuses(mode)
@@ -148,6 +155,8 @@ def rank_records(
                 continue
             # Lexical-only matches rank behind every symbolic match.
             tier = 4
+        if suite is not None and record.scope.suite != suite:
+            tier += _CROSS_SUITE_PENALTY
         # More occurrences means the observation repeated within this render, which is
         # independent evidence; ties break toward it.
         scored.append((tier, -lexical_score, -record.occurrences, record.memory_id, record))
@@ -164,6 +173,7 @@ def select_records(
     files_changed: Optional[Iterable[str]] = None,
     signature: Optional[str] = None,
     mode: MemoryMode = MemoryMode.ALL,
+    suite: Optional[str] = None,
 ) -> list[MemoryRecord]:
     """Rank, then cut to the adaptive depth."""
     if depth <= 0 or mode is MemoryMode.OFF:
@@ -176,5 +186,6 @@ def select_records(
         files_changed=files_changed,
         signature=signature,
         mode=mode,
+        suite=suite,
     )
     return ranked[:depth]

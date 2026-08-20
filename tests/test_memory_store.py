@@ -179,3 +179,59 @@ def test_retrieve_respects_memory_mode_verified_only(tmp_path):
     observe(store, exit_code_after=1, fingerprint_after="a3f19c02b1d4")
 
     assert store.retrieve(fingerprint="a3f19c02b1d4", fix_attempts=5) == {}
+
+
+# --- suite separation -------------------------------------------------------------
+
+
+def test_conformance_and_unittest_records_coexist_and_are_distinguishable(store):
+    observe(store, exit_code_after=1, fingerprint_after="a3f19c02b1d4")
+    observe(
+        store,
+        exit_code_after=1,
+        fingerprint_after="a3f19c02b1d4",
+        scope=make_scope(suite=Suite.UNITTEST.value, test_name=None),
+        intervention=make_intervention(target=InterventionTarget.UNCLASSIFIED.value),
+    )
+
+    records = store.load_all()
+
+    assert len(records) == 2
+    assert sorted(record.scope.suite for record in records) == [Suite.CONFORMANCE.value, Suite.UNITTEST.value]
+    # The suite is visible in the file name too, so the two are obvious on disk.
+    assert sorted(record.file_name.split("-")[0] for record in records) == ["conformance", "unittest"]
+
+
+def test_retrieval_prefers_the_suite_being_fixed(store):
+    observe(store, exit_code_after=0, fingerprint_after=None)
+    observe(
+        store,
+        exit_code_after=0,
+        fingerprint_after=None,
+        scope=make_scope(suite=Suite.UNITTEST.value, test_name=None),
+        intervention=make_intervention(target=InterventionTarget.UNCLASSIFIED.value),
+    )
+
+    retrieved = store.retrieve(fingerprint="a3f19c02b1d4", fix_attempts=5, suite=Suite.UNITTEST.value)
+
+    assert list(retrieved)[0].startswith("unittest-")
+
+
+def test_unit_test_records_leave_the_file_split_undetermined(store):
+    record = observe(
+        store,
+        exit_code_after=1,
+        fingerprint_after="a3f19c02b1d4",
+        scope=make_scope(suite=Suite.UNITTEST.value, test_name=None),
+        intervention=Intervention(
+            attempt_index=2,
+            target=InterventionTarget.UNCLASSIFIED.value,
+            files_changed=["code/src/tasks.py"],
+            lines_changed=4,
+        ),
+    )
+
+    # None means "not determined", which is not the same as a determined False.
+    assert record.intervention.touched_implementation is None
+    assert record.intervention.touched_test_files is None
+    assert record.flags == []

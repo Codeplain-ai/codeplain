@@ -73,6 +73,7 @@ class FridContext:
 class UnitTestsRunningContext:
     fix_attempts: int
     changed_files: set[str] = field(default_factory=set)
+    pending_intervention: Optional[PendingIntervention] = None
 
 
 class ConformanceTestsRunningContext:

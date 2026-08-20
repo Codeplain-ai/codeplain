@@ -68,6 +68,7 @@ class MemoryStore:
         files_changed: Optional[list[str]] = None,
         signature: Optional[str] = None,
         fix_attempts: int = 0,
+        suite: Optional[str] = None,
     ) -> dict[str, str]:
         """Select the records relevant to the current failure.
 
@@ -85,6 +86,7 @@ class MemoryStore:
             files_changed=files_changed,
             signature=signature,
             mode=self.memory_mode,
+            suite=suite,
         )
         if selected:
             console.debug(f"Retrieved {len(selected)} memory record(s) for the current failure.")

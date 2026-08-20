@@ -7,7 +7,7 @@ import git_utils
 import plain_spec
 from codeplain_REST_api import CodeplainAPI
 from event_bus import EventBus
-from memory_management import MemoryStore, fingerprint_output
+from memory_management import MemoryStore, Suite, fingerprint_output
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
@@ -123,29 +123,63 @@ class RenderContext:
             module_name=self.module_name,
         )
 
-    def retrieve_memory_for_current_failure(self, failure_output: Optional[str]) -> dict[str, str]:
-        """Select the memory records relevant to the failure currently being fixed.
-
-        The retrieval query comes entirely from render state - the failure being worked on,
-        the test that produced it, and how many fix attempts have been made - so no planner
-        call is needed. Retrieval depth grows with the attempt count: an early attempt gets
-        little or nothing, a deep fix loop gets the full picture.
-        """
-        if failure_output is None:
-            return {}
-
-        fingerprint, signature, _ = fingerprint_output(failure_output)
+    def retrieve_memory_for_conformance_failure(self, failure_output: Optional[str]) -> dict[str, str]:
+        """Select memory records relevant to the conformance failure being fixed."""
         running_context = self.conformance_tests_running_context
 
-        return self.memory_store.retrieve(
-            fingerprint=fingerprint,
+        return self._retrieve_memory(
+            failure_output,
+            suite=Suite.CONFORMANCE.value,
             test_name=(
                 running_context.get_current_conformance_test_folder_name()
                 if running_context and running_context.current_conformance_tests_exist()
                 else None
             ),
-            signature=signature,
             fix_attempts=running_context.fix_attempts if running_context else 0,
+        )
+
+    def retrieve_memory_for_unittest_failure(self, failure_output: Optional[str]) -> dict[str, str]:
+        """Select memory records relevant to the unit-test failure being fixed.
+
+        Unit-test observations rank first; conformance observations can still surface once
+        the same-surface evidence is exhausted, since both loops change the same code.
+        """
+        running_context = self.unit_tests_running_context
+
+        return self._retrieve_memory(
+            failure_output,
+            suite=Suite.UNITTEST.value,
+            files_changed=sorted(running_context.changed_files) if running_context else None,
+            fix_attempts=running_context.fix_attempts if running_context else 0,
+        )
+
+    def _retrieve_memory(
+        self,
+        failure_output: Optional[str],
+        suite: str,
+        test_name: Optional[str] = None,
+        files_changed: Optional[list[str]] = None,
+        fix_attempts: int = 0,
+    ) -> dict[str, str]:
+        """Query the memory store for the failure currently being fixed.
+
+        The query comes entirely from render state - the failure being worked on, the test
+        that produced it, and how many fix attempts have been made - so no planner call is
+        needed. Depth grows with the attempt count: an early attempt gets little or nothing,
+        a deep fix loop gets the full picture.
+        """
+        if failure_output is None:
+            return {}
+
+        fingerprint, signature, _ = fingerprint_output(failure_output)
+
+        return self.memory_store.retrieve(
+            fingerprint=fingerprint,
+            test_name=test_name,
+            files_changed=files_changed,
+            signature=signature,
+            fix_attempts=fix_attempts,
+            suite=suite,
         )
 
     def get_required_modules_functionalities(self):
