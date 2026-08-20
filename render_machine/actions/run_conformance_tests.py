@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import render_machine.render_utils as render_utils
+from memory_management import Failure, Intervention, Scope, Suite, fingerprint_output
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
@@ -54,18 +55,9 @@ class RunConformanceTests(BaseAction):
         )
         render_context.script_execution_history.should_update_script_outputs = True
 
-        render_context.memory_manager.create_conformance_tests_memory(
-            render_context, exit_code, conformance_tests_issue
-        )
+        self._record_observation(render_context, exit_code, conformance_tests_issue)
 
         if exit_code == 0:
-            if (
-                render_context.conformance_tests_running_context.current_testing_module_name
-                == render_context.module_name
-                and render_context.conformance_tests_running_context.current_testing_frid
-                == render_context.frid_context.frid
-            ):
-                render_context.memory_manager.delete_unresolved_memory_files()
             return self.SUCCESSFUL_OUTCOME, None
 
         if exit_code in UNRECOVERABLE_ERROR_EXIT_CODES:
@@ -81,3 +73,59 @@ class RunConformanceTests(BaseAction):
             )
 
         return self.FAILED_OUTCOME, {"previous_conformance_tests_issue": conformance_tests_issue}
+
+    def _record_observation(self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str) -> None:
+        """Log what the intervention applied before this run actually did.
+
+        Purely deterministic - no API call, no credit. There is nothing to record until an
+        intervention has been applied, because a record describes the effect of a change:
+        the very first failure of a functionality is context the render already has.
+        """
+        running_context = render_context.conformance_tests_running_context
+        pending = running_context.pending_intervention
+        if pending is None:
+            return
+
+        running_context.pending_intervention = None
+
+        aimed_at_this_test = (
+            pending.failure_testing_frid == running_context.current_testing_frid
+            and pending.failure_testing_module == running_context.current_testing_module_name
+        )
+        if not aimed_at_this_test and exit_code == 0:
+            # A test the intervention was not aimed at still passes. Nothing observed.
+            return
+
+        # When the run under observation is not the one the intervention targeted, there
+        # was no failure here to compare against, so a failure now is a regression.
+        target_output = pending.failure_output if aimed_at_this_test else None
+        fingerprint_before, signature_before, excerpt_before = fingerprint_output(target_output)
+        fingerprint_after, _, _ = fingerprint_output(conformance_tests_issue if exit_code != 0 else None)
+
+        render_context.memory_store.record_observation(
+            scope=Scope(
+                module=render_context.module_name,
+                frid=render_context.frid_context.frid,
+                testing_module=running_context.current_testing_module_name,
+                testing_frid=running_context.current_testing_frid,
+                suite=Suite.CONFORMANCE.value,
+                test_name=running_context.get_current_conformance_test_folder_name(),
+            ),
+            failure=Failure(
+                fingerprint=fingerprint_before,
+                signature=signature_before,
+                excerpt=excerpt_before,
+                exit_code=1,
+            ),
+            intervention=Intervention(
+                attempt_index=pending.attempt_index,
+                target=pending.target,
+                files_changed=sorted(pending.files_changed),
+                lines_changed=pending.lines_changed,
+                touched_implementation=pending.touched_implementation,
+                touched_test_files=pending.touched_test_files,
+            ),
+            exit_code_after=exit_code,
+            fingerprint_after=fingerprint_after,
+            render_id=render_context.run_state.render_id,
+        )

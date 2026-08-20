@@ -11,9 +11,14 @@ from plain2code_console import console
 from plain2code_exceptions import UnsupportedBase64Content, UnsupportedResourceType
 from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
 from plain2code_utils import find_large_base64_blob
-from plain_modules import CODEPLAIN_MEMORY_SUBFOLDER, CODEPLAIN_METADATA_FOLDER
 
 BINARY_FILE_EXTENSIONS = [".pyc"]
+
+# Per-render bookkeeping folders that live alongside generated code but are never part
+# of it. Defined here rather than in plain_modules because file_utils sits upstream of
+# plain_modules in the import graph.
+CODEPLAIN_MEMORY_SUBFOLDER = ".memory"
+CODEPLAIN_METADATA_FOLDER = ".codeplain"
 
 # Dictionary mapping of file extensions to type names
 FILE_EXTENSION_MAPPING = {

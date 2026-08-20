@@ -2,7 +2,6 @@ from typing import Any
 
 import file_utils
 import render_machine.render_utils as render_utils
-from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import FunctionalRequirementTooComplex
 from render_machine.actions.base_action import BaseAction
@@ -37,7 +36,11 @@ class RenderFunctionalRequirement(BaseAction):
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )
-        _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
+        # Nothing is being fixed here, so there is no failure to retrieve memory
+        # against. Memory records answer "what was already tried against this
+        # failure"; without a failure there is no query, and injecting every record
+        # unranked is exactly the context bloat ranked retrieval replaces.
+        memory_files_content: dict[str, str] = {}
 
         msg = "-------------------------------------\n"
         msg += f"Module: {render_context.module_name}\n"

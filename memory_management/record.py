@@ -9,6 +9,7 @@ recorded fields. Nothing in a record is an inference, and no field is authored b
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -110,7 +111,8 @@ class Scope:
     testing_module: str
     testing_frid: Optional[str]
     suite: str = Suite.CONFORMANCE.value
-    test_folder: Optional[str] = None
+    # The addressable test unit that ran: the conformance test folder for conformance
+    # runs, the test package for unit tests.
     test_name: Optional[str] = None
 
 
@@ -203,6 +205,18 @@ def _build(dataclass_type: Any, data: dict[str, Any]) -> Any:
     return dataclass_type(**{key: value for key, value in data.items() if key in known_fields})
 
 
+def build_memory_id(suite: str, fingerprint: Optional[str], intervention: Intervention) -> str:
+    """Build the record's identity from its dedup key.
+
+    The id deliberately encodes exactly what ``MemoryRecord.dedup_key`` compares - the
+    failure plus the intervention - and deliberately omits the attempt index. That makes
+    the on-disk file name the dedup key, so re-observing the same attempt updates one
+    record instead of accumulating near-duplicates.
+    """
+    intervention_hash = hashlib.sha256(intervention.signature().encode("utf-8")).hexdigest()[:6]
+    return f"{suite}-{fingerprint or 'none'}-{intervention_hash}"
+
+
 def build_record(
     scope: Scope,
     failure: Failure,
@@ -217,7 +231,7 @@ def build_record(
     flags = [Flag.TEST_FILES_MODIFIED.value] if intervention.touched_test_files else []
 
     return MemoryRecord(
-        memory_id=f"{scope.suite}-{failure.fingerprint or 'none'}-{intervention.attempt_index:02d}",
+        memory_id=build_memory_id(scope.suite, failure.fingerprint, intervention),
         scope=scope,
         failure=failure,
         intervention=intervention,

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from plain_modules import PlainModule
+from plain_modules import PlainModule, get_render_memory_folder
 from render_machine.actions.prepare_repositories import PrepareRepositories
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
 
@@ -66,16 +66,29 @@ def test_fresh_render_creates_code_and_tests_repos_and_seeds_metadata(solo_modul
 
 def test_fresh_render_wipes_the_module_folder_first(solo_module):
     stale_file = Path(solo_module.module_folder) / "stale.txt"
-    stale_memory = Path(solo_module.module_memory_folder) / "stale_memory.md"
-    stale_memory.parent.mkdir(parents=True)
-    stale_memory.write_text("stale")
+    stale_file.parent.mkdir(parents=True, exist_ok=True)
     stale_file.write_text("stale")
 
     render_context = _make_render_context(solo_module, render_conformance_tests=True)
     PrepareRepositories().execute(render_context, None)
 
     assert not stale_file.exists()
-    assert not stale_memory.exists()
+
+
+def test_fresh_render_leaves_the_render_scoped_memory_folder_alone(solo_module):
+    """Memory spans every module, so preparing one module must not clear it.
+
+    Clearing memory is the render's decision (full render only), made once in
+    ModuleRenderer - not a side effect of preparing each module's repositories.
+    """
+    memory_record = Path(get_render_memory_folder(solo_module.build_folder)) / "conformance-abc-01.json"
+    memory_record.parent.mkdir(parents=True)
+    memory_record.write_text("{}")
+
+    render_context = _make_render_context(solo_module, render_conformance_tests=True)
+    PrepareRepositories().execute(render_context, None)
+
+    assert memory_record.exists()
 
 
 def test_fresh_render_without_conformance_tests_does_not_create_tests_folder(solo_module):

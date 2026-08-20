@@ -2,6 +2,7 @@ import argparse
 import os
 from typing import Optional, Sequence
 
+from memory_management import MemoryMode
 from path_resolution import resolve_path
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
@@ -292,6 +293,17 @@ def create_parser():
         action="store_true",
         default=False,
         help="Force re-render of all the required modules.",
+    )
+
+    _add_arg(
+        parser,
+        "--memory-mode",
+        type=str,
+        choices=[mode.value for mode in MemoryMode],
+        default=MemoryMode.ALL.value,
+        help="Which memory records may be used while rendering. "
+        "`all` uses both confirmed and ruled-out interventions, `verified` only confirmed ones, "
+        "`refuted` only ruled-out ones, and `off` disables memory entirely.",
     )
 
     _add_arg(

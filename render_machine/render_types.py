@@ -5,6 +5,27 @@ from typing import Any, Optional
 import plain_spec
 
 
+@dataclass
+class PendingIntervention:
+    """A change that was just applied and whose effect has not been observed yet.
+
+    Recorded when a fix is applied and consumed on the next test run, which is what lets
+    a memory record pair a failure with the intervention aimed at it and the outcome that
+    followed. Every field is read off the diff - none of it is interpreted.
+    """
+
+    attempt_index: int
+    target: str
+    files_changed: list[str] = field(default_factory=list)
+    lines_changed: int = 0
+    touched_implementation: bool = False
+    touched_test_files: bool = False
+    # The failure this intervention was aimed at, so the outcome can be compared to it.
+    failure_output: Optional[str] = None
+    failure_testing_frid: Optional[str] = None
+    failure_testing_module: Optional[str] = None
+
+
 class TestExecutionPhase(Enum):
     """Explicit phases of conformance test execution."""
 
@@ -94,6 +115,7 @@ class ConformanceTestsRunningContext:
         self.previous_conformance_tests_issue_frid: Optional[str] = None
         self.previous_conformance_tests_issue_module: Optional[str] = None
         self.code_diff_files: Optional[dict[str, str]] = None
+        self.pending_intervention: Optional[PendingIntervention] = None
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]

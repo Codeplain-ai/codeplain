@@ -2,12 +2,12 @@ import argparse
 import threading
 
 from event_bus import EventBus
-from memory_management import MemoryManager
+from memory_management import MemoryMode, MemoryStore
 from partial_rendering import RenderChoice
 from plain2code_console import console
 from plain2code_events import RenderCompleted, RenderFailed
 from plain2code_state import RunState
-from plain_modules import PlainModule
+from plain_modules import PlainModule, get_render_memory_folder
 from render_machine.code_renderer import CodeRenderer
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
@@ -36,16 +36,21 @@ class ModuleRenderer:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
+        # Memory is scoped to the render, so every module in the requires chain shares
+        # one store rather than each keeping its own isolated copy.
+        self.memory_store = MemoryStore(
+            get_render_memory_folder(plain_module.build_folder),
+            MemoryMode(getattr(args, "memory_mode", MemoryMode.ALL.value)),
+        )
 
     def _build_render_context_for_module(
         self,
         plain_module: PlainModule,
-        memory_manager: MemoryManager,
         render_range: list[str] | None,
     ) -> RenderContext:
         return RenderContext(
             self.codeplainAPI,
-            memory_manager,
+            self.memory_store,
             plain_module,
             build_folder=plain_module.module_build_folder,
             build_dest=self.args.build_dest,
@@ -111,13 +116,8 @@ class ModuleRenderer:
         ):
             return False, False
 
-        memory_manager = MemoryManager(
-            self.codeplainAPI,
-            plain_module.module_memory_folder,
-        )
         render_context = self._build_render_context_for_module(
             plain_module,
-            memory_manager,
             render_range,
         )
 
@@ -141,6 +141,16 @@ class ModuleRenderer:
 
         return True, False
 
+    def clear_memory_if_full_render(self) -> None:
+        """Start a full render from an empty memory store.
+
+        Memory is scoped to a single render. A partial render (--render-from /
+        --render-range) continues one logical render, so it keeps what the earlier
+        functionalities already established.
+        """
+        if self.render_range is None:
+            self.memory_store.clear()
+
     def render_module(self) -> None:
         if self.render_choice is not None and self.render_choice.wipe_later_modules:
             later_module = False
@@ -153,6 +163,8 @@ class ModuleRenderer:
                 if later_module:
                     console.info(f"Wiping module {module.module_name}...")
                     module.wipe_module()
+
+        self.clear_memory_if_full_render()
 
         self.loaded_modules = list[PlainModule]()
 

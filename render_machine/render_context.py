@@ -7,6 +7,7 @@ import git_utils
 import plain_spec
 from codeplain_REST_api import CodeplainAPI
 from event_bus import EventBus
+from memory_management import MemoryStore, fingerprint_output
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
@@ -30,7 +31,7 @@ class RenderContext:
     def __init__(
         self,
         codeplain_api,
-        memory_manager,
+        memory_store: MemoryStore,
         plain_module: PlainModule,
         build_folder: str,
         build_dest: str,
@@ -50,7 +51,7 @@ class RenderContext:
         enter_pause_event: Optional[threading.Event] = None,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
-        self.memory_manager = memory_manager
+        self.memory_store = memory_store
         self.plain_module = plain_module
         self.plain_source_tree = plain_module.plain_source
         self.module_name = plain_module.module_name
@@ -120,6 +121,31 @@ class RenderContext:
             ),
             script_execution_history=deepcopy(self.script_execution_history),
             module_name=self.module_name,
+        )
+
+    def retrieve_memory_for_current_failure(self, failure_output: Optional[str]) -> dict[str, str]:
+        """Select the memory records relevant to the failure currently being fixed.
+
+        The retrieval query comes entirely from render state - the failure being worked on,
+        the test that produced it, and how many fix attempts have been made - so no planner
+        call is needed. Retrieval depth grows with the attempt count: an early attempt gets
+        little or nothing, a deep fix loop gets the full picture.
+        """
+        if failure_output is None:
+            return {}
+
+        fingerprint, signature, _ = fingerprint_output(failure_output)
+        running_context = self.conformance_tests_running_context
+
+        return self.memory_store.retrieve(
+            fingerprint=fingerprint,
+            test_name=(
+                running_context.get_current_conformance_test_folder_name()
+                if running_context and running_context.current_conformance_tests_exist()
+                else None
+            ),
+            signature=signature,
+            fix_attempts=running_context.fix_attempts if running_context else 0,
         )
 
     def get_required_modules_functionalities(self):

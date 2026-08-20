@@ -15,7 +15,7 @@ import pytest
 from change_detection import determine_partial_render_start
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from plain2code_exceptions import ModuleDoesNotExistError
-from plain_modules import MODULE_METADATA_FILENAME, PlainModule
+from plain_modules import MODULE_METADATA_FILENAME, PlainModule, get_render_memory_folder
 
 # --------------------------------------------------------------------------
 # Fixtures
@@ -351,7 +351,12 @@ def test_module_folder_layout(solo_module, tmp_build_folder):
     assert solo_module.module_build_folder == os.path.join(module_folder, "code")
     assert solo_module.module_conformance_tests_folder == os.path.join(module_folder, "tests")
     assert solo_module.get_codeplain_folder() == os.path.join(module_folder, ".codeplain")
-    assert solo_module.module_memory_folder == os.path.join(module_folder, ".memory")
+
+
+def test_memory_folder_is_render_scoped_not_module_scoped(solo_module, tmp_build_folder):
+    """Memory is shared by every module in the render, so it sits above the modules."""
+    assert get_render_memory_folder(tmp_build_folder) == os.path.join(tmp_build_folder, ".memory")
+    assert not get_render_memory_folder(tmp_build_folder).startswith(solo_module.module_folder)
 
 
 def test_wipe_module_removes_whole_module_folder(solo_module):

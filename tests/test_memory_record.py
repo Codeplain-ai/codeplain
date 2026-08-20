@@ -35,7 +35,6 @@ def make_scope(**overrides):
         testing_module="backend",
         testing_frid="2.1",
         suite=Suite.CONFORMANCE.value,
-        test_folder="user_can_add_task",
         test_name="test_add_task_rejects_empty_content",
     )
     defaults.update(overrides)
@@ -150,7 +149,7 @@ def test_build_record_flags_interventions_that_edited_tests():
     assert Flag.TEST_FILES_MODIFIED.value in record.flags
 
 
-def test_memory_id_and_file_name_are_derived_from_suite_fingerprint_and_attempt():
+def test_memory_id_encodes_suite_and_failure_and_is_a_valid_file_name():
     record = build_record(
         scope=make_scope(),
         failure=make_failure(fingerprint="a3f19c02b1d4"),
@@ -160,8 +159,30 @@ def test_memory_id_and_file_name_are_derived_from_suite_fingerprint_and_attempt(
         observed_at=OBSERVED_AT,
     )
 
-    assert record.memory_id == "conformance-a3f19c02b1d4-03"
-    assert record.file_name == "conformance-a3f19c02b1d4-03.json"
+    assert record.memory_id.startswith("conformance-a3f19c02b1d4-")
+    assert record.file_name == f"{record.memory_id}.json"
+    assert "/" not in record.file_name
+
+
+def test_memory_id_is_the_dedup_key_and_ignores_attempt_index():
+    """The file name must identify the attempt, so re-observing it updates one record."""
+
+    def record_for(attempt_index, files_changed):
+        return build_record(
+            scope=make_scope(),
+            failure=make_failure(),
+            intervention=make_intervention(attempt_index=attempt_index, files_changed=files_changed),
+            exit_code_after=1,
+            fingerprint_after="a3f19c02b1d4",
+            observed_at=OBSERVED_AT,
+        )
+
+    same_attempt_later = record_for(9, ["code/src/tasks.py"])
+    baseline = record_for(3, ["code/src/tasks.py"])
+    other_intervention = record_for(3, ["code/src/other.py"])
+
+    assert baseline.memory_id == same_attempt_later.memory_id
+    assert baseline.memory_id != other_intervention.memory_id
 
 
 # --- identity and serialization ---------------------------------------------------

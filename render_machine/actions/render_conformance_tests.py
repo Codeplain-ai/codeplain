@@ -3,7 +3,6 @@ from typing import Any
 
 import file_utils
 import plain_spec
-from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -87,7 +86,11 @@ class RenderConformanceTests(BaseAction):
             )
 
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
-        _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
+        # Nothing is being fixed here, so there is no failure to retrieve memory
+        # against. Memory records answer "what was already tried against this
+        # failure"; without a failure there is no query, and injecting every record
+        # unranked is exactly the context bloat ranked retrieval replaces.
+        memory_files_content: dict[str, str] = {}
         tmp_resources_list = []
         plain_spec.collect_linked_resources(
             render_context.plain_source_tree,
@@ -149,7 +152,11 @@ class RenderConformanceTests(BaseAction):
             return self.SUCCESSFUL_OUTCOME, None
 
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
-        _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
+        # Nothing is being fixed here, so there is no failure to retrieve memory
+        # against. Memory records answer "what was already tried against this
+        # failure"; without a failure there is no query, and injecting every record
+        # unranked is exactly the context bloat ranked retrieval replaces.
+        memory_files_content: dict[str, str] = {}
         (
             conformance_tests_files,
             conformance_tests_files_content,

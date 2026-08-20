@@ -15,16 +15,11 @@ import git_utils
 import metadata_utils
 import plain_file
 import plain_spec
-from metadata_utils import (
-    MODULE_FUNCTIONALITIES,
-    MODULE_METADATA_FILENAME,
-    REQUIRED_MODULES_FUNCTIONALITIES,
-)
+from file_utils import CODEPLAIN_MEMORY_SUBFOLDER, CODEPLAIN_METADATA_FOLDER
+from metadata_utils import MODULE_FUNCTIONALITIES, MODULE_METADATA_FILENAME, REQUIRED_MODULES_FUNCTIONALITIES
 from plain2code_console import console
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 
-CODEPLAIN_MEMORY_SUBFOLDER = ".memory"
-CODEPLAIN_METADATA_FOLDER = ".codeplain"
 MODULE_CODE_SUBFOLDER = "code"
 MODULE_TESTS_SUBFOLDER = "tests"
 
@@ -35,6 +30,15 @@ def get_module_code_folder(modules_base_folder: str, module_name: str) -> str:
 
 def get_module_tests_folder(modules_base_folder: str, module_name: str) -> str:
     return os.path.join(modules_base_folder, module_name, MODULE_TESTS_SUBFOLDER)
+
+
+def get_render_memory_folder(modules_base_folder: str) -> str:
+    """Memory is scoped to the whole render, not to one module.
+
+    A failure observed while rendering one module is just as relevant to the next module
+    in the requires chain, which inherits its generated code as a starting point.
+    """
+    return os.path.join(modules_base_folder, CODEPLAIN_MEMORY_SUBFOLDER)
 
 
 def _strip_functional_requirements(plain_source_tree: dict) -> dict:
@@ -91,10 +95,6 @@ class PlainModule:
     @property
     def module_build_folder(self):
         return get_module_code_folder(self.build_folder, self.module_name)
-
-    @property
-    def module_memory_folder(self):
-        return os.path.join(self.module_folder, CODEPLAIN_MEMORY_SUBFOLDER)
 
     def get_codeplain_folder(self):
         return os.path.join(self.module_folder, CODEPLAIN_METADATA_FOLDER)

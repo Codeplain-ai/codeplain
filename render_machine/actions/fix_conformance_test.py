@@ -3,13 +3,13 @@ from typing import Any
 import diff_utils
 import file_utils
 import plain_spec
-from memory_management import MemoryManager
+from memory_management import InterventionTarget
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
-from render_machine.render_types import RenderError, TestExecutionPhase
+from render_machine.render_types import PendingIntervention, RenderError, TestExecutionPhase
 
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
@@ -67,7 +67,7 @@ class FixConformanceTest(BaseAction):
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
             render_context.build_folder
         )
-        _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
+        memory_files_content = render_context.retrieve_memory_for_current_failure(previous_conformance_tests_issue)
         (
             existing_conformance_test_files,
             existing_conformance_test_files_content,
@@ -160,6 +160,12 @@ class FixConformanceTest(BaseAction):
             )
             code_diff_files_content = diff_utils.get_code_diff(response_files, existing_conformance_test_files_content)
             render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
+            self._remember_intervention(
+                render_context,
+                InterventionTarget.CONFORMANCE_TESTS,
+                code_diff_files_content,
+                previous_conformance_tests_issue,
+            )
 
             return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
         else:
@@ -167,6 +173,12 @@ class FixConformanceTest(BaseAction):
                 file_utils.store_response_files(render_context.build_folder, response_files, existing_files)
                 code_diff_files_content = diff_utils.get_code_diff(response_files, existing_files_content)
                 render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
+                self._remember_intervention(
+                    render_context,
+                    InterventionTarget.IMPLEMENTATION,
+                    code_diff_files_content,
+                    previous_conformance_tests_issue,
+                )
                 console.print_files(
                     "Files fixed:",
                     render_context.build_folder,
@@ -183,3 +195,28 @@ class FixConformanceTest(BaseAction):
                 return self.IMPLEMENTATION_CODE_UPDATED, None
             else:
                 return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
+
+    @staticmethod
+    def _remember_intervention(
+        render_context: RenderContext,
+        target: InterventionTarget,
+        code_diff_files: dict,
+        failure_output: str,
+    ) -> None:
+        """Record what was just changed, to be paired with the next test run's outcome.
+
+        Everything here is read off the diff. Which files changed and how many lines are
+        objective; why they changed is not recorded, because it would be a guess.
+        """
+        running_context = render_context.conformance_tests_running_context
+        running_context.pending_intervention = PendingIntervention(
+            attempt_index=running_context.fix_attempts,
+            target=target.value,
+            files_changed=sorted(code_diff_files.keys()),
+            lines_changed=sum(len(diff.splitlines()) for diff in code_diff_files.values()),
+            touched_implementation=target is InterventionTarget.IMPLEMENTATION,
+            touched_test_files=target is InterventionTarget.CONFORMANCE_TESTS,
+            failure_output=failure_output,
+            failure_testing_frid=running_context.current_testing_frid,
+            failure_testing_module=running_context.current_testing_module_name,
+        )

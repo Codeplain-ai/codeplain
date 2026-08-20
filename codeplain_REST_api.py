@@ -254,44 +254,6 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def create_conformance_test_memory(
-        self,
-        frid,
-        plain_source_tree,
-        linked_resources,
-        existing_files_content,
-        memory_files_content,
-        module_name,
-        required_modules,
-        code_diff,
-        conformance_tests_files,
-        acceptance_tests,
-        conformance_tests_issue,
-        conformance_tests_folder_name,
-        previous_conformance_tests_issue_old,
-        run_state: RunState,
-    ):
-        endpoint_url = f"{self.api_url}/create_conformance_test_memory"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "memory_files_content": memory_files_content,
-            "module_name": module_name,
-            "required_modules": required_modules,
-            "code_diff": code_diff,
-            "conformance_tests_files": conformance_tests_files,
-            "acceptance_tests": acceptance_tests,
-            "conformance_tests_issue": conformance_tests_issue,
-            "conformance_tests_folder_name": conformance_tests_folder_name,
-            "previous_conformance_tests_issue": previous_conformance_tests_issue_old,
-        }
-
-        return self.post_request(endpoint_url, headers, payload, run_state)
-
     def refactor_source_files_if_needed(
         self, frid, module_name: str, files_to_check, existing_files_content, run_state: RunState
     ):
