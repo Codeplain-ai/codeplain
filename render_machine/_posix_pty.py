@@ -1004,6 +1004,19 @@ class PosixPtyProcess(TerminalProcess):
         attrs[3] &= ~(termios.ECHO | getattr(termios, "ECHOCTL", 0))
         termios.tcsetattr(fd, termios.TCSANOW, attrs)  # TCSAFLUSH could discard the byte
 
+    def redeliver_end_of_file(self) -> bool:
+        """The spawn-time delivery again, for a target that discarded the first one.
+
+        Unreserved, because the reservation exists for the spawn-time delivery that has to
+        succeed; this one may be dropped under pressure.
+        """
+        result, _ = self._input_queue.submit(self._veof_byte, prepare=self._veof_prepare, finish=self._veof_restore)
+        if result.disposition is not InputDisposition.ACCEPTED:
+            console.debug(f"the end-of-file retry was not admitted: {result.disposition.value}")
+            return True  # the backend can deliver one; this attempt simply did not land
+        self._ring_doorbell()
+        return True
+
     def _veof_restore(self) -> None:
         saved, self._veof_saved = self._veof_saved, None
         if saved is None:

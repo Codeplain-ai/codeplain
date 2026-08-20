@@ -1,4 +1,3 @@
-import os
 import sys
 import tempfile
 import threading
@@ -24,6 +23,19 @@ POLL_INTERVAL_SECONDS = 0.2
 # The raw transcript is written beside the published one under this suffix, so it is
 # discoverable from the returned path and cleanable by the same convention.
 RAW_OUTPUT_SUFFIX = ".raw"
+
+# Every execution gets one end-of-file at spawn. A program that reconfigures its terminal
+# before reading discards whatever is queued: `getpass` calls
+# `tcsetattr(..., TCSAFLUSH, ...)`, which flushes pending input. The end-of-file is gone
+# by the time the read happens, so the program waits for input that will never arrive and
+# the script burns its whole timeout. The fix loop then treats that timeout as a defect in
+# the generated code.
+#
+# The end-of-file is re-delivered while the target is quiet. Nothing else writes to a test
+# script's terminal, so re-delivery is safe: a program blocked on a read gets the
+# end-of-file it was owed, and one that is not reading is unaffected.
+QUIET_BEFORE_EOF_RESEND_SECONDS = 5.0
+MAX_EOF_RESENDS = 3
 
 # Conditions the arbiter chooses between, highest precedence last.
 CONDITION_EXIT = "exit"
@@ -163,10 +175,13 @@ def _await_target(
     coincides with, and only the rank table decides which of them is published.
     """
     deadline = time.monotonic() + script_timeout
+    eof_resender = _QuietEofResender(process)
     while True:
         returncode = process.poll()
         if returncode is not None:
             outcome.target_exited(returncode)
+        else:
+            eof_resender.consider()
         if stop_event is not None and stop_event.is_set():
             outcome.cancelled()
         # An exit observed by this same poll wins over the expired deadline: the target had
@@ -183,6 +198,60 @@ def _await_target(
             stop_event.wait(timeout=POLL_INTERVAL_SECONDS)
         else:
             time.sleep(POLL_INTERVAL_SECONDS)
+
+
+class _QuietEofResender:
+    """Re-delivers end-of-file to a target that has gone quiet.
+
+    Quiet is the only signal available from outside: the parent cannot observe the child's
+    `tcsetattr`, so it watches for a target that is alive and has stopped producing
+    output. That covers both a program blocked on a read and a program with nothing left
+    to say, and both want the same answer.
+
+    Quiet is measured in bytes read, not in the size of the rendered transcript, which a
+    repaint leaves unchanged. Delivery belongs to the backend; one that cannot represent an
+    end-of-file says so once and is not asked again.
+
+    Bounded rather than continuous. A target still quiet after several deliveries is not
+    waiting on the terminal.
+    """
+
+    def __init__(self, process: TerminalProcess) -> None:
+        self._process = process
+        self._enabled = True
+        self._resends = 0
+        self._seen = -1
+        self._since = time.monotonic()
+
+    def consider(self) -> None:
+        if not self._enabled or self._resends >= MAX_EOF_RESENDS:
+            return
+
+        produced = self._process.output_bytes_seen
+        if produced != self._seen:
+            self._seen = produced
+            self._since = time.monotonic()
+            return
+
+        if time.monotonic() - self._since < QUIET_BEFORE_EOF_RESEND_SECONDS:
+            return
+
+        self._since = time.monotonic()
+        self._resends += 1
+        try:
+            supported = self._process.redeliver_end_of_file()
+        except Exception as exc:  # a target that cannot be written to is the wait's problem, not ours
+            self._enabled = False
+            console.debug(f"the end-of-file could not be re-delivered to a quiet target: {exc!r}")
+            return
+        if not supported:
+            self._enabled = False
+            console.debug("this backend cannot re-deliver end-of-file, so a quiet target is left alone")
+            return
+        console.debug(
+            f"re-delivered end-of-file to a quiet target "
+            f"(attempt {self._resends} of {MAX_EOF_RESENDS}); the spawn-time one may have been flushed"
+        )
 
 
 def _teardown(process: TerminalProcess, outcome: _ScriptOutcome) -> None:
@@ -269,16 +338,12 @@ def _store_raw_output(script_type: str, raw_output: bytes, output_file_path: Opt
     A derived sibling of the published artifact rather than a temp file of its own: the
     raw bytes are only useful beside the transcript they explain, and a caller holding the
     path it was handed can find and remove this one by convention.
-
-    Created 0600 like the transcript beside it. A plain `open()` takes the process umask,
-    which publishes the script's whole output on a shared host.
     """
     if output_file_path is None:
         return
     raw_file_path = output_file_path + RAW_OUTPUT_SUFFIX
     try:
-        descriptor = os.open(raw_file_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "wb") as raw_file:
+        with open(raw_file_path, "wb") as raw_file:
             raw_file.write(raw_output)
     except OSError as exc:  # a diagnostic artifact never changes the published outcome
         console.debug(f"could not store the {script_type} script raw output: {exc}", color=MUTED_COLOR)

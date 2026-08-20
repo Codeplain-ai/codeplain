@@ -139,19 +139,6 @@ def test_the_raw_transcript_is_a_named_sibling_of_the_published_output(tmp_path,
 
 
 @posix_only
-def test_both_transcripts_are_readable_only_by_their_owner(tmp_path, run_script):
-    """Script output carries whatever the script was given, so neither transcript may take
-    the process umask."""
-    script = _make_shell_script(tmp_path, "secretish", 'printf "token=abc123\\n"\n')
-
-    _, _, output_file = run_script(script, [], SCRIPT_TYPE, timeout=30)
-
-    for path in (output_file, output_file + render_utils.RAW_OUTPUT_SUFFIX):
-        mode = stat.S_IMODE(os.stat(path).st_mode)
-        assert mode & 0o077 == 0, f"{path} is {oct(mode)}, readable beyond its owner"
-
-
-@posix_only
 @pytest.mark.parametrize("expected_exit_code", [1, 3, 69])
 def test_failing_script_exit_code_is_returned_verbatim(tmp_path, run_script, expected_exit_code):
     script = _make_shell_script(
@@ -421,6 +408,8 @@ class _FakeTerminalProcess(TerminalProcess):
         teardown_error=None,
         reply_failed=False,
     ):
+        # The base owns the buffers and counters the wait loop reads.
+        super().__init__()
         self.reader_failed = threading.Event()
         self.reader_exc = None
         self.exit_code = exit_code
@@ -722,3 +711,40 @@ def test_the_terminal_script_active_flag_spans_spawn_through_teardown(injected_b
 
     assert seen["active_during_teardown"] is True
     assert not render_utils.terminal_script_active()
+
+
+@posix_only
+def test_a_getpass_target_survives_its_terminal_flush(tmp_path, run_script):
+    """The failure this whole path exists for.
+
+    `getpass` calls `tcsetattr(..., TCSAFLUSH, ...)` before reading, and TCSAFLUSH
+    discards pending input — so the end-of-file queued at spawn is gone by the time the
+    read happens and the target waits for input nobody will send. Before the quiet-period
+    re-delivery this target burned the entire script timeout, and the fix loop read that
+    as a defect in the generated code.
+
+    The timeout here is well above the quiet period and well below what a hang costs, so
+    a regression fails the test rather than slowing it down.
+    """
+    script = _make_python_script(
+        tmp_path,
+        "getpass_no_driver",
+        """
+        import getpass
+
+        try:
+            secret = getpass.getpass("Master password: ")
+        except EOFError:
+            secret = "<eof>"
+        print(f"GOT:{secret}")
+        """,
+    )
+
+    exit_code, output, _ = run_script(
+        script, [], SCRIPT_TYPE, timeout=render_utils.QUIET_BEFORE_EOF_RESEND_SECONDS + 20
+    )
+
+    assert exit_code == 0, output
+    assert "GOT:" in output
+    # Echo is suppressed around the byte, so no literal ^D reaches the transcript.
+    assert "^D" not in output

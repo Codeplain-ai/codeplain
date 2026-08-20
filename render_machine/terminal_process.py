@@ -150,6 +150,7 @@ class TerminalProcess:
         self._output_lock = threading.Lock()
         self._decoded: List[str] = []
         self._raw = bytearray()
+        self._bytes_seen = 0
 
     def spawn(
         self,
@@ -184,6 +185,24 @@ class TerminalProcess:
         return self.normalizer.text()
 
     @property
+    def output_bytes_seen(self) -> int:
+        """Every raw byte the reader has taken, for this process's lifetime.
+
+        Whether the target is still producing output. `read_raw_output()` empties itself,
+        and the rendered transcript is a screen whose length a repaint leaves unchanged.
+        """
+        with self._output_lock:
+            return self._bytes_seen
+
+    def redeliver_end_of_file(self) -> bool:
+        """Hands the target another end-of-file. False when this backend cannot represent one.
+
+        Only a backend that owns the target's terminal can: the VEOF byte may not be `0x04`,
+        and the echo has to be suppressed around it.
+        """
+        return False
+
+    @property
     def terminal_reply_failed(self) -> bool:
         """True when a reply the target was waiting for could not be delivered.
 
@@ -201,6 +220,7 @@ class TerminalProcess:
         text = decoder.decode(chunk)
         with self._output_lock:
             self._raw += chunk
+            self._bytes_seen += len(chunk)
             if text:
                 self._decoded.append(text)
         self.normalizer.feed(chunk)  # outside the output lock: parsing must not block read_output()
