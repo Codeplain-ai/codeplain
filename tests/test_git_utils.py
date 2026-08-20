@@ -1,3 +1,4 @@
+import gc
 import os
 import tempfile
 from pathlib import Path
@@ -28,13 +29,18 @@ def temp_repo():
 
         # Create and commit initial file
         file_path = Path(temp_dir) / "test.txt"
-        file_path.write_text("initial content\nline2\nline3\n")
+        file_path.write_text("initial content\nline2\nline3\n", newline="\n")
 
-        repo = Repo(temp_dir)
-        repo.index.add(["test.txt"])
+        with Repo(temp_dir) as repo:
+            repo.index.add(["test.txt"])
         add_all_files_and_commit(temp_dir, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1.1"))
 
         yield temp_dir
+
+        # Repos opened inside the test body may still hold `git cat-file` children;
+        # on Windows those keep temp_dir undeletable. Collecting here reaps them
+        # (GitPython terminates the children when its objects are finalized).
+        gc.collect()
 
 
 @pytest.fixture
@@ -43,6 +49,7 @@ def empty_repo():
     with tempfile.TemporaryDirectory() as temp_dir:
         init_git_repo(temp_dir)
         yield temp_dir
+        gc.collect()  # same reason as in temp_repo
 
 
 def test_empty_diff(temp_repo):
@@ -57,7 +64,7 @@ def test_single_file_change(temp_repo):
 
     # Modify the file
     file_path = Path(temp_repo) / "test.txt"
-    file_path.write_text("modified content\nline2\nline3\n")
+    file_path.write_text("modified content\nline2\nline3\n", newline="\n")
     repo.index.add(["test.txt"])
     repo.index.commit("Modified test.txt")
 
@@ -83,15 +90,15 @@ def test_multiple_file_changes(temp_repo):
 
     # Create and commit second file
     file2_path = Path(temp_repo) / "file2.txt"
-    file2_path.write_text("file2 initial\nline2\n")
+    file2_path.write_text("file2 initial\nline2\n", newline="\n")
 
     add_all_files_and_commit(temp_repo, "Added file2.txt", None, "1.2")
 
     # Modify both files
     file1_path = Path(temp_repo) / "test.txt"
-    file1_path.write_text("file1 modified\nline2\n")
+    file1_path.write_text("file1 modified\nline2\n", newline="\n")
 
-    file2_path.write_text("file2 modified\nline2")
+    file2_path.write_text("file2 modified\nline2", newline="\n")
 
     # Get diff
     result = diff(temp_repo, "1.1")
@@ -130,23 +137,23 @@ def test_multiple_commits_diff(temp_repo):
 
     # Create and commit second file
     file2_path = Path(temp_repo) / "file2.txt"
-    file2_path.write_text("file2 frid1.1 refactored version\nline2\n")
+    file2_path.write_text("file2 frid1.1 refactored version\nline2\n", newline="\n")
 
     add_all_files_and_commit(temp_repo, REFACTORED_CODE_COMMIT_MESSAGE.format("1.1"), None, "1.1")
     add_all_files_and_commit(temp_repo, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1.1"), None, "1.1")
 
-    file1_path.write_text("file1 frid1.2 version\nline2\n")
-    file2_path.write_text("file2 frid1.2 version\nline2\n")
+    file1_path.write_text("file1 frid1.2 version\nline2\n", newline="\n")
+    file2_path.write_text("file2 frid1.2 version\nline2\n", newline="\n")
 
     add_all_files_and_commit(temp_repo, "implemented frid 1.2", None, "1.2")
 
-    file1_path.write_text("file1 frid1.2 refactored version\nline2\n")
+    file1_path.write_text("file1 frid1.2 refactored version\nline2\n", newline="\n")
 
     add_all_files_and_commit(temp_repo, REFACTORED_CODE_COMMIT_MESSAGE.format("1.2"), None, "1.2")
     add_all_files_and_commit(temp_repo, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1.2"), None, "1.2")
 
     file3_path = Path(temp_repo) / "file3.txt"
-    file3_path.write_text("file3 frid1.2 new file\nline2\n")
+    file3_path.write_text("file3 frid1.2 new file\nline2\n", newline="\n")
 
     # Get diff
     result = diff(temp_repo, "1.1")
@@ -192,12 +199,12 @@ def test_diff_without_previous_frid_and_no_base_folder(empty_repo):
     """Test diff without previous frid and no base folder."""
     # Create a new file without committing
     file_path = Path(empty_repo) / "new.txt"
-    file_path.write_text("new file content\nline2\n")
+    file_path.write_text("new file content\nline2\n", newline="\n")
     add_all_files_and_commit(empty_repo, "First commit")
 
     # create one more file
     file_path = Path(empty_repo) / "new2.txt"
-    file_path.write_text("new file content\nline2\n")
+    file_path.write_text("new file content\nline2\n", newline="\n")
 
     # Get diff
     result = diff(empty_repo)
@@ -227,11 +234,11 @@ def test_diff_without_previous_frid_and_base_folder(temp_repo):
     """Test diff without previous frid and base folder."""
     # Create a commit for the base folder
     file_path = Path(temp_repo) / "new.txt"
-    file_path.write_text("base folder content\nline2\n")
+    file_path.write_text("base folder content\nline2\n", newline="\n")
     add_all_files_and_commit(temp_repo, BASE_FOLDER_COMMIT_MESSAGE)
 
     # update the file
-    file_path.write_text("updated base folder content\nline2\n")
+    file_path.write_text("updated base folder content\nline2\n", newline="\n")
 
     # Get diff
     result = diff(temp_repo)
@@ -254,7 +261,7 @@ def test_new_file(temp_repo):
 
     # Create a new file without committing
     file_path = Path(temp_repo) / "new.txt"
-    file_path.write_text("new file content\nline2\n")
+    file_path.write_text("new file content\nline2\n", newline="\n")
 
     # Get diff
     result = diff(temp_repo, "1.1")
@@ -310,9 +317,9 @@ def test_add_all_files_and_commit(temp_repo):
     """Test adding all files and committing them."""
     # Create some test files
     file1_path = Path(temp_repo) / "file1.txt"
-    file1_path.write_text("content1")
+    file1_path.write_text("content1", newline="\n")
     file2_path = Path(temp_repo) / "file2.txt"
-    file2_path.write_text("content2")
+    file2_path.write_text("content2", newline="\n")
 
     # Add and commit files
     repo = add_all_files_and_commit(temp_repo, "Test commit", None, "FR123", "render-id")
@@ -332,7 +339,7 @@ def test_add_all_files_and_commit(temp_repo):
     assert "file1.txt" in tree
     assert "file2.txt" in tree
 
-    file2_path.write_text("content2 modified")
+    file2_path.write_text("content2 modified", newline="\n")
     repo = add_all_files_and_commit(temp_repo, "Commit changes on existing file", None, "FR4")
     commits = list(repo.iter_commits())
     assert len(commits) == 4
@@ -348,11 +355,11 @@ def test_revert_changes(temp_repo):
     """Test reverting changes in the repository."""
     # Create and commit initial file
     file_path = Path(temp_repo) / "test.txt"
-    file_path.write_text("initial content")
+    file_path.write_text("initial content", newline="\n")
     repo = add_all_files_and_commit(temp_repo, "Initial commit", None, "FR123")
 
     # Modify the file
-    file_path.write_text("modified content")
+    file_path.write_text("modified content", newline="\n")
 
     # Verify the file was modified
     assert file_path.read_text() == "modified content"
@@ -371,19 +378,19 @@ def test_revert_to_commit_with_frid(temp_repo):
     """Test reverting to a specific commit with FRID."""
     # Create and commit first version
     file_path = Path(temp_repo) / "test.txt"
-    file_path.write_text("version 1")
+    file_path.write_text("version 1", newline="\n")
     repo = add_all_files_and_commit(
         temp_repo, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("FR123"), None, "FR123"
     )
 
     # Create and commit second version
-    file_path.write_text("version 2")
+    file_path.write_text("version 2", newline="\n")
     repo = add_all_files_and_commit(
         temp_repo, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("FR456"), None, "FR456"
     )
 
     # Create and commit third version
-    file_path.write_text("version 3")
+    file_path.write_text("version 3", newline="\n")
     repo = add_all_files_and_commit(
         temp_repo, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("FR789"), None, "FR789"
     )
@@ -407,11 +414,11 @@ def test_revert_to_commit_with_frid_and_base_folder(temp_repo):
     """Test reverting to base folder."""
     # Create a commit for the base folder
     file_path = Path(temp_repo) / "new.txt"
-    file_path.write_text("base folder content\nline1\n")
+    file_path.write_text("base folder content\nline1\n", newline="\n")
     add_all_files_and_commit(temp_repo, BASE_FOLDER_COMMIT_MESSAGE)
 
     # create another commit
-    file_path.write_text("changed file content\nline2\n")
+    file_path.write_text("changed file content\nline2\n", newline="\n")
     add_all_files_and_commit(temp_repo, "Another commit")
 
     # revert to base folder
@@ -425,7 +432,7 @@ def test_revert_to_base_folder_no_commit(temp_repo):
     """Test reverting to base folder."""
     # Create a commit for the base folder
     file_path = Path(temp_repo) / "new.txt"
-    file_path.write_text("some content\n")
+    file_path.write_text("some content\n", newline="\n")
     add_all_files_and_commit(temp_repo, "FRID", 123)
 
     # revert initial commit
@@ -452,7 +459,7 @@ def test_get_last_finished_frid_empty_repo(empty_repo):
 def test_get_last_finished_frid_returns_latest(empty_repo):
     """Return the module name and frid from the most recent finished-frid commit."""
     file_path = Path(empty_repo) / "a.txt"
-    file_path.write_text("v1")
+    file_path.write_text("v1", newline="\n")
     add_all_files_and_commit(
         empty_repo,
         FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
@@ -460,7 +467,7 @@ def test_get_last_finished_frid_returns_latest(empty_repo):
         frid="1",
     )
 
-    file_path.write_text("v2")
+    file_path.write_text("v2", newline="\n")
     add_all_files_and_commit(
         empty_repo,
         FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("2"),
@@ -474,7 +481,7 @@ def test_get_last_finished_frid_returns_latest(empty_repo):
 def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
     """Commits that aren't finished-frid checkpoints must be skipped."""
     file_path = Path(empty_repo) / "a.txt"
-    file_path.write_text("v1")
+    file_path.write_text("v1", newline="\n")
     add_all_files_and_commit(
         empty_repo,
         FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
@@ -483,7 +490,7 @@ def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
     )
 
     # A refactor commit (not a finished-frid checkpoint) comes after.
-    file_path.write_text("v2")
+    file_path.write_text("v2", newline="\n")
     add_all_files_and_commit(
         empty_repo,
         REFACTORED_CODE_COMMIT_MESSAGE.format("2"),
@@ -498,7 +505,7 @@ def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
 def test_get_last_finished_frid_without_module_name(empty_repo):
     """Raise InvalidGitRepositoryError when the finished commit omits the module name line."""
     file_path = Path(empty_repo) / "a.txt"
-    file_path.write_text("v1")
+    file_path.write_text("v1", newline="\n")
     add_all_files_and_commit(
         empty_repo,
         FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("7"),

@@ -7,6 +7,7 @@ These tests build real ``PlainModule`` instances from fixtures in
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
