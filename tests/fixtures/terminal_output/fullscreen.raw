@@ -1,0 +1,145 @@
+[H[2J  BUILD DASHBOARD                       frame 00
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  0/10 cases
+  suite-02  [33mrunning[0m  0/10 cases
+  suite-03  [33mrunning[0m  0/10 cases
+  suite-04  [33mrunning[0m  0/10 cases
+  suite-05  [33mrunning[0m  0/10 cases
+  suite-06  [33mrunning[0m  0/10 cases
+  suite-07  [33mrunning[0m  0/10 cases
+  suite-08  [33mrunning[0m  0/10 cases
+  ----------------------------------------------
+  elapsed 0s
+[H[2J  BUILD DASHBOARD                       frame 01
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  1/10 cases
+  suite-02  [33mrunning[0m  2/10 cases
+  suite-03  [33mrunning[0m  3/10 cases
+  suite-04  [33mrunning[0m  4/10 cases
+  suite-05  [33mrunning[0m  5/10 cases
+  suite-06  [33mrunning[0m  6/10 cases
+  suite-07  [32mpassed[0m  7/10 cases
+  suite-08  [32mpassed[0m  8/10 cases
+  ----------------------------------------------
+  elapsed 1s
+[H[2J  BUILD DASHBOARD                       frame 02
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  2/10 cases
+  suite-02  [33mrunning[0m  4/10 cases
+  suite-03  [33mrunning[0m  6/10 cases
+  suite-04  [32mpassed[0m  8/10 cases
+  suite-05  [33mrunning[0m  0/10 cases
+  suite-06  [33mrunning[0m  2/10 cases
+  suite-07  [33mrunning[0m  4/10 cases
+  suite-08  [33mrunning[0m  6/10 cases
+  ----------------------------------------------
+  elapsed 2s
+[H[2J  BUILD DASHBOARD                       frame 03
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  3/10 cases
+  suite-02  [33mrunning[0m  6/10 cases
+  suite-03  [32mpassed[0m  9/10 cases
+  suite-04  [33mrunning[0m  2/10 cases
+  suite-05  [33mrunning[0m  5/10 cases
+  suite-06  [32mpassed[0m  8/10 cases
+  suite-07  [33mrunning[0m  1/10 cases
+  suite-08  [33mrunning[0m  4/10 cases
+  ----------------------------------------------
+  elapsed 3s
+[H[2J  BUILD DASHBOARD                       frame 04
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  4/10 cases
+  suite-02  [32mpassed[0m  8/10 cases
+  suite-03  [33mrunning[0m  2/10 cases
+  suite-04  [33mrunning[0m  6/10 cases
+  suite-05  [33mrunning[0m  0/10 cases
+  suite-06  [33mrunning[0m  4/10 cases
+  suite-07  [32mpassed[0m  8/10 cases
+  suite-08  [33mrunning[0m  2/10 cases
+  ----------------------------------------------
+  elapsed 4s
+[H[2J  BUILD DASHBOARD                       frame 05
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  5/10 cases
+  suite-02  [33mrunning[0m  0/10 cases
+  suite-03  [33mrunning[0m  5/10 cases
+  suite-04  [33mrunning[0m  0/10 cases
+  suite-05  [33mrunning[0m  5/10 cases
+  suite-06  [33mrunning[0m  0/10 cases
+  suite-07  [33mrunning[0m  5/10 cases
+  suite-08  [33mrunning[0m  0/10 cases
+  ----------------------------------------------
+  elapsed 5s
+[H[2J  BUILD DASHBOARD                       frame 06
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  6/10 cases
+  suite-02  [33mrunning[0m  2/10 cases
+  suite-03  [32mpassed[0m  8/10 cases
+  suite-04  [33mrunning[0m  4/10 cases
+  suite-05  [33mrunning[0m  0/10 cases
+  suite-06  [33mrunning[0m  6/10 cases
+  suite-07  [33mrunning[0m  2/10 cases
+  suite-08  [32mpassed[0m  8/10 cases
+  ----------------------------------------------
+  elapsed 6s
+[H[2J  BUILD DASHBOARD                       frame 07
+  ----------------------------------------------
+  suite-01  [32mpassed[0m  7/10 cases
+  suite-02  [33mrunning[0m  4/10 cases
+  suite-03  [33mrunning[0m  1/10 cases
+  suite-04  [32mpassed[0m  8/10 cases
+  suite-05  [33mrunning[0m  5/10 cases
+  suite-06  [33mrunning[0m  2/10 cases
+  suite-07  [32mpassed[0m  9/10 cases
+  suite-08  [33mrunning[0m  6/10 cases
+  ----------------------------------------------
+  elapsed 7s
+[H[2J  BUILD DASHBOARD                       frame 08
+  ----------------------------------------------
+  suite-01  [32mpassed[0m  8/10 cases
+  suite-02  [33mrunning[0m  6/10 cases
+  suite-03  [33mrunning[0m  4/10 cases
+  suite-04  [33mrunning[0m  2/10 cases
+  suite-05  [33mrunning[0m  0/10 cases
+  suite-06  [32mpassed[0m  8/10 cases
+  suite-07  [33mrunning[0m  6/10 cases
+  suite-08  [33mrunning[0m  4/10 cases
+  ----------------------------------------------
+  elapsed 8s
+[H[2J  BUILD DASHBOARD                       frame 09
+  ----------------------------------------------
+  suite-01  [32mpassed[0m  9/10 cases
+  suite-02  [32mpassed[0m  8/10 cases
+  suite-03  [32mpassed[0m  7/10 cases
+  suite-04  [33mrunning[0m  6/10 cases
+  suite-05  [33mrunning[0m  5/10 cases
+  suite-06  [33mrunning[0m  4/10 cases
+  suite-07  [33mrunning[0m  3/10 cases
+  suite-08  [33mrunning[0m  2/10 cases
+  ----------------------------------------------
+  elapsed 9s
+[H[2J  BUILD DASHBOARD                       frame 10
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  0/10 cases
+  suite-02  [33mrunning[0m  0/10 cases
+  suite-03  [33mrunning[0m  0/10 cases
+  suite-04  [33mrunning[0m  0/10 cases
+  suite-05  [33mrunning[0m  0/10 cases
+  suite-06  [33mrunning[0m  0/10 cases
+  suite-07  [33mrunning[0m  0/10 cases
+  suite-08  [33mrunning[0m  0/10 cases
+  ----------------------------------------------
+  elapsed 10s
+[H[2J  BUILD DASHBOARD                       frame 11
+  ----------------------------------------------
+  suite-01  [33mrunning[0m  1/10 cases
+  suite-02  [33mrunning[0m  2/10 cases
+  suite-03  [33mrunning[0m  3/10 cases
+  suite-04  [33mrunning[0m  4/10 cases
+  suite-05  [33mrunning[0m  5/10 cases
+  suite-06  [33mrunning[0m  6/10 cases
+  suite-07  [32mpassed[0m  7/10 cases
+  suite-08  [32mpassed[0m  8/10 cases
+  ----------------------------------------------
+  elapsed 11s
+BUILD FAILED: suite-03 case 7 timed out
