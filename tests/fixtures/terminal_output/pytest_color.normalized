@@ -1,0 +1,20 @@
+....F                                                                                                            [100%]
+======================================================= FAILURES =======================================================
+________________________________________________ test_reports_a_failure ________________________________________________
+
+    def test_reports_a_failure():
+        expected = {"name": "widget", "count": 3}
+        actual = {"name": "widget", "count": 4}
+>       assert actual == expected
+E       AssertionError: assert {'name': 'widget', 'count': 4} == {'name': 'widget', 'count': 3}
+E
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'count': 4} != {'count': 3}
+E         Use -v to get more diff
+
+test_sample.py:16: AssertionError
+=============================================== short test summary info ================================================
+FAILED test_sample.py::test_reports_a_failure - AssertionError: assert {'name': 'widget', 'count': 4} == {'name': 'widge
+t', 'count': 3}
+1 failed, 4 passed in 0.02s
