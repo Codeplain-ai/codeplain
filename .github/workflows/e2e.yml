@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - run: pip install pytest
 
@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - run: pip install pytest
 
@@ -61,22 +61,57 @@ jobs:
           CODEPLAIN_API_KEY: ${{ secrets.CODEPLAIN_API_KEY }}
         run: pytest tests/e2e/ -v --tb=short
 
+  # The installer jobs above test the published package; this one tests the wheel built
+  # from the checkout. It runs neither the pytest e2e collection (its POSIX fixture needs
+  # a Docker daemon and its other case is Windows-only) nor anything that needs the API
+  # key: the point is that a real toolchain runs through the terminal backend on macOS.
+  e2e-macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # hatch-vcs derives the version from the git tags
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build and install this checkout's wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+          pip install dist/*.whl
+
+      - name: Report the Node under test
+        run: node --version   # macos-latest ships Node preinstalled
+
+      # Under `nohup` with stdin from /dev/null: the detached shape a renderer is started
+      # in, where nothing upstream of the script has a terminal to lend it.
+      - name: Run Node through the installed execute_script()
+        run: nohup python tests/e2e/macos_node_smoke.py < /dev/null
+
   notify-on-failure:
     name: Notify Slack on failure
-    needs: [e2e-linux, e2e-windows]
+    needs: [e2e-linux, e2e-windows, e2e-macos]
     if: failure()
     runs-on: ubuntu-latest
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_E2E_WEBHOOK_URL }}
+      LINUX_RESULT: ${{ needs.e2e-linux.result }}
+      WINDOWS_RESULT: ${{ needs.e2e-windows.result }}
+      MACOS_RESULT: ${{ needs.e2e-macos.result }}
     steps:
       - name: Determine failed platforms
         id: platforms
         run: |
           failed=""
-          [ "${{ needs.e2e-linux.result }}" = "failure" ] && failed="Linux"
-          if [ "${{ needs.e2e-windows.result }}" = "failure" ]; then
-            [ -n "$failed" ] && failed="$failed and Windows" || failed="Windows"
-          fi
+          for entry in "Linux:$LINUX_RESULT" "Windows:$WINDOWS_RESULT" "macOS:$MACOS_RESULT"; do
+            if [ "${entry#*:}" = "failure" ]; then
+              name="${entry%%:*}"
+              if [ -n "$failed" ]; then failed="$failed and $name"; else failed="$name"; fi
+            fi
+          done
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
       - name: Send failure notification to Slack
