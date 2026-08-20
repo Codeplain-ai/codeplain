@@ -112,7 +112,7 @@ jobs:
       - name: Install requirements
         run: pip install -r requirements.txt
       - name: Run the ConPTY lifecycle tests
-        run: python -m pytest tests/test_conpty.py -v
+        run: python -m pytest tests/test_conpty.py tests/test_conpty_execute_script.py -v
 
   tests:
     name: Run Tests
