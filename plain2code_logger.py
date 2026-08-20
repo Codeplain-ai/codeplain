@@ -1,3 +1,4 @@
+import copy
 import logging
 
 from event_bus import EventBus
@@ -17,18 +18,28 @@ FILE_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 FILE_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+def _with_indented_message(record, indent: str):
+    """A copy of the record whose continuation lines are indented.
+
+    One record is handed to every attached handler in turn, so a formatter that
+    rewrites `record.msg` in place is rewriting it for the handlers that come after
+    it too — a headless render logging to both stdout and a file would indent each
+    continuation line twice, once per formatter. Copying keeps each handler's
+    formatting local to that handler.
+    """
+    indented = copy.copy(record)
+    indented.msg = record.getMessage().replace("\n", "\n" + indent)
+    indented.args = None  # getMessage() already interpolated them into msg
+    return indented
+
+
 class IndentedFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, indent=16):
         super().__init__(fmt=fmt, datefmt=datefmt)
         self._indent = " " * indent
 
     def format(self, record):
-        original_message = record.getMessage()
-
-        modified_message = original_message.replace("\n", "\n" + self._indent)
-
-        record.msg = modified_message
-        return super().format(record)
+        return super().format(_with_indented_message(record, self._indent))
 
 
 class ElapsedTimeFormatter(logging.Formatter):
@@ -51,16 +62,11 @@ class ElapsedTimeFormatter(logging.Formatter):
         seconds = offset_seconds % 60
         elapsed_time = f"[{hours:02d}:{minutes:02d}:{seconds:02d}]"
 
-        # Add elapsed_time to the record so it can be used in the format string
-        record.elapsed_time = elapsed_time
+        # Continuation lines line up under the message, past the timestamp column.
+        indented = _with_indented_message(record, " " * len(elapsed_time + " "))
+        indented.elapsed_time = elapsed_time
 
-        # Handle multi-line messages with proper indentation
-        original_message = record.getMessage()
-        indent = " " * len(elapsed_time + " ")
-        modified_message = original_message.replace("\n", "\n" + indent)
-        record.msg = modified_message
-
-        return super().format(record)
+        return super().format(indented)
 
 
 class LoggingHandler(logging.Handler):
@@ -132,3 +138,19 @@ def dump_crash_logs(args, run_state: RunState, formatter=None):
 
     if crash_handler and args.filename:
         crash_handler.dump_to_file(args.log_file_name, formatter)
+
+
+NARRATION_HANDLER_NAME = "headless-narration"
+
+
+def stop_narrating() -> None:
+    """Detaches the headless stdout sink once the render is over.
+
+    The summary prints with Rich and bypasses logging, so a still-attached sink reports
+    every failure twice.
+    """
+    root_logger = logging.getLogger(LOGGER_NAME)
+    for handler in list(root_logger.handlers):
+        if handler.get_name() == NARRATION_HANDLER_NAME:
+            root_logger.removeHandler(handler)
+            handler.close()
