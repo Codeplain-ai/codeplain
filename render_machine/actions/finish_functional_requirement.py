@@ -1,6 +1,7 @@
 from typing import Any
 
 from render_machine.actions.commit_implementation_code_changes import CommitImplementationCodeChanges
+from render_machine.fix_loop_metrics import report_frid_fix_loop_summary
 from render_machine.render_context import RenderContext
 
 
@@ -8,6 +9,8 @@ class FinishFunctionalRequirement(CommitImplementationCodeChanges):
     SUCCESSFUL_OUTCOME = "functional_requirement_finished"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
+        report_frid_fix_loop_summary(render_context, render_context.frid_context.frid)
+
         render_context.plain_module.update_frid_in_module_metadata(render_context.frid_context.frid)
 
         super().execute(render_context, previous_action_payload)

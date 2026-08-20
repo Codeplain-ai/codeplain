@@ -12,6 +12,12 @@ class ExitWithError(BaseAction):
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         console.error(self._error_message(render_context, previous_action_payload))
 
+        # The FRID that failed is the one whose fix-loop counts matter most, and it never
+        # reaches FinishFunctionalRequirement — so the whole render's counts are reported
+        # here rather than lost with it.
+        for summary in render_context.fix_loop_metrics.render_summary():
+            console.info(summary)
+
         render_context.codeplain_api.fail_functional_requirement(
             render_context.frid_context.frid,
             module_name=render_context.module_name,

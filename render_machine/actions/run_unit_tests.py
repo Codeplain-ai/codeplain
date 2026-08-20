@@ -4,6 +4,7 @@ from typing import Any
 import render_machine.render_utils as render_utils
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
+from render_machine.fix_loop_metrics import UNIT_LOOP, report_fix_loop_attempt
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
 
@@ -31,6 +32,15 @@ class RunUnitTests(BaseAction):
 
         render_context.script_execution_history.latest_unit_test_output_path = unittests_temp_log_file_path
         render_context.script_execution_history.should_update_script_outputs = True
+
+        report_fix_loop_attempt(
+            render_context,
+            loop=UNIT_LOOP,
+            frid=render_context.frid_context.frid if render_context.frid_context else None,
+            passed=exit_code == 0,
+            output=unittests_issue,
+        )
+
         if exit_code == 0:
             return self.SUCCESSFUL_OUTCOME, None
 
