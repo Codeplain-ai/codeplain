@@ -143,7 +143,7 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 - Transitions handled by triggers in `render_machine/triggers.py`
 - Config in `render_machine/state_machine_config.py`
 
-**Memory Management** (`memory_management.py`): Tracks previously rendered code to provide context to the LLM for incremental changes. Uses git commits to persist checkpoints.
+**Memory Management** (`memory_management/`): Records what was already tried during a render so later steps get that context. Each memory is an objective record of an observed test failure, the intervention applied against it, and the outcome that followed — see `memory_management/record.py` for the schema and `memory_management/fingerprint.py` for the failure normalization that makes records addressable.
 
 **Partial Rendering** (`partial_rendering.py`): Detects when specs or code changed and determines the optimal starting point to resume rendering (avoids full re-renders).
 
@@ -172,7 +172,7 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
   - `dry_run.py` - Dry run output (`--dry-run` flag)
   - `render_summary.py` - Render completion summary
 - `codeplain_REST_api.py` - API client
-- `memory_management.py` - Context tracking
+- `memory_management/` - Evidential memory: failure fingerprinting, record schema, store, retrieval
 - `git_utils.py` - Git operations for checkpointing
 - `file_utils.py` - File I/O utilities
 - `concept_utils.py` - Concept validation (***plain language feature)
