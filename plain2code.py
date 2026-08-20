@@ -411,14 +411,16 @@ def main():  # noqa: C901
             if not isinstance(e, EXPECTED_EXCEPTIONS):
                 exc_info = sys.exc_info()
     finally:
-        if exc_info:
-            dump_crash_logs(args, run_state)
-            capture_crash(exc_info, run_state, args)
+        # Writes the trailer, so it runs before the crash dump: a log dumped without one
+        # is indistinguishable from a truncated one.
         print_exit_summary(
             run_state,
             args.filename,
             error_message=error_message,
         )
+        if exc_info:
+            dump_crash_logs(args, run_state)
+            capture_crash(exc_info, run_state, args)
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)
