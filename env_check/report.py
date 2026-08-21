@@ -59,7 +59,7 @@ def print_report(report: PreflightReport, verbose: bool = False) -> None:
 
     if not has_findings and not verbose:
         console.info(
-            f"✓ {HEADER}: {len(report.passed)} checks passed ({report.describe_composition()}).",
+            f"✓ {HEADER}: {len(report.results)} checks passed ({report.describe_composition()}).",
             color=SUCCESS_COLOR,
         )
         _print_skipped(report, verbose)
@@ -84,7 +84,8 @@ def print_report(report: PreflightReport, verbose: bool = False) -> None:
         _print_advisory(advisory)
 
     console.info(
-        f"\n  {len(report.passed)} passed ({report.describe_composition()}), "
+        f"\n  {len(report.results)} checks ran ({report.describe_composition()}) — "
+        f"{len(report.passed)} passed, "
         f"{len(blocking) + len(blocking_advisories)} blocking, "
         f"{len(warnings) + len(warning_advisories)} warnings.\n"
     )

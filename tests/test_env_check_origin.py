@@ -81,7 +81,7 @@ class TestOriginTagging:
 
         assert report.count_by_origin(ORIGIN_STATIC) == 1
         assert report.count_by_origin(ORIGIN_DYNAMIC) == 2
-        assert report.describe_composition() == "1 static and 2 dynamic"
+        assert report.describe_composition() == "1 static, 2 dynamic"
 
 
 class TestOriginInOutput:
@@ -93,7 +93,29 @@ class TestOriginInOutput:
 
         print_report(report)
 
-        assert "1 static and 0 dynamic" in capsys.readouterr().out
+        assert "1 static, 0 dynamic" in capsys.readouterr().out
+
+    def test_the_counts_add_up_when_a_check_fails(self, capsys):
+        """The origin split describes every check that ran, not just the ones that passed."""
+        passed = CheckSpec(
+            id="git", type="command_available", severity=SEVERITY_ERROR, description="git", origin=ORIGIN_STATIC
+        )
+        failed = CheckSpec(
+            id="svc",
+            type="tcp_service_reachable",
+            severity=SEVERITY_WARNING,
+            description="storage service",
+            origin=ORIGIN_DYNAMIC,
+        )
+        report = PreflightReport(
+            results=[CheckResult(passed, STATUS_PASSED, "found"), CheckResult(failed, STATUS_FAILED, "refused")]
+        )
+
+        print_report(report)
+        output = capsys.readouterr().out
+
+        assert "2 checks ran (1 static, 1 dynamic)" in output
+        assert "1 passed" in output
 
     def test_a_finding_says_which_kind_of_check_produced_it(self, capsys):
         check = CheckSpec(

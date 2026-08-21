@@ -123,5 +123,9 @@ class PreflightReport:
         return sum(1 for result in self.results if result.check.origin == origin)
 
     def describe_composition(self) -> str:
-        """Describe how many checks came from each origin, for the log."""
-        return f"{self.count_by_origin(ORIGIN_STATIC)} static and " f"{self.count_by_origin(ORIGIN_DYNAMIC)} dynamic"
+        """Describe how many of the checks that ran came from each origin.
+
+        This counts every result, passed or not, so it belongs next to the number
+        of checks that ran rather than the number that passed.
+        """
+        return f"{self.count_by_origin(ORIGIN_STATIC)} static, {self.count_by_origin(ORIGIN_DYNAMIC)} dynamic"

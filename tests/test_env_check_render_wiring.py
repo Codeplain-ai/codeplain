@@ -118,3 +118,38 @@ def test_render_module_checks_the_environment_before_doing_any_work(monkeypatch,
         renderer.render_module()
 
     assert rendered == []
+
+
+def test_an_unreachable_local_service_stops_the_render(monkeypatch):
+    """A service the tests depend on is a blocking finding, not a note to skim past.
+
+    The whole point of the preflight is that a render which cannot pass a single
+    test never starts. This mirrors a real plan: the test requirements name a
+    storage service on localhost:6001 that the tests do not mock, the service is
+    down, and the render must stop with the reason rather than spend its budget
+    failing every conformance test.
+    """
+    check = CheckSpec(
+        id="storage-service",
+        type="tcp_service_reachable",
+        severity=SEVERITY_ERROR,
+        description="Storage Service is reachable on port 6001",
+        args={"host": "localhost", "port": 6001},
+        reason="The test requirements say the tests talk to the storage service unmocked.",
+        remediation={"default": "Start the storage service on localhost:6001."},
+    )
+    report = PreflightReport(
+        results=[CheckResult(check, STATUS_FAILED, "localhost:6001 is not reachable ([Errno 61] Connection refused)")]
+    )
+
+    monkeypatch.setattr(module_renderer_module, "run_environment_preflight", lambda *a, **kw: report)
+    monkeypatch.setattr(module_renderer_module, "print_report", lambda *a, **kw: None)
+
+    event_bus = RecordingEventBus()
+    with pytest.raises(EnvironmentCheckFailed) as raised:
+        make_renderer(event_bus)._verify_environment()
+
+    message = str(raised.value)
+    assert "Storage Service is reachable on port 6001" in message
+    assert "Start the storage service on localhost:6001." in message
+    assert event_bus.published[-1].passed is False
