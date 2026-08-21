@@ -6,8 +6,6 @@ into a different one, which is exactly the case a fingerprint match misses - and
 that produces thrashing between two partial fixes.
 """
 
-import json
-
 import pytest
 
 from memory_management.record import (
@@ -28,7 +26,7 @@ from memory_management.retrieval import (
     revisited_failure_states,
     select_memory,
 )
-from memory_management.store import LOOP_SUMMARY_FILE_NAME, MemoryStore
+from memory_management.store import MEMORY_BLOCK_FILE_NAME, MemoryStore
 
 TESTING_MODULE = "backend"
 TESTING_FRID = "2.1"
@@ -292,16 +290,21 @@ def test_off_mode_returns_nothing_at_all():
 # --- what reaches the payload -----------------------------------------------------
 
 
-def test_the_payload_carries_the_summary_and_tags_every_record(tmp_path):
+def _record_in(store, record):
+    store.record_observation(
+        scope=record.scope,
+        failure=record.failure,
+        intervention=record.intervention,
+        exit_code_after=record.outcome.exit_code_after,
+        fingerprint_after=record.outcome.fingerprint_after,
+    )
+
+
+def test_the_payload_is_one_rendered_block(tmp_path):
+    """Memory is not cacheable in the prompt, so it travels rendered, not as documents."""
     store = MemoryStore(str(tmp_path / ".memory"))
     for record in [make_attempt(1, STATE_A, STATE_B), make_attempt(2, STATE_B, STATE_A)]:
-        store.record_observation(
-            scope=record.scope,
-            failure=record.failure,
-            intervention=record.intervention,
-            exit_code_after=record.outcome.exit_code_after,
-            fingerprint_after=record.outcome.fingerprint_after,
-        )
+        _record_in(store, record)
 
     memory_files = store.retrieve(
         testing_module=TESTING_MODULE,
@@ -311,56 +314,58 @@ def test_the_payload_carries_the_summary_and_tags_every_record(tmp_path):
         fix_attempts=2,
     )
 
-    assert LOOP_SUMMARY_FILE_NAME in memory_files
-    summary = json.loads(memory_files[LOOP_SUMMARY_FILE_NAME])
-    assert summary["kind"] == RECORD_KIND_FIX_LOOP_SUMMARY
-
-    observations = [json.loads(content) for name, content in memory_files.items() if name != LOOP_SUMMARY_FILE_NAME]
-    assert len(observations) == 2
-    assert all(entry["retrieval"]["loop_history"] is True for entry in observations)
-    assert sorted(entry["retrieval"]["attempt_position"] for entry in observations) == [1, 2]
+    assert list(memory_files) == [MEMORY_BLOCK_FILE_NAME]
 
 
-def test_associative_records_are_tagged_as_not_loop_history(tmp_path):
+def test_the_block_lists_every_attempt_in_order_with_its_outcome(tmp_path):
     store = MemoryStore(str(tmp_path / ".memory"))
-    elsewhere = make_attempt(1, STATE_A, STATE_B, testing_frid="9.9")
-    store.record_observation(
-        scope=elsewhere.scope,
-        failure=elsewhere.failure,
-        intervention=elsewhere.intervention,
-        exit_code_after=1,
-        fingerprint_after=STATE_B,
-    )
+    for record in [make_attempt(1, STATE_A, STATE_B), make_attempt(2, STATE_B, STATE_A)]:
+        _record_in(store, record)
 
-    memory_files = store.retrieve(
-        testing_module=TESTING_MODULE,
-        testing_frid=TESTING_FRID,
-        suite=SUITE,
-        fingerprint=STATE_A,
-        fix_attempts=3,
-    )
+    block = store.retrieve(
+        testing_module=TESTING_MODULE, testing_frid=TESTING_FRID, suite=SUITE, fingerprint=STATE_C, fix_attempts=2
+    )[MEMORY_BLOCK_FILE_NAME]
 
-    assert LOOP_SUMMARY_FILE_NAME not in memory_files
-    entry = json.loads(next(iter(memory_files.values())))
-    assert entry["retrieval"]["loop_history"] is False
-    assert "attempt_position" not in entry["retrieval"]
+    assert "Attempts already made against backend / functionality 2.1" in block
+    assert block.index("| 1 |") < block.index("| 2 |")
+    assert "A -> B" in block and "B -> A" in block
 
 
-def test_the_tag_is_never_written_to_disk(tmp_path):
-    """How a record was found is a property of the query, not of the observation."""
+def test_the_block_names_each_failure_state_once(tmp_path):
+    """The legend is the token saving: one description per state, not per record."""
     store = MemoryStore(str(tmp_path / ".memory"))
-    record = make_attempt(1, STATE_A, STATE_B)
-    store.record_observation(
-        scope=record.scope,
-        failure=record.failure,
-        intervention=record.intervention,
-        exit_code_after=1,
-        fingerprint_after=STATE_B,
-    )
-    store.retrieve(testing_module=TESTING_MODULE, testing_frid=TESTING_FRID, suite=SUITE, fingerprint=STATE_A)
+    for record in [make_attempt(1, STATE_A, STATE_A), make_attempt(2, STATE_A, STATE_A)]:
+        _record_in(store, record)
 
-    with open(str(tmp_path / ".memory" / record.file_name)) as memory_file:
-        stored = json.load(memory_file)
+    block = store.retrieve(
+        testing_module=TESTING_MODULE, testing_frid=TESTING_FRID, suite=SUITE, fingerprint=STATE_A, fix_attempts=2
+    )[MEMORY_BLOCK_FILE_NAME]
 
-    assert "kind" not in stored
-    assert "retrieval" not in stored
+    assert block.count(f"assert failure {STATE_A}") == 1
+
+
+def test_the_block_reports_an_observed_cycle(tmp_path):
+    store = MemoryStore(str(tmp_path / ".memory"))
+    for record in [make_attempt(1, STATE_A, STATE_B), make_attempt(2, STATE_B, STATE_A)]:
+        _record_in(store, record)
+
+    block = store.retrieve(
+        testing_module=TESTING_MODULE, testing_frid=TESTING_FRID, suite=SUITE, fingerprint=STATE_A, fix_attempts=2
+    )[MEMORY_BLOCK_FILE_NAME]
+
+    assert "cancelled each other out" in block
+
+
+def test_an_attempt_in_another_module_is_not_folded_into_this_loop(tmp_path):
+    """Same change, same failure, different module - a shared build problem, not one record."""
+    store = MemoryStore(str(tmp_path / ".memory"))
+    _record_in(store, make_attempt(1, STATE_A, STATE_A))
+    _record_in(store, make_attempt(1, STATE_A, STATE_A, testing_module="frontend"))
+
+    assert len(store.load_all()) == 2
+
+
+def test_nothing_retrieved_means_no_payload_at_all(tmp_path):
+    store = MemoryStore(str(tmp_path / ".memory"))
+
+    assert store.retrieve(testing_module=TESTING_MODULE, testing_frid=TESTING_FRID, suite=SUITE) == {}

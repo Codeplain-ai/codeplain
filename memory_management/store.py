@@ -11,27 +11,20 @@ from those observations.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from datetime import datetime, timezone
 from typing import Optional
 
-from memory_management.record import (
-    Failure,
-    Intervention,
-    MemoryRecord,
-    Scope,
-    Status,
-    build_record,
-    serialize_for_prompt,
-)
+from memory_management.record import Failure, Intervention, MemoryRecord, Scope, Status, build_record
+from memory_management.rendering import render
 from memory_management.retrieval import MemoryMode, select_memory
 from plain2code_console import console
 
-# The derived chain over the current fix loop travels in the same payload as the records,
-# under a name that reads as what it is.
-LOOP_SUMMARY_FILE_NAME = "fix-loop-summary.json"
+# The payload carries one rendered block rather than one entry per record. The name is part
+# of the client/server contract: the server recognises it and passes the block through
+# under its own explanatory preamble, instead of grouping records itself.
+MEMORY_BLOCK_FILE_NAME = "memory.md"
 
 
 class MemoryStore:
@@ -91,8 +84,10 @@ class MemoryStore:
         functionality, and ranked evidence from elsewhere in the render. The first is what
         narrows the search space, so it is always included in full; the second is budgeted.
 
-        Returns ``{file_name: JSON}`` - the same shape the API payload has always used, so
-        the wire contract is unchanged and only the content differs.
+        Returns ``{file_name: text}`` - the shape the API payload has always used, so the
+        wire contract is unchanged. The content is one rendered block: memory is not
+        cacheable in the prompt, so a record costs its full token price on every call, and
+        a table with one legend beats a JSON document per record by an order of magnitude.
         """
         if self.memory_mode is MemoryMode.OFF:
             return {}
@@ -110,21 +105,16 @@ class MemoryStore:
             mode=self.memory_mode,
         )
 
-        memory_files: dict[str, str] = {}
-        if result.loop_summary is not None:
-            memory_files[LOOP_SUMMARY_FILE_NAME] = json.dumps(result.loop_summary, indent=2, sort_keys=False) + "\n"
-        for position, record in enumerate(result.loop_history, start=1):
-            memory_files[record.file_name] = serialize_for_prompt(record, loop_history=True, attempt_position=position)
-        for record in result.associative:
-            memory_files[record.file_name] = serialize_for_prompt(record, loop_history=False)
+        block = render(result)
+        if not block:
+            return {}
 
-        if memory_files:
-            console.debug(
-                f"Retrieved {len(result.loop_history)} previous attempt(s) against this functionality "
-                f"and {len(result.associative)} related observation(s) from elsewhere in the render."
-            )
+        console.debug(
+            f"Retrieved {len(result.loop_history)} previous attempt(s) against this functionality "
+            f"and {len(result.associative)} related observation(s) from elsewhere in the render."
+        )
 
-        return memory_files
+        return {MEMORY_BLOCK_FILE_NAME: block}
 
     # --- writing ------------------------------------------------------------------
 

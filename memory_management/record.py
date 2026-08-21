@@ -18,9 +18,7 @@ from typing import Any, Optional
 
 SCHEMA_VERSION = 2
 
-# Emitted entries are tagged so a reader can tell an observation from the derived summary
-# of a fix loop. The tag is added at retrieval time and is never persisted.
-RECORD_KIND_OBSERVATION = "observation"
+# Tags the derived fix-loop summary, so a reader can tell it from an observation.
 RECORD_KIND_FIX_LOOP_SUMMARY = "fix_loop_summary"
 
 # Line-count thresholds for deriving attribution confidence. A small diff that flips a
@@ -147,6 +145,10 @@ class Scope:
     def __post_init__(self) -> None:
         self.test_name = short_test_name(self.test_name)
 
+    def loop_key(self) -> str:
+        """Identity of the fix loop: the functionality under repair on one test surface."""
+        return f"{self.suite}|{self.testing_module}|{self.testing_frid}"
+
 
 @dataclass
 class Failure:
@@ -221,9 +223,9 @@ class MemoryRecord:
     def file_name(self) -> str:
         return f"{self.memory_id}.json"
 
-    def dedup_key(self) -> tuple[str, str]:
+    def dedup_key(self) -> tuple[str, str, str]:
         """Records sharing this key describe the same attempt and are merged."""
-        return (self.failure.fingerprint or "", self.intervention.signature())
+        return (self.scope.loop_key(), self.failure.fingerprint or "", self.intervention.signature())
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, sort_keys=False) + "\n"
@@ -246,25 +248,6 @@ class MemoryRecord:
             occurrences=int(data.get("occurrences", 1)),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
         )
-
-
-def serialize_for_prompt(record: MemoryRecord, loop_history: bool, attempt_position: Optional[int] = None) -> str:
-    """Serialize a record for the prompt, tagged with how it was retrieved.
-
-    The tag lives only in the emitted copy - never on disk - because how a record was
-    found is a property of the query, not of the observation. ``loop_history`` marks the
-    records describing attempts already made against the functionality being fixed right
-    now; those are read as a chronology rather than as isolated evidence.
-    """
-    payload: dict[str, Any] = {
-        "kind": RECORD_KIND_OBSERVATION,
-        "retrieval": {"loop_history": loop_history},
-    }
-    if attempt_position is not None:
-        payload["retrieval"]["attempt_position"] = attempt_position
-    payload.update(asdict(record))
-
-    return json.dumps(payload, indent=2, sort_keys=False) + "\n"
 
 
 def _build_failure(data: dict[str, Any]) -> Failure:
@@ -314,16 +297,21 @@ def bound_diff(code_diff_files: dict[str, str]) -> Optional[str]:
     return joined
 
 
-def build_memory_id(suite: str, fingerprint: Optional[str], intervention: Intervention) -> str:
+def build_memory_id(scope: Scope, fingerprint: Optional[str], intervention: Intervention) -> str:
     """Build the record's identity from its dedup key.
 
-    The id deliberately encodes exactly what ``MemoryRecord.dedup_key`` compares - the
-    failure plus the intervention - and deliberately omits the attempt index. That makes
-    the on-disk file name the dedup key, so re-observing the same attempt updates one
-    record instead of accumulating near-duplicates.
+    The id encodes exactly what ``MemoryRecord.dedup_key`` compares - the fix loop, the
+    failure and the intervention - and deliberately omits the attempt index, so the on-disk
+    file name *is* the dedup key and re-observing one attempt updates a single record
+    instead of accumulating near-duplicates.
+
+    The loop must be part of it. Two modules fixed by editing the same file against the
+    same failure is not a hypothetical - it is the common case for a shared build problem -
+    and without the loop in the identity the second observation overwrites the first,
+    deleting an attempt from one module's history and relabelling it with the other's.
     """
-    intervention_hash = hashlib.sha256(intervention.signature().encode("utf-8")).hexdigest()[:6]
-    return f"{suite}-{fingerprint or 'none'}-{intervention_hash}"
+    attempt_hash = hashlib.sha256(f"{scope.loop_key()}|{intervention.signature()}".encode("utf-8")).hexdigest()[:8]
+    return f"{scope.suite}-{fingerprint or 'none'}-{attempt_hash}"
 
 
 def build_record(
@@ -340,7 +328,7 @@ def build_record(
     flags = [Flag.TEST_FILES_MODIFIED.value] if intervention.touched_test_files else []
 
     return MemoryRecord(
-        memory_id=build_memory_id(scope.suite, failure.fingerprint, intervention),
+        memory_id=build_memory_id(scope, failure.fingerprint, intervention),
         scope=scope,
         failure=failure,
         intervention=intervention,

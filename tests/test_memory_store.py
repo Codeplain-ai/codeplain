@@ -9,8 +9,8 @@ import os
 import pytest
 
 from memory_management.record import Failure, Intervention, InterventionTarget, Scope, Status, Suite, Transition
-from memory_management.retrieval import MemoryMode
-from memory_management.store import MemoryStore
+from memory_management.retrieval import MemoryMode, select_memory
+from memory_management.store import MEMORY_BLOCK_FILE_NAME, MemoryStore
 
 
 @pytest.fixture
@@ -152,13 +152,13 @@ def test_unreadable_files_are_skipped_not_fatal(store):
 # --- retrieval integration --------------------------------------------------------
 
 
-def test_retrieve_returns_payload_shaped_dict(store):
-    record = observe(store, exit_code_after=0, fingerprint_after=None)
+def test_retrieve_returns_one_rendered_block(store):
+    observe(store, exit_code_after=0, fingerprint_after=None)
 
     retrieved = store.retrieve(fingerprint="a3f19c02b1d4", fix_attempts=3)
 
-    assert list(retrieved) == [record.file_name]
-    assert '"status": "VERIFIED"' in retrieved[record.file_name]
+    assert list(retrieved) == [MEMORY_BLOCK_FILE_NAME]
+    assert "resolved" in retrieved[MEMORY_BLOCK_FILE_NAME]
 
 
 def test_retrieve_returns_nothing_on_the_first_pass(store):
@@ -212,9 +212,11 @@ def test_retrieval_prefers_the_suite_being_fixed(store):
         intervention=make_intervention(target=InterventionTarget.UNCLASSIFIED.value),
     )
 
-    retrieved = store.retrieve(fingerprint="a3f19c02b1d4", fix_attempts=5, suite=Suite.UNITTEST.value)
+    ranked = select_memory(
+        store.load_all(), fingerprint="a3f19c02b1d4", fix_attempts=5, suite=Suite.UNITTEST.value
+    ).associative
 
-    assert list(retrieved)[0].startswith("unittest-")
+    assert [record.scope.suite for record in ranked][0] == Suite.UNITTEST.value
 
 
 def test_unit_test_records_leave_the_file_split_undetermined(store):

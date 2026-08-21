@@ -3,7 +3,6 @@
 from memory_management.fingerprint import extract_causes, fingerprint_output, normalize_cause, normalize_output
 from memory_management.record import (
     RECORD_KIND_FIX_LOOP_SUMMARY,
-    RECORD_KIND_OBSERVATION,
     AttributionConfidence,
     Failure,
     Flag,
@@ -16,9 +15,9 @@ from memory_management.record import (
     Transition,
     bound_diff,
     build_record,
-    serialize_for_prompt,
     short_test_name,
 )
+from memory_management.rendering import render
 from memory_management.retrieval import (
     MemoryMode,
     RetrievalResult,
@@ -29,12 +28,11 @@ from memory_management.retrieval import (
     select_memory,
     select_records,
 )
-from memory_management.store import LOOP_SUMMARY_FILE_NAME, MemoryStore
+from memory_management.store import MEMORY_BLOCK_FILE_NAME, MemoryStore
 
 __all__ = [
-    "LOOP_SUMMARY_FILE_NAME",
+    "MEMORY_BLOCK_FILE_NAME",
     "RECORD_KIND_FIX_LOOP_SUMMARY",
-    "RECORD_KIND_OBSERVATION",
     "AttributionConfidence",
     "Failure",
     "Flag",
@@ -57,9 +55,9 @@ __all__ = [
     "normalize_cause",
     "normalize_output",
     "retrieval_depth",
+    "render",
     "revisited_failure_states",
     "select_memory",
     "select_records",
-    "serialize_for_prompt",
     "short_test_name",
 ]
