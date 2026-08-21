@@ -35,7 +35,9 @@ def make_context(store, fix_attempts=2, conformance_tests_exist=True):
         current_testing_module_name="frontend",
         current_testing_frid="1.4",
         current_conformance_tests_exist=lambda: conformance_tests_exist,
-        get_current_conformance_test_folder_name=lambda: "test_add_task",
+        # As the renderer supplies it: an absolute path on the author's machine.
+        get_current_conformance_test_folder_name=lambda: "/Users/dev/proj/plain_modules/api/tests/test_add_task",
+        code_diff_files={"pom.xml": "+ dependency"},
         fix_attempts=fix_attempts,
     )
     context.unit_tests_running_context = SimpleNamespace(
@@ -65,6 +67,22 @@ def test_the_unittest_query_identifies_the_functionality_being_implemented():
     assert query["testing_module"] == "backend"
     assert query["testing_frid"] == "2.3"
     assert query["suite"] == Suite.UNITTEST.value
+
+
+def test_the_test_name_is_reduced_to_something_machine_independent():
+    """An absolute path would put the author's home directory in every prompt."""
+    store = RecordingStore()
+    make_context(store).retrieve_memory_for_conformance_failure(FAILURE_OUTPUT)
+
+    assert store.calls[0]["test_name"] == "test_add_task"
+
+
+def test_the_previous_attempts_files_travel_with_the_conformance_query():
+    """Without this, a cross-loop match can only be lexical."""
+    store = RecordingStore()
+    make_context(store).retrieve_memory_for_conformance_failure(FAILURE_OUTPUT)
+
+    assert store.calls[0]["files_changed"] == ["pom.xml"]
 
 
 def test_the_failure_is_fingerprinted_before_it_is_queried_with():

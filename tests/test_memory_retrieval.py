@@ -8,7 +8,7 @@ and the mode filter can exclude whole status classes for benchmarking.
 import pytest
 
 from memory_management.record import Failure, Intervention, InterventionTarget, Scope, Status, Suite, build_record
-from memory_management.retrieval import MemoryMode, rank_records, retrieval_depth, select_records
+from memory_management.retrieval import MIN_LEXICAL_SCORE, MemoryMode, rank_records, retrieval_depth, select_records
 
 OBSERVED_AT = "2026-08-20T10:14:22Z"
 
@@ -267,3 +267,45 @@ def test_omitting_suite_leaves_ranking_suite_blind():
     ranked = rank_records([conformance_record, unittest_record], fingerprint=TARGET_FINGERPRINT)
 
     assert len(ranked) == 2
+
+
+# --- the lexical floor ------------------------------------------------------------
+
+
+def test_a_weak_lexical_resemblance_is_not_worth_retrieving():
+    """Two failures sharing only common words are not evidence about each other.
+
+    Every Spring context failure in a project shares hundreds of framework tokens, so a
+    low score means "same framework" far more often than it means "same problem" - and a
+    lexical-only match has no fact tying it to the current failure.
+    """
+    unrelated = make_record(
+        fingerprint=OTHER_FINGERPRINT,
+        cause="expected: <200> but was: <401>",
+        test_name="test_something_else",
+        files_changed=("code/src/unrelated.py",),
+    )
+
+    ranked = rank_records([unrelated], failure_text="LoggerFactory is not a Logback LoggerContext")
+
+    assert ranked == []
+
+
+def test_a_strong_lexical_match_is_still_retrieved():
+    same_problem = make_record(
+        fingerprint=OTHER_FINGERPRINT,
+        cause="LoggerFactory is not a Logback LoggerContext but Logback is on the classpath",
+        test_name="test_something_else",
+        files_changed=("code/src/unrelated.py",),
+    )
+
+    ranked = rank_records(
+        [same_problem],
+        failure_text="LoggerFactory is not a Logback LoggerContext but Logback is on the classpath",
+    )
+
+    assert [record.memory_id for record in ranked] == [same_problem.memory_id]
+
+
+def test_the_floor_is_above_a_single_shared_word():
+    assert MIN_LEXICAL_SCORE > 1.0

@@ -7,7 +7,7 @@ import git_utils
 import plain_spec
 from codeplain_REST_api import CodeplainAPI
 from event_bus import EventBus
-from memory_management import MemoryStore, Suite, fingerprint_output
+from memory_management import MemoryStore, Suite, fingerprint_output, short_test_name
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
@@ -136,10 +136,15 @@ class RenderContext:
             suite=Suite.CONFORMANCE.value,
             testing_module=running_context.current_testing_module_name if running_context else None,
             testing_frid=running_context.current_testing_frid if running_context else None,
-            test_name=(
+            test_name=short_test_name(
                 running_context.get_current_conformance_test_folder_name()
                 if running_context and running_context.current_conformance_tests_exist()
                 else None
+            ),
+            # The files the previous attempt touched, so an observation from elsewhere that
+            # changed the same files can be matched on more than a lexical resemblance.
+            files_changed=(
+                sorted(running_context.code_diff_files) if running_context and running_context.code_diff_files else None
             ),
             fix_attempts=running_context.fix_attempts if running_context else 0,
         )

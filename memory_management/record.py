@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Optional
@@ -117,6 +118,19 @@ def derive_attribution_confidence(lines_changed: int) -> AttributionConfidence:
     return AttributionConfidence.LOW
 
 
+def short_test_name(name: Optional[str]) -> Optional[str]:
+    """Reduce a test unit's name to something addressable and machine-independent.
+
+    A conformance test folder arrives as an absolute path, which would put the author's
+    home directory into every record and every prompt while adding nothing a reader or a
+    retrieval query can use. Both the write and the read path go through here so the two
+    cannot disagree about what a test is called.
+    """
+    if not name:
+        return None
+    return os.path.basename(str(name).rstrip("/\\")) or None
+
+
 @dataclass
 class Scope:
     """Where in the render the observation was made. The symbolic retrieval layer."""
@@ -129,6 +143,9 @@ class Scope:
     # The addressable test unit that ran: the conformance test folder for conformance
     # runs, the test package for unit tests.
     test_name: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        self.test_name = short_test_name(self.test_name)
 
 
 @dataclass

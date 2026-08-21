@@ -355,3 +355,14 @@ def test_new_records_declare_the_current_schema_version():
     )
 
     assert record.schema_version == SCHEMA_VERSION == 2
+
+
+def test_a_test_name_never_carries_a_filesystem_path():
+    """The renderer hands over an absolute path; a record must not keep one."""
+    scope = make_scope(test_name="/Users/dev/proj/plain_modules/api/tests/http_client_conformance_tests")
+
+    assert scope.test_name == "http_client_conformance_tests"
+
+
+def test_a_missing_test_name_stays_missing():
+    assert make_scope(test_name=None).test_name is None

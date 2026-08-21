@@ -65,6 +65,13 @@ _MAX_FILE_TALLY = 15
 
 _BM25_K1 = 1.5
 _BM25_B = 0.75
+
+# A lexical-only match has no fact tying it to the current failure - not the fingerprint,
+# not the test, not a file. Real output makes that dangerous: every Spring context failure
+# in a project shares hundreds of framework tokens, so a weak score means "same framework"
+# far more often than it means "same problem". Below this score a record is not worth the
+# tokens it costs.
+MIN_LEXICAL_SCORE = 2.5
 _TOKEN_PATTERN = re.compile(r"[a-z0-9_]+")
 
 
@@ -195,7 +202,7 @@ def rank_records(
         tier = _symbolic_tier(record, fingerprint, test_name, files_changed)
         lexical_score = lexical_scores.get(record.memory_id, 0.0)
         if tier is None:
-            if lexical_score <= 0.0:
+            if lexical_score < MIN_LEXICAL_SCORE:
                 continue
             # Lexical-only matches rank behind every symbolic match.
             tier = 4

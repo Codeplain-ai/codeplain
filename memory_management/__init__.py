@@ -17,6 +17,7 @@ from memory_management.record import (
     bound_diff,
     build_record,
     serialize_for_prompt,
+    short_test_name,
 )
 from memory_management.retrieval import (
     MemoryMode,
@@ -60,4 +61,5 @@ __all__ = [
     "select_memory",
     "select_records",
     "serialize_for_prompt",
+    "short_test_name",
 ]
