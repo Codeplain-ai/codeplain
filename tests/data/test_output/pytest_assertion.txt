@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+collected 12 items
+
+tests/test_tasks.py ..F                                                  [ 25%]
+
+=================================== FAILURES ===================================
+___________________ test_add_task_rejects_empty_content ________________________
+
+    def test_add_task_rejects_empty_content():
+        store = TaskStore()
+>       assert store.add("") is None
+E       AssertionError: assert <Task id=4> is None
+E        +  where <Task id=4> = <bound method TaskStore.add of <TaskStore>>('')
+
+tests/test_tasks.py:41: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_tasks.py::test_add_task_rejects_empty_content - AssertionError: assert <Task id=4> is None
+========================= 1 failed, 11 passed in 0.84s =========================

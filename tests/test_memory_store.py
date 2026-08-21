@@ -31,8 +31,8 @@ def make_scope(**overrides):
     return Scope(**defaults)
 
 
-def make_failure(fingerprint="a3f19c02b1d4", signature="assert <N> == <N>"):
-    return Failure(fingerprint=fingerprint, signature=signature, excerpt=signature, exit_code=1)
+def make_failure(fingerprint="a3f19c02b1d4", cause="assert 500 == 400"):
+    return Failure(fingerprint=fingerprint, causes=[cause], exit_code=1)
 
 
 def make_intervention(**overrides):

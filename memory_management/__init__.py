@@ -1,6 +1,6 @@
 """Evidential memory: an objective log of failure -> intervention -> outcome observations."""
 
-from memory_management.fingerprint import fingerprint_output, normalize_output
+from memory_management.fingerprint import extract_causes, fingerprint_output, normalize_cause, normalize_output
 from memory_management.record import (
     RECORD_KIND_FIX_LOOP_SUMMARY,
     RECORD_KIND_OBSERVATION,
@@ -14,6 +14,7 @@ from memory_management.record import (
     Status,
     Suite,
     Transition,
+    bound_diff,
     build_record,
     serialize_for_prompt,
 )
@@ -46,10 +47,13 @@ __all__ = [
     "Status",
     "Suite",
     "Transition",
+    "bound_diff",
     "build_record",
     "failure_state_sequence",
+    "extract_causes",
     "fingerprint_output",
     "is_loop_history",
+    "normalize_cause",
     "normalize_output",
     "retrieval_depth",
     "revisited_failure_states",

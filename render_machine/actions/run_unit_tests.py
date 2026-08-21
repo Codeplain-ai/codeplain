@@ -68,8 +68,8 @@ class RunUnitTests(BaseAction):
         pending = running_context.pending_intervention
         running_context.pending_intervention = None
 
-        fingerprint_before, signature_before, excerpt_before = fingerprint_output(pending.failure_output)
-        fingerprint_after, _, _ = fingerprint_output(unittests_issue if exit_code != 0 else None)
+        fingerprint_before, causes_before = fingerprint_output(pending.failure_output)
+        fingerprint_after, _ = fingerprint_output(unittests_issue if exit_code != 0 else None)
 
         render_context.memory_store.record_observation(
             scope=Scope(
@@ -81,15 +81,16 @@ class RunUnitTests(BaseAction):
             ),
             failure=Failure(
                 fingerprint=fingerprint_before,
-                signature=signature_before,
-                excerpt=excerpt_before,
+                causes=causes_before,
                 exit_code=1,
+                output_path=pending.failure_output_path,
             ),
             intervention=Intervention(
                 attempt_index=pending.attempt_index,
                 target=pending.target,
                 files_changed=sorted(pending.files_changed),
                 lines_changed=pending.lines_changed,
+                diff=pending.diff,
             ),
             exit_code_after=exit_code,
             fingerprint_after=fingerprint_after,

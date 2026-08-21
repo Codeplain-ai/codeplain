@@ -99,8 +99,8 @@ class RunConformanceTests(BaseAction):
         # When the run under observation is not the one the intervention targeted, there
         # was no failure here to compare against, so a failure now is a regression.
         target_output = pending.failure_output if aimed_at_this_test else None
-        fingerprint_before, signature_before, excerpt_before = fingerprint_output(target_output)
-        fingerprint_after, _, _ = fingerprint_output(conformance_tests_issue if exit_code != 0 else None)
+        fingerprint_before, causes_before = fingerprint_output(target_output)
+        fingerprint_after, _ = fingerprint_output(conformance_tests_issue if exit_code != 0 else None)
 
         render_context.memory_store.record_observation(
             scope=Scope(
@@ -113,15 +113,16 @@ class RunConformanceTests(BaseAction):
             ),
             failure=Failure(
                 fingerprint=fingerprint_before,
-                signature=signature_before,
-                excerpt=excerpt_before,
+                causes=causes_before,
                 exit_code=1,
+                output_path=pending.failure_output_path if aimed_at_this_test else None,
             ),
             intervention=Intervention(
                 attempt_index=pending.attempt_index,
                 target=pending.target,
                 files_changed=sorted(pending.files_changed),
                 lines_changed=pending.lines_changed,
+                diff=pending.diff,
                 touched_implementation=pending.touched_implementation,
                 touched_test_files=pending.touched_test_files,
             ),

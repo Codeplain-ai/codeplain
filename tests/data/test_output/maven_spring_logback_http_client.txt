@@ -1,0 +1,24 @@
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.codeplain.dynamics365.HttpClientConformanceTest
+[ERROR] Tests run: 6, Failures: 0, Errors: 6, Skipped: 0, Time elapsed: 1.238 s <<< FAILURE! -- in com.codeplain.dynamics365.HttpClientConformanceTest
+java.lang.IllegalStateException: Failed to load ApplicationContext for [WebMergedContextConfiguration@4d9e68d0 testClass = com.codeplain.dynamics365.HttpClientConformanceTest, locations = [], classes = [com.codeplain.dynamics365.Application], contextInitializerClasses = [], activeProfiles = [], propertySourceDescriptors = [], propertySourceProperties = ["org.springframework.boot.test.context.SpringBootTestContextBootstrapper=true"], contextCustomizers = [org.springframework.boot.test.context.filter.ExcludeFilterContextCustomizer@6b8ca3c8, org.springframework.boot.test.json.DuplicateJsonObjectContextCustomizerFactory$DuplicateJsonObjectContextCustomizer@6ea2bc93, org.springframework.boot.test.mock.mockito.MockitoContextCustomizer@0, org.springframework.boot.test.web.client.TestRestTemplateContextCustomizer@27ddd392, org.springframework.boot.test.autoconfigure.actuate.observability.ObservabilityContextCustomizerFactory$DisableObservabilityContextCustomizer@1f, org.springframework.boot.test.autoconfigure.properties.PropertyMappingContextCustomizer@0, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverContextCustomizer@2f7c7260, org.springframework.boot.test.context.SpringBootTestAnnotation@f9a5ac6f], resourceBasePath = "src/main/webapp", contextLoader = org.springframework.boot.test.context.SpringBootContextLoader, parent = null]
+	at org.springframework.test.context.cache.DefaultCacheAwareContextLoaderDelegate.loadContext(DefaultCacheAwareContextLoaderDelegate.java:180)
+Caused by: java.lang.IllegalArgumentException: LoggerFactory is not a Logback LoggerContext but Logback is on the classpath. Either remove Logback or the competing implementation (class org.slf4j.helpers.NOPLoggerFactory loaded from file:/Users/vitjan/.m2/repository/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar). If you are using WebLogic you will need to add 'org.slf4j' to prefer-application-packages in WEB-INF/weblogic.xml: org.slf4j.helpers.NOPLoggerFactory
+	at org.springframework.util.Assert.instanceCheckFailed(Assert.java:702)
+	at org.springframework.util.Assert.isInstanceOf(Assert.java:606)
+[INFO]
+[ERROR] Tests run: 6, Failures: 0, Errors: 6, Skipped: 0
+[INFO]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time: 12.402 s
+[INFO] Finished at: 2026-08-21T07:34:31+02:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project dynamics365-conformance:
+[ERROR]
+[ERROR] Please refer to surefire-reports for the individual test results.
+[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]

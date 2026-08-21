@@ -9,6 +9,8 @@ import json
 import pytest
 
 from memory_management.record import (
+    MAX_DIFF_LINES,
+    SCHEMA_VERSION,
     AttributionConfidence,
     Failure,
     Flag,
@@ -19,6 +21,7 @@ from memory_management.record import (
     Status,
     Suite,
     Transition,
+    bound_diff,
     build_record,
     derive_attribution_confidence,
     derive_status,
@@ -42,12 +45,7 @@ def make_scope(**overrides):
 
 
 def make_failure(fingerprint="a3f19c02b1d4"):
-    return Failure(
-        fingerprint=fingerprint,
-        signature="assert <N> == <N>",
-        excerpt="assert <N> == <N>",
-        exit_code=1,
-    )
+    return Failure(fingerprint=fingerprint, causes=["assert 500 == 400"], exit_code=1)
 
 
 def make_intervention(**overrides):
@@ -266,3 +264,94 @@ def test_stored_json_is_human_readable():
     assert raw.startswith("{\n")
     assert raw.endswith("\n")
     assert '"status": "VERIFIED"' in raw
+
+
+# --- the failure description ------------------------------------------------------
+
+
+def test_causes_read_as_one_document_for_scoring_and_display():
+    failure = Failure(fingerprint="abc123abc123", causes=["expected: <200> but was: <401>", "and a second cause"])
+
+    assert failure.text == "expected: <200> but was: <401>\nand a second cause"
+
+
+def test_a_failure_with_no_causes_has_empty_text():
+    assert Failure(fingerprint=None).text == ""
+
+
+# --- the bounded diff -------------------------------------------------------------
+
+
+def test_the_diff_is_labelled_per_file_and_ordered():
+    diff = bound_diff({"src/b.py": "+ second", "src/a.py": "+ first"})
+
+    assert diff.index("--- src/a.py") < diff.index("--- src/b.py")
+
+
+def test_no_change_means_no_diff():
+    assert bound_diff({}) is None
+
+
+def test_an_oversized_diff_says_how_much_was_left_out():
+    """Truncation has to be visible, or a large change reads as a small one."""
+    diff = bound_diff({"src/a.py": "\n".join(f"+ line {index}" for index in range(MAX_DIFF_LINES + 20))})
+
+    assert "further diff line(s) not recorded" in diff
+    assert len(diff.splitlines()) == MAX_DIFF_LINES + 1
+
+
+def test_the_diff_is_carried_on_the_record():
+    record = build_record(
+        scope=make_scope(),
+        failure=make_failure(),
+        intervention=make_intervention(diff="--- src/a.py\n+ one line"),
+        exit_code_after=0,
+        fingerprint_after=None,
+        observed_at=OBSERVED_AT,
+    )
+
+    assert MemoryRecord.from_json(record.to_json()).intervention.diff == "--- src/a.py\n+ one line"
+
+
+# --- reading an older store -------------------------------------------------------
+
+
+def test_a_schema_1_record_keeps_its_failure_description():
+    """A partial render can hand a store written before the upgrade. Nothing is emptied."""
+    legacy = json.dumps(
+        {
+            "schema_version": 1,
+            "memory_id": "conformance-aaa-01",
+            "scope": {"module": "backend", "frid": "2.3", "testing_module": "backend", "testing_frid": "2.1"},
+            "failure": {
+                "fingerprint": "aaaaaaaaaaaa",
+                "signature": "assert <N> == <N>\nsecond signature line",
+                "excerpt": "a long slice of runner output",
+                "exit_code": 1,
+            },
+            "intervention": {"attempt_index": 1, "target": "IMPLEMENTATION"},
+            "outcome": {"exit_code_after": 1, "fingerprint_after": "aaaaaaaaaaaa", "transition": "UNCHANGED"},
+            "status": "REFUTED",
+            "attribution_confidence": "HIGH",
+            "observed_at": OBSERVED_AT,
+        }
+    )
+
+    record = MemoryRecord.from_json(legacy)
+
+    assert record.failure.causes == ["assert <N> == <N>", "second signature line"]
+    assert record.failure.fingerprint == "aaaaaaaaaaaa"
+    assert record.intervention.diff is None
+
+
+def test_new_records_declare_the_current_schema_version():
+    record = build_record(
+        scope=make_scope(),
+        failure=make_failure(),
+        intervention=make_intervention(),
+        exit_code_after=1,
+        fingerprint_after="a3f19c02b1d4",
+        observed_at=OBSERVED_AT,
+    )
+
+    assert record.schema_version == SCHEMA_VERSION == 2

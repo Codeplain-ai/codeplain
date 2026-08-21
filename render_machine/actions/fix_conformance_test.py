@@ -3,7 +3,7 @@ from typing import Any
 import diff_utils
 import file_utils
 import plain_spec
-from memory_management import InterventionTarget
+from memory_management import InterventionTarget, bound_diff
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
@@ -216,7 +216,9 @@ class FixConformanceTest(BaseAction):
             lines_changed=sum(len(diff.splitlines()) for diff in code_diff_files.values()),
             touched_implementation=target is InterventionTarget.IMPLEMENTATION,
             touched_test_files=target is InterventionTarget.CONFORMANCE_TESTS,
+            diff=bound_diff(code_diff_files),
             failure_output=failure_output,
+            failure_output_path=render_context.script_execution_history.latest_conformance_test_output_path,
             failure_testing_frid=running_context.current_testing_frid,
             failure_testing_module=running_context.current_testing_module_name,
         )

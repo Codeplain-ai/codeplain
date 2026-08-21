@@ -1,0 +1,12 @@
+ FAIL  src/__tests__/tasks.test.ts
+  ● TaskList › renders every task
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 3
+    Received length: 2
+    Received array:  [{"id": 1}, {"id": 2}]
+
+      at Object.<anonymous> (src/__tests__/tasks.test.ts:28:31)
+
+Tests:       1 failed, 7 passed, 8 total

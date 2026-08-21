@@ -1,0 +1,7 @@
+=== RUN   TestParseConfig
+--- FAIL: TestParseConfig (0.00s)
+    config_test.go:52: parseConfig() timeout = 0s, want 30s
+=== RUN   TestParseConfigMissingFile
+--- PASS: TestParseConfigMissingFile (0.00s)
+FAIL
+FAIL	github.com/example/svc/internal/config	0.212s

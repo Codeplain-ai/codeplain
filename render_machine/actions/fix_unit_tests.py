@@ -3,7 +3,7 @@ from typing import Any
 import diff_utils
 import file_utils
 import render_machine.render_utils as render_utils
-from memory_management import InterventionTarget
+from memory_management import InterventionTarget, bound_diff
 from plain2code_console import console
 from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
@@ -80,5 +80,7 @@ class FixUnitTests(BaseAction):
             target=InterventionTarget.UNCLASSIFIED.value,
             files_changed=sorted(code_diff_files.keys()),
             lines_changed=sum(len(diff.splitlines()) for diff in code_diff_files.values()),
+            diff=bound_diff(code_diff_files),
             failure_output=failure_output,
+            failure_output_path=render_context.script_execution_history.latest_unit_test_output_path,
         )

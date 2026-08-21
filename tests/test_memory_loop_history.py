@@ -60,12 +60,7 @@ def make_attempt(
             suite=suite,
             test_name="test_add_task_rejects_empty_content",
         ),
-        failure=Failure(
-            fingerprint=fingerprint_before,
-            signature=f"assert failure {fingerprint_before}",
-            excerpt=f"assert failure {fingerprint_before}",
-            exit_code=1,
-        ),
+        failure=Failure(fingerprint=fingerprint_before, causes=[f"assert failure {fingerprint_before}"], exit_code=1),
         intervention=Intervention(
             attempt_index=attempt_index,
             target=InterventionTarget.IMPLEMENTATION.value,
@@ -124,7 +119,7 @@ def test_previous_attempts_survive_a_changed_failure():
         suite=SUITE,
         # The failure currently on screen is a third state neither attempt was applied to.
         fingerprint=STATE_C,
-        signature="assert failure cccccccccccc",
+        failure_text="assert failure cccccccccccc",
         fix_attempts=2,
     )
 

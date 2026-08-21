@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Emitted entries are tagged so a reader can tell an observation from the derived summary
 # of a fix loop. The tag is added at retrieval time and is never persisted.
@@ -27,6 +27,12 @@ RECORD_KIND_FIX_LOOP_SUMMARY = "fix_loop_summary"
 # is weak evidence for any particular part of it.
 HIGH_CONFIDENCE_MAX_LINES = 10
 MEDIUM_CONFIDENCE_MAX_LINES = 50
+
+# Bounds on the stored diff. Generous enough for a real fix, small enough that a record
+# stays a record. A change larger than this attributes its outcome weakly anyway, so the
+# marginal value of the remaining lines is low.
+MAX_DIFF_LINES = 60
+MAX_DIFF_CHARS = 4000
 
 
 class Suite(str, Enum):
@@ -127,12 +133,23 @@ class Scope:
 
 @dataclass
 class Failure:
-    """The failure that was observed before the intervention was applied."""
+    """The failure that was observed before the intervention was applied.
+
+    Described by its cause lines rather than by a slice of the runner's output. The full
+    output is not carried: for the failure being fixed right now it is already in the
+    prompt verbatim, and for any other failure a short cause is all a reader needs to tell
+    the two apart. ``output_path`` points at the run log for auditing, and is never sent.
+    """
 
     fingerprint: Optional[str]
-    signature: str
-    excerpt: str
-    exit_code: int
+    causes: list[str] = field(default_factory=list)
+    exit_code: int = 1
+    output_path: Optional[str] = None
+
+    @property
+    def text(self) -> str:
+        """The cause lines as one document, for lexical scoring and for display."""
+        return "\n".join(self.causes)
 
 
 @dataclass
@@ -146,6 +163,11 @@ class Intervention:
     # ``None`` means not determined, which is different from a determined ``False``.
     touched_implementation: Optional[bool] = None
     touched_test_files: Optional[bool] = None
+    # The diff itself, bounded. Within the current fix loop it is largely redundant - the
+    # change is in the code the reader can see - but for an observation from elsewhere in
+    # the render it is the whole payload: "pom.xml, 36 lines, resolved it" names a file
+    # without saying what to write in it.
+    diff: Optional[str] = None
 
     def signature(self) -> str:
         """Stable identity of this intervention, used to deduplicate records."""
@@ -196,7 +218,7 @@ class MemoryRecord:
         return cls(
             memory_id=data["memory_id"],
             scope=_build(Scope, data.get("scope", {})),
-            failure=_build(Failure, data.get("failure", {})),
+            failure=_build_failure(data.get("failure", {})),
             intervention=_build(Intervention, data.get("intervention", {})),
             outcome=_build(Outcome, data.get("outcome", {})),
             status=data["status"],
@@ -228,10 +250,51 @@ def serialize_for_prompt(record: MemoryRecord, loop_history: bool, attempt_posit
     return json.dumps(payload, indent=2, sort_keys=False) + "\n"
 
 
+def _build_failure(data: dict[str, Any]) -> Failure:
+    """Build a failure, upgrading a schema-1 record rather than emptying it.
+
+    Schema 1 described a failure with a ``signature`` and an ``excerpt``. A store can
+    outlive the upgrade across a partial render, so the signature's lines become the cause
+    lines instead of being dropped on the floor.
+    """
+    causes = list(data.get("causes") or [])
+    if not causes and data.get("signature"):
+        causes = [line for line in str(data["signature"]).splitlines() if line.strip()]
+
+    return Failure(
+        fingerprint=data.get("fingerprint"),
+        causes=causes,
+        exit_code=int(data.get("exit_code", 1)),
+        output_path=data.get("output_path"),
+    )
+
+
 def _build(dataclass_type: Any, data: dict[str, Any]) -> Any:
     """Instantiate a dataclass from a dict, dropping keys the dataclass does not declare."""
     known_fields = {f.name for f in dataclass_type.__dataclass_fields__.values()}
     return dataclass_type(**{key: value for key, value in data.items() if key in known_fields})
+
+
+def bound_diff(code_diff_files: dict[str, str]) -> Optional[str]:
+    """Join the per-file diffs into one bounded block.
+
+    Truncation is reported rather than silent: a reader has to be able to tell a complete
+    diff from a partial one, otherwise a change looks smaller than it was.
+    """
+    if not code_diff_files:
+        return None
+
+    blocks = [f"--- {file_name}\n{diff.strip()}" for file_name, diff in sorted(code_diff_files.items())]
+    joined = "\n".join(blocks)
+
+    lines = joined.splitlines()
+    if len(lines) > MAX_DIFF_LINES:
+        omitted = len(lines) - MAX_DIFF_LINES
+        joined = "\n".join(lines[:MAX_DIFF_LINES]) + f"\n... {omitted} further diff line(s) not recorded"
+    if len(joined) > MAX_DIFF_CHARS:
+        joined = joined[:MAX_DIFF_CHARS].rstrip() + "\n... diff truncated"
+
+    return joined
 
 
 def build_memory_id(suite: str, fingerprint: Optional[str], intervention: Intervention) -> str:

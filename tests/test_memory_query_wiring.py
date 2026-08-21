@@ -73,7 +73,7 @@ def test_the_failure_is_fingerprinted_before_it_is_queried_with():
 
     query = store.calls[0]
     assert query["fingerprint"]
-    assert query["signature"]
+    assert query["failure_text"]
 
 
 def test_the_attempt_count_travels_with_the_query():

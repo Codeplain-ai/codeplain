@@ -18,7 +18,7 @@ OTHER_FINGERPRINT = "bbbbbbbbbbbb"
 
 def make_record(
     fingerprint=TARGET_FINGERPRINT,
-    signature="assert <N> == <N> in add task validation",
+    cause="assert 500 == 400 in add task validation",
     test_name="test_add_task_rejects_empty_content",
     files_changed=("code/src/tasks.py",),
     resolved=False,
@@ -34,7 +34,7 @@ def make_record(
             suite=suite,
             test_name=test_name,
         ),
-        failure=Failure(fingerprint=fingerprint, signature=signature, excerpt=signature, exit_code=1),
+        failure=Failure(fingerprint=fingerprint, causes=[cause], exit_code=1),
         intervention=Intervention(
             attempt_index=1,
             target=InterventionTarget.IMPLEMENTATION.value,
@@ -126,13 +126,13 @@ def test_lexical_match_surfaces_a_near_miss_failure():
     """A different fingerprint and a different test, but a recognisably similar failure."""
     near_miss = make_record(
         fingerprint=OTHER_FINGERPRINT,
-        signature="assert <N> == <N> in add task validation",
+        cause="assert <N> == <N> in add task validation",
         test_name="test_something_else",
         files_changed=("code/src/unrelated.py",),
     )
     unrelated = make_record(
         fingerprint="cccccccccccc",
-        signature="ConnectionRefusedError while reaching the payment gateway",
+        cause="ConnectionRefusedError while reaching the payment gateway",
         test_name="test_payments",
         files_changed=("code/src/payments.py",),
     )
@@ -140,7 +140,7 @@ def test_lexical_match_surfaces_a_near_miss_failure():
     ranked = rank_records(
         [unrelated, near_miss],
         fingerprint=TARGET_FINGERPRINT,
-        signature="assert <N> == <N> in add task validation",
+        failure_text="assert <N> == <N> in add task validation",
     )
 
     assert ranked
@@ -160,12 +160,12 @@ def test_repeated_observations_break_ties():
 def test_records_matching_nothing_are_not_returned():
     unrelated = make_record(
         fingerprint=OTHER_FINGERPRINT,
-        signature="ConnectionRefusedError while reaching the payment gateway",
+        cause="ConnectionRefusedError while reaching the payment gateway",
         test_name="test_payments",
         files_changed=("code/src/payments.py",),
     )
 
-    ranked = rank_records([unrelated], fingerprint=TARGET_FINGERPRINT, signature="assert <N> == <N>")
+    ranked = rank_records([unrelated], fingerprint=TARGET_FINGERPRINT, failure_text="assert <N> == <N>")
 
     assert ranked == []
 

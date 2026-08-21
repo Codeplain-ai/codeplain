@@ -17,7 +17,7 @@ indexing idea without the cost of embeddings:
 * the **symbolic** view matches on recorded facts - same failure fingerprint, same test,
   overlapping files - and is the strongest signal for test failures, because an identical
   fingerprint is an exact match rather than a similarity guess
-* the **lexical** view scores normalized failure signatures with BM25, which is what
+* the **lexical** view scores the failure cause lines with BM25, which is what
   surfaces near-miss failures the symbolic view cannot see
 
 Retrieval depth for the associative axis adapts to how stuck the render is. Unlike a
@@ -117,12 +117,12 @@ def _tokenize(text: str) -> list[str]:
 
 
 def _bm25_scores(query: str, records: list[MemoryRecord]) -> dict[str, float]:
-    """Score records against the query signature. Corpus is one render, so this is cheap."""
+    """Score records against the current failure's causes. One render, so this is cheap."""
     query_tokens = _tokenize(query)
     if not query_tokens or not records:
         return {}
 
-    documents = {record.memory_id: _tokenize(record.failure.signature) for record in records}
+    documents = {record.memory_id: _tokenize(record.failure.text) for record in records}
     lengths = [len(tokens) for tokens in documents.values()]
     average_length = sum(lengths) / len(lengths) if lengths else 0.0
     if average_length == 0.0:
@@ -178,7 +178,7 @@ def rank_records(
     fingerprint: Optional[str] = None,
     test_name: Optional[str] = None,
     files_changed: Optional[Iterable[str]] = None,
-    signature: Optional[str] = None,
+    failure_text: Optional[str] = None,
     mode: MemoryMode = MemoryMode.ALL,
     suite: Optional[str] = None,
 ) -> list[MemoryRecord]:
@@ -188,7 +188,7 @@ def rank_records(
     if not candidates:
         return []
 
-    lexical_scores = _bm25_scores(signature, candidates) if signature else {}
+    lexical_scores = _bm25_scores(failure_text, candidates) if failure_text else {}
 
     scored: list[tuple[int, float, int, str, MemoryRecord]] = []
     for record in candidates:
@@ -215,7 +215,7 @@ def select_records(
     fingerprint: Optional[str] = None,
     test_name: Optional[str] = None,
     files_changed: Optional[Iterable[str]] = None,
-    signature: Optional[str] = None,
+    failure_text: Optional[str] = None,
     mode: MemoryMode = MemoryMode.ALL,
     suite: Optional[str] = None,
 ) -> list[MemoryRecord]:
@@ -228,7 +228,7 @@ def select_records(
         fingerprint=fingerprint,
         test_name=test_name,
         files_changed=files_changed,
-        signature=signature,
+        failure_text=failure_text,
         mode=mode,
         suite=suite,
     )
@@ -362,7 +362,7 @@ def select_memory(
     fingerprint: Optional[str] = None,
     test_name: Optional[str] = None,
     files_changed: Optional[Iterable[str]] = None,
-    signature: Optional[str] = None,
+    failure_text: Optional[str] = None,
     fix_attempts: int = 0,
     mode: MemoryMode = MemoryMode.ALL,
 ) -> RetrievalResult:
@@ -404,7 +404,7 @@ def select_memory(
         fingerprint=fingerprint,
         test_name=test_name,
         files_changed=files_changed,
-        signature=signature,
+        failure_text=failure_text,
         mode=mode,
         suite=suite,
     )

@@ -1,11 +1,38 @@
-"""Fingerprint stability tests.
+"""Tests for cause extraction and failure identity.
 
-The whole evidential memory system keys off these fingerprints, so the properties that
-matter are: the same failure collapses to one fingerprint despite run-to-run noise, and
-genuinely different failures do not collide.
+The whole memory system keys off these fingerprints, so three properties matter:
+
+* the same failure collapses to one fingerprint despite run-to-run noise
+* genuinely different failures do not collide - including failures that differ only in a
+  value, like an HTTP status code
+* the extracted cause is the line that says what went wrong, not the wrapper around it or
+  the runner's exit commentary
+
+The fixtures under ``tests/data/test_output`` are reconstructions of real output from a
+Java/Maven render. The two Spring fixtures reproduce the exact fingerprints that render
+produced, which is what makes them a regression test rather than an illustration.
 """
 
-from memory_management.fingerprint import compute_fingerprint, extract_signature, fingerprint_output, normalize_output
+import os
+
+import pytest
+
+from memory_management.fingerprint import (
+    CAUSE_MAX_CHARS,
+    FINGERPRINT_LENGTH,
+    compute_fingerprint,
+    extract_causes,
+    fingerprint_output,
+    normalize_cause,
+)
+
+FIXTURE_FOLDER = os.path.join(os.path.dirname(__file__), "data", "test_output")
+
+
+def read_fixture(name):
+    with open(os.path.join(FIXTURE_FOLDER, f"{name}.txt")) as fixture:
+        return fixture.read()
+
 
 PYTEST_FAILURE_RUN_1 = """
 ============================= test session starts ==============================
@@ -129,16 +156,24 @@ def _fingerprint(raw):
     return fingerprint_output(raw)[0]
 
 
-def test_same_pytest_failure_is_stable_across_runs():
-    assert _fingerprint(PYTEST_FAILURE_RUN_1) == _fingerprint(PYTEST_FAILURE_RUN_2)
+def _causes(raw):
+    return fingerprint_output(raw)[1]
 
 
-def test_same_surefire_failure_is_stable_across_runs():
-    assert _fingerprint(SUREFIRE_FAILURE_RUN_1) == _fingerprint(SUREFIRE_FAILURE_RUN_2)
+# --- stability across runs --------------------------------------------------------
 
 
-def test_same_jest_failure_is_stable_across_runs():
-    assert _fingerprint(JEST_FAILURE_RUN_1) == _fingerprint(JEST_FAILURE_RUN_2)
+@pytest.mark.parametrize(
+    "first,second",
+    [
+        (PYTEST_FAILURE_RUN_1, PYTEST_FAILURE_RUN_2),
+        (SUREFIRE_FAILURE_RUN_1, SUREFIRE_FAILURE_RUN_2),
+        (JEST_FAILURE_RUN_1, JEST_FAILURE_RUN_2),
+    ],
+)
+def test_the_same_failure_is_stable_across_runs(first, second):
+    """Different build folders, line numbers, timings and test counts, one identity."""
+    assert _fingerprint(first) == _fingerprint(second)
 
 
 def test_different_failures_do_not_collide():
@@ -151,60 +186,138 @@ def test_failures_from_different_runners_do_not_collide():
         _fingerprint(SUREFIRE_FAILURE_RUN_1),
         _fingerprint(JEST_FAILURE_RUN_1),
     }
+
     assert len(fingerprints) == 3
 
 
-def test_passing_or_empty_output_has_no_fingerprint():
-    for raw in (None, "", "   \n  \n"):
-        fingerprint, signature, excerpt = fingerprint_output(raw)
-        assert fingerprint is None
-        assert signature == ""
-        assert excerpt == ""
-
-
-def test_normalization_removes_run_varying_tokens():
-    raw = (
-        "2026-08-20T10:14:22Z ERROR at /private/tmp/build_ab12/code/src/tasks.py:47 "
-        "object 0x7f9c1a2b3c4d uuid 3f2504e0-4f89-11d3-9a0c-0305e82c3301 took 1.25s"
-    )
-    normalized = normalize_output(raw)
-
-    assert "<TS>" in normalized
-    assert "<ADDR>" in normalized
-    assert "<UUID>" in normalized
-    assert "<DUR>" in normalized
-    # The path collapses to its basename: the file name is signal, the prefix is not.
-    assert "tasks.py" in normalized
-    assert "/private/tmp" not in normalized
-    assert "build_ab12" not in normalized
-
-
-def test_signature_prefers_failure_lines_over_runner_chatter():
-    signature = extract_signature(normalize_output(PYTEST_FAILURE_RUN_1))
-
-    assert signature
-    assert "session starts" not in signature
-    assert any("assert" in line.lower() for line in signature.splitlines())
-
-
-def test_signature_falls_back_to_tail_when_no_marker_matches():
-    unrecognised = "step one done\nstep two done\nsomething odd happened at the end"
-    signature = extract_signature(normalize_output(unrecognised))
-
-    assert "something odd happened at the end" in signature
+def test_passing_or_empty_output_has_no_identity():
+    for output in [None, "", "   \n\n", "All tests passed."]:
+        fingerprint, causes = fingerprint_output(output)
+        if output in (None, "", "   \n\n"):
+            assert (fingerprint, causes) == (None, [])
 
 
 def test_fingerprint_is_deterministic_and_short():
-    signature = "AssertionError: expected <N> got <N>"
-    first = compute_fingerprint(signature)
+    first = _fingerprint(PYTEST_FAILURE_RUN_1)
 
-    assert first == compute_fingerprint(signature)
-    assert first is not None
-    assert len(first) == 12
+    assert first == _fingerprint(PYTEST_FAILURE_RUN_1)
+    assert len(first) == FINGERPRINT_LENGTH
 
 
-def test_excerpt_is_bounded():
-    raw = "AssertionError: boom\n" + ("noise line here\n" * 5000)
-    _, _, excerpt = fingerprint_output(raw)
+# --- the regression case from a real render ---------------------------------------
 
-    assert len(excerpt) <= 1500 + len("...\n")
+
+def test_one_root_cause_gives_one_identity_across_test_classes():
+    """The case that broke: two modules, same slf4j/Logback conflict, two fingerprints.
+
+    The Spring wrapper embeds `testClass = ...` in a 1500-character configuration dump, so
+    including it made an identical failure look different in every test class.
+    """
+    http_client = read_fixture("maven_spring_logback_http_client")
+    version_api = read_fixture("maven_spring_logback_version_api")
+
+    assert _fingerprint(http_client) == _fingerprint(version_api)
+
+
+def test_the_innermost_cause_is_what_gets_extracted():
+    causes = _causes(read_fixture("maven_spring_logback_http_client"))
+
+    assert causes == ["LoggerFactory is not a Logback LoggerContext but Logback is on the classpath"]
+
+
+def test_a_value_difference_is_a_different_failure():
+    """`expected 200 but was 401` and `... but was 500` are not the same bug."""
+    unauthorized = read_fixture("junit_status_401")
+    server_error = read_fixture("junit_status_500")
+
+    assert _fingerprint(unauthorized) != _fingerprint(server_error)
+    assert _causes(unauthorized) == ["expected: <200> but was: <401>"]
+    assert _causes(server_error) == ["expected: <200> but was: <500>"]
+
+
+def test_a_compile_error_is_found_rather_than_the_build_banner():
+    """`[ERROR]` is not `Error`; a case-sensitive marker used to miss this entirely."""
+    causes = _causes(read_fixture("javac_compile_error"))
+
+    assert causes == ["D365HttpClient.java:[87,23] cannot find symbol"]
+
+
+def test_a_go_failure_keeps_the_values_that_distinguish_it():
+    assert _causes(read_fixture("go_test_failure")) == ["parseConfig() timeout = 0s, want 30s"]
+
+
+def test_a_pytest_failure_uses_the_short_summary_line():
+    assert _causes(read_fixture("pytest_assertion")) == ["AssertionError: assert <Task id=4> is None"]
+
+
+def test_a_jest_failure_keeps_the_expectation_and_both_sides():
+    causes = _causes(read_fixture("jest_assertion"))
+
+    assert "expect(received).toHaveLength(expected)" in causes
+    assert "Expected length: 3" in causes
+    assert "Received length: 2" in causes
+
+
+# --- what is excluded from candidacy ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "\tat org.springframework.util.Assert.isInstanceOf(Assert.java:606)",
+        "[ERROR] Tests run: 6, Failures: 0, Errors: 6, Skipped: 0",
+        "[INFO] BUILD FAILURE",
+        "[INFO] Total time:  12.402 s",
+        "[ERROR] Please refer to surefire-reports for the individual test results.",
+        "[ERROR] -> [Help 1]",
+        "========================= 1 failed, 11 passed in 0.84s =========================",
+    ],
+)
+def test_runner_chatter_is_never_a_cause(line):
+    """Each of these outranked the real cause in the previous implementation."""
+    output = f"{line}\nCaused by: java.lang.IllegalStateException: the actual problem"
+
+    assert extract_causes(output) == ["the actual problem"]
+
+
+def test_output_with_no_recognizable_failure_still_yields_something():
+    """Degrades to true-but-unhelpful, never to empty and never to invented."""
+    causes = extract_causes("some unstructured tool wrote this\nand then gave up")
+
+    assert causes
+    assert all(cause for cause in causes)
+
+
+# --- cause normalization ----------------------------------------------------------
+
+
+def test_volatile_tokens_are_removed_from_a_cause():
+    cause = normalize_cause(
+        "Caused by: java.io.IOException: cannot read /Users/dev/proj/build_a1/data.csv "
+        "at 2026-08-21T07:34:31 (handle@4d9e68d0)"
+    )
+
+    assert "/Users/dev" not in cause
+    assert "data.csv" in cause
+    assert "<TS>" in cause
+    assert "@<HASH>" in cause
+
+
+def test_a_long_cause_is_cut_at_a_sentence_boundary():
+    cause = normalize_cause(
+        "java.lang.IllegalArgumentException: The real problem is stated first. "
+        + "Then follows a great deal of advice that nobody needs. " * 6
+    )
+
+    assert cause == "The real problem is stated first"
+
+
+def test_a_long_cause_without_sentences_is_truncated_and_marked():
+    cause = normalize_cause("x" * (CAUSE_MAX_CHARS * 2))
+
+    assert cause.endswith("...")
+    assert len(cause) <= CAUSE_MAX_CHARS + 3
+
+
+def test_no_causes_means_no_fingerprint():
+    assert compute_fingerprint([]) is None

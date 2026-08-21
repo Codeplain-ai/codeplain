@@ -1,0 +1,7 @@
+[INFO] Running com.codeplain.dynamics365.HttpClientConformanceTest
+[ERROR] com.codeplain.dynamics365.HttpClientConformanceTest.shouldReturnVersion -- Time elapsed: 0.412 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: expected: <200> but was: <500>
+	at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
+	at com.codeplain.dynamics365.HttpClientConformanceTest.shouldReturnVersion(HttpClientConformanceTest.java:71)
+[ERROR] Tests run: 6, Failures: 1, Errors: 0, Skipped: 0
+[INFO] BUILD FAILURE

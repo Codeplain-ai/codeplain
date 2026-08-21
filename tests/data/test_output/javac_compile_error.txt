@@ -1,0 +1,5 @@
+[INFO] Compiling 14 source files to /Users/vitjan/proj/target/classes
+[ERROR] /Users/vitjan/proj/src/main/java/com/codeplain/D365HttpClient.java:[87,23] cannot find symbol
+[ERROR]   symbol:   method withRetry(int)
+[ERROR]   location: class com.codeplain.D365HttpClient
+[INFO] BUILD FAILURE

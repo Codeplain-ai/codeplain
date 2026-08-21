@@ -184,7 +184,7 @@ class RenderContext:
         if failure_output is None:
             return {}
 
-        fingerprint, signature, _ = fingerprint_output(failure_output)
+        fingerprint, causes = fingerprint_output(failure_output)
 
         return self.memory_store.retrieve(
             testing_module=testing_module,
@@ -192,7 +192,7 @@ class RenderContext:
             fingerprint=fingerprint,
             test_name=test_name,
             files_changed=files_changed,
-            signature=signature,
+            failure_text="\n".join(causes),
             fix_attempts=fix_attempts,
             suite=suite,
         )

@@ -20,8 +20,12 @@ class PendingIntervention:
     lines_changed: int = 0
     touched_implementation: bool = False
     touched_test_files: bool = False
+    # The change itself, bounded. What makes an observation from elsewhere in the render
+    # actionable rather than a signpost to a file.
+    diff: Optional[str] = None
     # The failure this intervention was aimed at, so the outcome can be compared to it.
     failure_output: Optional[str] = None
+    failure_output_path: Optional[str] = None
     failure_testing_frid: Optional[str] = None
     failure_testing_module: Optional[str] = None
 

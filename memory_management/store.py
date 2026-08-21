@@ -81,7 +81,7 @@ class MemoryStore:
         fingerprint: Optional[str] = None,
         test_name: Optional[str] = None,
         files_changed: Optional[list[str]] = None,
-        signature: Optional[str] = None,
+        failure_text: Optional[str] = None,
         fix_attempts: int = 0,
         suite: Optional[str] = None,
     ) -> dict[str, str]:
@@ -105,7 +105,7 @@ class MemoryStore:
             fingerprint=fingerprint,
             test_name=test_name,
             files_changed=files_changed,
-            signature=signature,
+            failure_text=failure_text,
             fix_attempts=fix_attempts,
             mode=self.memory_mode,
         )
