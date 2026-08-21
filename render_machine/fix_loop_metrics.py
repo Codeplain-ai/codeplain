@@ -60,6 +60,10 @@ class _LoopCounters:
     max_repeat: int = 1
     last_fingerprint: Optional[str] = None
     current_repeat: int = 0
+    # Failures since the last pass, whether or not they look alike. A loop can fail every
+    # attempt while the failure keeps changing, which a streak counter cannot detect at
+    # any threshold.
+    consecutive_failures: int = 0
 
 
 @dataclass
@@ -83,9 +87,11 @@ class FixLoopMetrics:
         if passed:
             counters.last_fingerprint = None
             counters.current_repeat = 0
+            counters.consecutive_failures = 0
             return None
 
         counters.failures += 1
+        counters.consecutive_failures += 1
         fingerprint = failure_fingerprint(output)
         if fingerprint == counters.last_fingerprint:
             counters.current_repeat += 1
@@ -95,6 +101,50 @@ class FixLoopMetrics:
         counters.last_fingerprint = fingerprint
         counters.current_repeat = 1
         return None
+
+    def start_over(self, loop: str, module: str, frid: Optional[str]) -> None:
+        """Clears the stall counters, keeping the cumulative ones.
+
+        Called when the loop is given different work - a regenerated conformance test -
+        rather than another patch against the same one. The stall evidence describes a
+        test that no longer exists. Keeping it means the replacement's first failure lands
+        on a counter already over the threshold, so the replacement is discarded after one
+        attempt and the regeneration budget is spent without any replacement being tried.
+
+        Cumulative counts survive: they answer a different question, how much work the
+        functionality took, and reporting is indexed on them.
+        """
+        counters = self._counters_for(loop, module, frid)
+        if counters is None:
+            return
+        counters.consecutive_failures = 0
+        counters.current_repeat = 0
+        counters.last_fingerprint = None
+
+    def current_streak(self, loop: str, module: str, frid: Optional[str]) -> int:
+        """How many times in a row this loop has just failed the same way.
+
+        `record` returns the streak as it happens, which is enough to warn but not to
+        decide: the fix action runs after the test action and needs to ask the question
+        again, from its own call site. A missing frid answers zero rather than raising,
+        because nothing was recorded under one either — `report_fix_loop_attempt` skips
+        those runs.
+        """
+        counters = self._counters_for(loop, module, frid)
+        return counters.current_repeat if counters else 0
+
+    def consecutive_failures(self, loop: str, module: str, frid: Optional[str]) -> int:
+        """How many times in a row this loop has failed, regardless of how it failed."""
+        counters = self._counters_for(loop, module, frid)
+        return counters.consecutive_failures if counters else 0
+
+    def _counters_for(self, loop: str, module: str, frid: Optional[str]) -> Optional[_LoopCounters]:
+        if frid is None:
+            return None  # nothing is recorded without one — report_fix_loop_attempt skips those runs
+        counters = self._counters.get((module, str(frid)))
+        if not counters or loop not in counters:
+            return None
+        return counters[loop]
 
     def frid_summary(self, module: str, frid: str) -> Optional[str]:
         """One greppable line per FRID, or None if no script ran for it."""
@@ -137,6 +187,51 @@ class FixLoopMetrics:
 # when a patch legitimately addresses something else first; by three the loop is
 # re-patching against a failure it is not moving.
 REPEATED_FAILURE_WARNING_THRESHOLD = 3
+
+# How many failures in a row - alike or not - before the loop is called stalled anyway.
+# A repeated failure proves futility quickly, but a loop can also fail every attempt while
+# the failure keeps changing, which no streak threshold detects. Set above the highest
+# failure count seen on a functionality that then recovered, so a loop that is slow but
+# converging is not cut short.
+CONSECUTIVE_FAILURE_THRESHOLD = 6
+
+# Marks the point where a loop stops patching and does something else. Greppable on
+# purpose, like the other machine-read markers.
+STRATEGY_SWITCH_PREFIX = "[strategy-switch]"
+
+
+# Which loops treat a run of failures - as opposed to a run of *identical* failures - as
+# evidence of a stall. Conformance only.
+#
+# On the conformance side it catches a loop that fails every attempt while the failure
+# keeps changing, which the streak signal cannot see.
+#
+# On the unit side it produced false positives. A run of differing failures in the unit
+# loop is usually the loop working through issues one at a time, and the unit remedy is to
+# restart the functionality from scratch, discarding that progress. The threshold was also
+# calibrated on conformance recoveries, with no unit-loop equivalent to calibrate against.
+#
+# Both loops keep the streak signal, where a healthy loop does not repeat a failure.
+LOOPS_JUDGED_ON_CONSECUTIVE_FAILURES = (CONFORMANCE_LOOP,)
+
+
+def stalled_reason(metrics: "FixLoopMetrics", loop: str, module: str, frid: Optional[str]) -> Optional[str]:
+    """Why this loop looks stalled, or None if it still looks like it is working.
+
+    The repeated-failure signal applies to both loops: a loop re-submitting the same fix
+    is stalled whichever loop it is. The consecutive-failure signal applies only where
+    failing every attempt has been shown to mean stalled rather than busy.
+    """
+    streak = metrics.current_streak(loop, module, frid)
+    if streak >= REPEATED_FAILURE_WARNING_THRESHOLD:
+        return f"repeated_failure streak={streak}"
+
+    if loop in LOOPS_JUDGED_ON_CONSECUTIVE_FAILURES:
+        failures = metrics.consecutive_failures(loop, module, frid)
+        if failures >= CONSECUTIVE_FAILURE_THRESHOLD:
+            return f"no_progress consecutive_failures={failures}"
+
+    return None
 
 
 def report_fix_loop_attempt(render_context, loop: str, frid: Optional[str], passed: bool, output: str) -> None:

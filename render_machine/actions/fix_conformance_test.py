@@ -7,12 +7,36 @@ from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
 from render_machine.actions.base_action import BaseAction
+from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, STRATEGY_SWITCH_PREFIX, stalled_reason
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
-from render_machine.render_types import FIX_LOOP_EXHAUSTED_HINT, RenderError, TestExecutionPhase
+from render_machine.render_types import (
+    FIX_LOOP_EXHAUSTED_HINT,
+    AcceptanceTestPhase,
+    RenderError,
+    TestExecutionPhase,
+)
 
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
-MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
+
+# How many times one functionality may have its conformance test regenerated before the
+# loop falls back to patching until the attempt limit. The budget is per functionality —
+# `ConformanceTestsRunningContext` is rebuilt for each one — so this is not a per-render
+# allowance.
+#
+# One is not enough. The attempt limit below is only reachable once this budget is spent,
+# so with a budget of one a functionality needing a second regeneration is abandoned
+# instead: one regeneration, then twenty patches that change nothing, then failure.
+# Renders that completed used one regeneration on each of several functionalities; renders
+# that did not reached a functionality that needed two. Regeneration discards a test the
+# loop has already shown it cannot satisfy, so stopping at the first one gives up exactly
+# where the move is working.
+#
+# Three rather than more: each regeneration resets `fix_attempts`, so the worst case for
+# an unfixable functionality is four rounds of patching instead of two, and that cost
+# falls on renders that were going to fail anyway. Raise it further only on evidence that
+# a fourth regeneration helps.
+MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 3
 
 
 class FixConformanceTest(BaseAction):
@@ -25,6 +49,56 @@ class FixConformanceTest(BaseAction):
     ISSUE_REASON_CODE_IMPLEMENTATION_CODE = 1
     ISSUE_REASON_CODE_CONFLICTING_REQUIREMENTS = 2
     ISSUE_REASON_CODE_CONFLICTING_ACCEPTANCE_TESTS = 3
+
+    @staticmethod
+    def _should_regenerate_instead_of_patching(render_context: RenderContext) -> bool:
+        """Whether the loop has proven that patching the implementation is not working.
+
+        Two kinds of stall, both seen on real renders: a failure that repeats identically,
+        meaning the last patches changed nothing the test can observe; and a loop that
+        fails every attempt while the failures keep changing, which no streak threshold
+        detects. `stalled_reason` covers both.
+
+        Regenerating the conformance test is a different move: it discards the test the
+        loop cannot satisfy instead of editing code against it again. That path already
+        exists for the attempt limit; this reaches it as soon as there is evidence rather
+        than after twenty patches.
+        """
+        ctx = render_context.conformance_tests_running_context
+
+        # Bounded by the same re-render budget as the attempt-limit path, so the switch
+        # cannot cycle: once it is spent, the loop patches until the limit and stops.
+        if ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS:
+            return False
+
+        # Only a test this module owns, outside the incremental acceptance phase.
+        # Regeneration renders the replacement for the current module, so a required
+        # module's test returns under the wrong prefix and an acceptance phase left
+        # mid-flight looks up an entry that is gone.
+        if ctx.current_testing_module_name != render_context.module_name:
+            return False
+        if ctx.acceptance_test_phase is not AcceptanceTestPhase.NOT_STARTED:
+            return False
+
+        reason = stalled_reason(
+            render_context.fix_loop_metrics,
+            CONFORMANCE_LOOP,
+            module=render_context.module_name,
+            frid=ctx.current_testing_frid,
+        )
+        if reason is None:
+            return False
+
+        console.warning(
+            f"{STRATEGY_SWITCH_PREFIX} module={render_context.module_name} "
+            f"frid={ctx.current_testing_frid} loop={CONFORMANCE_LOOP} {reason} "
+            f"action=regenerate_conformance_tests"
+        )
+        console.info(
+            f"Patching the implementation has not made the conformance tests for functionality "
+            f"{ctx.current_testing_frid} pass ({reason}). Regenerating those tests instead."
+        )
+        return True
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
         ctx = render_context.conformance_tests_running_context
@@ -50,6 +124,10 @@ class FixConformanceTest(BaseAction):
             else:
                 ctx.regenerating_conformance_tests = True
                 return self.REGENERATE_CONFORMANCE_TESTS_OUTCOME, None
+
+        if self._should_regenerate_instead_of_patching(render_context):
+            ctx.regenerating_conformance_tests = True
+            return self.REGENERATE_CONFORMANCE_TESTS_OUTCOME, None
 
         console.info(f"Running conformance tests attempt {ctx.fix_attempts + 1}.")
 

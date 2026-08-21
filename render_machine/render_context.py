@@ -13,7 +13,13 @@ from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
-from render_machine.fix_loop_metrics import FixLoopMetrics
+from render_machine.fix_loop_metrics import (
+    CONFORMANCE_LOOP,
+    STRATEGY_SWITCH_PREFIX,
+    UNIT_LOOP,
+    FixLoopMetrics,
+    stalled_reason,
+)
 from render_machine.render_types import (
     AcceptanceTestPhase,
     ConformanceTestsRunningContext,
@@ -281,9 +287,43 @@ class RenderContext:
         self.unit_tests_running_context.fix_attempts = 1
 
     def start_fixing_unit_tests(self, on_limit_exceeded: Callable):
+        def restart() -> None:
+            """Hands the functionality back for a fresh attempt, and forgets the stall.
+
+            The restart discards the code the streak was measured against. Left standing,
+            the fresh attempt's first failure is already past the threshold and restarts
+            again before the fix loop gets one attempt. Cumulative counts survive.
+            """
+            self.fix_loop_metrics.start_over(
+                UNIT_LOOP,
+                module=self.module_name,
+                frid=self.frid_context.frid if self.frid_context else None,
+            )
+            on_limit_exceeded()
+
         self.unit_tests_running_context.fix_attempts += 1
         if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
-            on_limit_exceeded()
+            restart()
+            return
+
+        # A stalled unit loop gets the same answer as one that ran out of attempts, just
+        # sooner. Only the repeated-failure signal is used here: a healthy unit loop does
+        # not repeat the same failure, so a short streak is a reliable indicator, and the
+        # remedy - restarting the functionality from scratch - is too destructive to
+        # trigger on the weaker signal.
+        reason = stalled_reason(
+            self.fix_loop_metrics,
+            UNIT_LOOP,
+            module=self.module_name,
+            frid=self.frid_context.frid if self.frid_context else None,
+        )
+        if reason is not None:
+            console.warning(
+                f"{STRATEGY_SWITCH_PREFIX} module={self.module_name} "
+                f"frid={self.frid_context.frid if self.frid_context else None} loop={UNIT_LOOP} "
+                f"{reason} action=give_up_on_patching"
+            )
+            restart()
 
     def _on_unit_test_limit_exceeded_in_implementation(self):
         self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
@@ -407,6 +447,10 @@ class RenderContext:
         ctx.conformance_tests_render_attempts += 1
         ctx.fix_attempts = 0
         ctx.regenerating_conformance_tests = False
+        # The stall that triggered this was measured against the test just deleted. Left
+        # standing, it condemns the replacement on its first failure and the whole
+        # regeneration budget is spent in seconds on tests that never got a second look.
+        self.fix_loop_metrics.start_over(CONFORMANCE_LOOP, module=self.module_name, frid=ctx.current_testing_frid)
 
     def _handle_retry_after_code_change(self):
         """Re-run the test that failed and triggered a code change."""

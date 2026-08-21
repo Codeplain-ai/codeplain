@@ -14,7 +14,14 @@ failures, since both mistakes destroy the signal in opposite directions.
 
 import pytest
 
-from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, UNIT_LOOP, FixLoopMetrics, failure_fingerprint
+from render_machine.fix_loop_metrics import (
+    CONFORMANCE_LOOP,
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    UNIT_LOOP,
+    FixLoopMetrics,
+    failure_fingerprint,
+    stalled_reason,
+)
 
 
 def test_the_same_failure_fingerprints_the_same():
@@ -128,6 +135,42 @@ def test_each_loop_reports_its_own_streak():
     assert "max_repeat=7" in summary  # the aggregate stays, for continuity of the series
 
 
+def test_the_current_streak_is_readable_after_the_fact():
+    """The fix action runs after the test action and has to ask again, from its own call
+    site, rather than relying on what record() returned to someone else."""
+    metrics = FixLoopMetrics()
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="same")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 3
+
+
+def test_the_current_streak_resets_when_the_failure_changes():
+    metrics = FixLoopMetrics()
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="same")
+    metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="different")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 1
+
+
+def test_the_current_streak_clears_when_the_loop_passes():
+    metrics = FixLoopMetrics()
+    for _ in range(3):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=False, output="same")
+    metrics.record(CONFORMANCE_LOOP, module="m", frid="1", passed=True, output="")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 0
+
+
+def test_an_unrun_loop_has_no_streak():
+    metrics = FixLoopMetrics()
+    metrics.record(UNIT_LOOP, module="m", frid="1", passed=False, output="boom")
+
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "1") == 0
+    assert metrics.current_streak(CONFORMANCE_LOOP, "m", "9") == 0
+
+
 def test_an_unseen_frid_has_no_summary():
     assert FixLoopMetrics().frid_summary("m", "9") is None
 
@@ -178,3 +221,36 @@ def test_a_frid_reports_its_summary_only_once():
     assert metrics.take_frid_summary("m", "1") is not None
     assert metrics.take_frid_summary("m", "1") is None
     assert metrics.render_summary() == []
+
+
+def test_a_regenerated_test_is_not_condemned_by_the_old_test_s_stall():
+    """Regeneration hands the loop a different test. If the stall measured against the
+    deleted one survives, the replacement is discarded on its first failure."""
+    metrics = FixLoopMetrics()
+    for _ in range(CONSECUTIVE_FAILURE_THRESHOLD):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="2", passed=False, output="always different %s")
+
+    assert stalled_reason(metrics, CONFORMANCE_LOOP, module="m", frid="2") is not None
+
+    metrics.start_over(CONFORMANCE_LOOP, module="m", frid="2")
+
+    assert stalled_reason(metrics, CONFORMANCE_LOOP, module="m", frid="2") is None
+
+    # One failure of the replacement must not re-trigger the switch on its own.
+    metrics.record(CONFORMANCE_LOOP, module="m", frid="2", passed=False, output="a new failure")
+
+    assert stalled_reason(metrics, CONFORMANCE_LOOP, module="m", frid="2") is None
+
+
+def test_starting_over_keeps_the_work_already_counted():
+    """The cumulative counts answer a different question, so a reset must not erase them."""
+    metrics = FixLoopMetrics()
+    for _ in range(4):
+        metrics.record(CONFORMANCE_LOOP, module="m", frid="2", passed=False, output="identical")
+
+    metrics.start_over(CONFORMANCE_LOOP, module="m", frid="2")
+    summary = metrics.frid_summary("m", "2")
+
+    assert "conformance=4" in summary
+    assert "conformance_failed=4" in summary
+    assert "conformance_max_repeat=4" in summary
