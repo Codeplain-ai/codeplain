@@ -18,7 +18,7 @@ dependencies = [
     "python-liquid2==0.4.0",
     "mistletoe==1.6.0",
     "requests==2.34.2",
-    "tiktoken==0.13.0",
+    "tiktoken==0.14.0",
     "PyYAML==6.0.3",
     "gitpython==3.1.55",
     "transitions==0.9.3",
