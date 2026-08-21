@@ -7,15 +7,17 @@ These tests build real ``PlainModule`` instances from fixtures in
 
 import json
 import os
+import shutil
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from change_detection import determine_partial_render_start
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
-from plain2code_exceptions import ModuleDoesNotExistError
+from plain2code_exceptions import InvalidModuleArchiveError, ModuleDoesNotExistError
 from plain_modules import MODULE_METADATA_FILENAME, PlainModule
 
 # --------------------------------------------------------------------------
@@ -360,6 +362,270 @@ def test_wipe_module_removes_whole_module_folder(solo_module):
     os.makedirs(solo_module.module_conformance_tests_folder)
     solo_module.wipe_module()
     assert not os.path.exists(solo_module.module_folder)
+
+
+# --------------------------------------------------------------------------
+# Zipped modules (<module>.module archives)
+# --------------------------------------------------------------------------
+
+
+def _init_repo_with_finished_frid(repo_path: str, module_name: str, frid: str) -> None:
+    """Init a git repo at ``repo_path`` and commit a FUNCTIONAL_REQUIREMENT_FINISHED checkpoint."""
+    os.makedirs(repo_path, exist_ok=True)
+    init_git_repo(repo_path, module_name=module_name)
+    marker = Path(repo_path) / f"frid_{frid}.txt"
+    marker.write_text(f"frid {frid}\n")
+    add_all_files_and_commit(
+        repo_path,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(frid),
+        module_name=module_name,
+        frid=frid,
+    )
+
+
+def _setup_full_module(module: PlainModule, frid: str = "1") -> None:
+    """Create a realistic on-disk module: code/ and tests/ git repos plus metadata."""
+    _init_repo_with_finished_frid(module.module_build_folder, module.module_name, frid)
+    _init_repo_with_finished_frid(module.module_conformance_tests_folder, module.module_name, frid)
+    _write_metadata(module, {"source_hash": "seed", "functionalities": ["fr1"]})
+
+
+def _zip_module_flat(module_folder: str, archive_path: str) -> None:
+    """Zip the *contents* of ``module_folder`` (code/, tests/, .codeplain/ at the archive
+    root, including .git) into ``archive_path``."""
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _dirs, files in os.walk(module_folder):
+            for name in files:
+                full = os.path.join(root, name)
+                zf.write(full, os.path.relpath(full, module_folder))
+
+
+def _archive_module(module: PlainModule) -> str:
+    """Turn an on-disk module into an archive-only module: zip it, then remove the folder."""
+    archive_path = module.module_archive_path
+    _zip_module_flat(module.module_folder, archive_path)
+    shutil.rmtree(module.module_folder)
+    return archive_path
+
+
+def test_folder_takes_precedence_over_archive(solo_module):
+    """When both the folder and the archive exist, the folder is used and the archive untouched."""
+    _setup_full_module(solo_module)
+    # Create a stray archive alongside the real folder.
+    with zipfile.ZipFile(solo_module.module_archive_path, "w") as zf:
+        zf.writestr("code/marker.txt", "x")
+
+    default = solo_module._default_module_folder
+    solo_module.materialize()
+
+    assert solo_module.module_folder == default
+    assert solo_module.module_build_folder == os.path.join(default, "code")
+    assert os.path.isfile(solo_module.module_archive_path)  # untouched
+
+
+def test_materialize_resolves_paths_to_scratch(solo_module):
+    _setup_full_module(solo_module)
+    default = solo_module._default_module_folder
+    _archive_module(solo_module)
+
+    assert solo_module.is_archived_only()
+    solo_module.materialize()
+
+    # Paths now resolve into a scratch extraction, not the real (absent) folder.
+    assert solo_module.module_folder != default
+    assert not os.path.exists(default)  # real folder NOT created
+    assert os.path.isfile(solo_module.module_archive_path)  # archive preserved
+    assert os.path.isdir(os.path.join(solo_module.module_build_folder, ".git"))
+    assert os.path.isdir(os.path.join(solo_module.module_conformance_tests_folder, ".git"))
+    # Git-backed reads work against the scratch tree.
+    name, frid = solo_module.get_module_render_status()
+    assert name == solo_module.module_name
+    assert frid == "1"
+
+    solo_module.cleanup_scratch()
+    assert solo_module.module_folder == default  # resolution reset
+
+
+def test_get_repo_none_before_materialize_and_present_after(solo_module):
+    """Guards the skip-detection bug: an archive-only module reads as "no repo" until materialized,
+    so the orchestrator's `get_repo() is not None` check only passes after materialize()."""
+    _setup_full_module(solo_module)
+    _archive_module(solo_module)
+
+    assert solo_module.get_repo() is None  # would wrongly force a re-render if consumed as-is
+    solo_module.materialize()
+    assert solo_module.get_repo() is not None  # now recognised as already rendered
+
+    solo_module.cleanup_scratch()
+
+
+def test_materialize_is_idempotent(solo_module):
+    _setup_full_module(solo_module)
+    _archive_module(solo_module)
+    solo_module.materialize()
+    first = solo_module.module_folder
+    solo_module.materialize()
+    assert solo_module.module_folder == first
+    solo_module.cleanup_scratch()
+
+
+def test_ensure_module_unpacked_from_archive(solo_module):
+    _setup_full_module(solo_module)
+    default = solo_module._default_module_folder
+    _archive_module(solo_module)
+
+    solo_module.ensure_module_unpacked()
+
+    assert solo_module.module_folder == default
+    assert os.path.isdir(os.path.join(default, "code", ".git"))
+    assert os.path.isdir(os.path.join(default, "tests", ".git"))
+    assert not os.path.exists(solo_module.module_archive_path)  # archive removed
+    # Idempotent: a second call is a no-op.
+    solo_module.ensure_module_unpacked()
+    assert os.path.isdir(default)
+
+
+def test_ensure_module_unpacked_after_materialize(solo_module):
+    """materialize() then ensure_module_unpacked() lands content in the real folder."""
+    _setup_full_module(solo_module)
+    default = solo_module._default_module_folder
+    _archive_module(solo_module)
+
+    solo_module.materialize()
+    solo_module.ensure_module_unpacked()
+
+    assert solo_module.module_folder == default
+    assert os.path.isdir(os.path.join(default, "code", ".git"))
+    assert not os.path.exists(solo_module.module_archive_path)
+
+
+def test_ensure_module_unpacked_noop_when_folder_exists(solo_module):
+    """A stray archive next to an existing folder is removed; the folder is kept."""
+    _setup_full_module(solo_module)
+    with zipfile.ZipFile(solo_module.module_archive_path, "w") as zf:
+        zf.writestr("code/marker.txt", "x")
+
+    solo_module.ensure_module_unpacked()
+
+    assert os.path.isdir(solo_module.module_build_folder)
+    assert not os.path.exists(solo_module.module_archive_path)
+
+
+def test_wipe_module_removes_archive_and_scratch(solo_module):
+    _setup_full_module(solo_module)
+    _archive_module(solo_module)
+    solo_module.materialize()
+    scratch = solo_module._scratch_dir
+
+    solo_module.wipe_module()
+
+    assert not os.path.exists(solo_module.module_archive_path)
+    assert scratch is not None and not os.path.exists(scratch)
+    assert solo_module.module_folder == solo_module._default_module_folder
+
+
+def test_render_status_parity_folder_vs_archive(fixtures_dir, tmp_build_folder):
+    """The same module (same logical path) reports the same status and code hash whether it
+    is read as an unpacked folder or from a "<module>.module" archive."""
+    module = PlainModule("pr_solo.plain", tmp_build_folder, [fixtures_dir])
+    _setup_full_module(module, frid="1")
+    folder_status = module.get_module_render_status()
+    folder_hash = module.get_module_code_hash()
+
+    _archive_module(module)  # zip in place, remove the folder
+    module.materialize()
+
+    assert module.get_module_render_status() == folder_status
+    assert module.get_module_code_hash() == folder_hash
+    module.cleanup_scratch()
+
+
+def test_code_hash_is_location_independent(fixtures_dir):
+    """The code hash depends only on content, not the build folder's absolute path, so it is stable
+    across directories/machines. This is what makes .module archives distributable: consuming the
+    same code at a different location must not report a spurious 'required module code changed'."""
+    with tempfile.TemporaryDirectory() as build_a, tempfile.TemporaryDirectory() as build_b:
+        mod_a = PlainModule("pr_solo.plain", build_a, [fixtures_dir])
+        mod_b = PlainModule("pr_solo.plain", build_b, [fixtures_dir])
+        for mod in (mod_a, mod_b):
+            os.makedirs(mod.module_build_folder, exist_ok=True)
+            (Path(mod.module_build_folder) / "main.py").write_text("print('hi')\n")
+
+        assert mod_a.module_build_folder != mod_b.module_build_folder
+        assert mod_a.get_module_code_hash() == mod_b.get_module_code_hash()
+
+
+def test_archive_has_conformance_tests(solo_module):
+    _setup_full_module(solo_module)  # code/ + tests/
+    _archive_module(solo_module)
+    assert solo_module.archive_has_conformance_tests() is True
+
+
+def test_code_only_archive_materializes_without_tests(solo_module):
+    """A module rendered with conformance tests off has no tests/, so its archive has none. It must
+    still validate and materialize (tests/ is optional)."""
+    _init_repo_with_finished_frid(solo_module.module_build_folder, solo_module.module_name, "1")
+    _write_metadata(solo_module, {"source_hash": "seed"})
+    _archive_module(solo_module)  # code/ + .codeplain, no tests/
+
+    assert solo_module.archive_has_conformance_tests() is False
+    assert solo_module.is_archived_only()
+
+    solo_module.materialize()  # must not raise
+    assert os.path.isdir(os.path.join(solo_module.module_build_folder, ".git"))
+    assert not os.path.isdir(solo_module.module_conformance_tests_folder)
+    solo_module.cleanup_scratch()
+
+
+def test_ensure_module_unpacked_code_only_archive(solo_module):
+    _init_repo_with_finished_frid(solo_module.module_build_folder, solo_module.module_name, "1")
+    _archive_module(solo_module)  # code/ only
+
+    solo_module.ensure_module_unpacked()
+    assert os.path.isdir(os.path.join(solo_module._default_module_folder, "code", ".git"))
+    assert not os.path.isdir(os.path.join(solo_module._default_module_folder, "tests"))
+    assert not os.path.exists(solo_module.module_archive_path)
+
+
+def test_materialize_rejects_non_zip(solo_module):
+    with open(solo_module.module_archive_path, "w") as f:
+        f.write("not a zip")
+    with pytest.raises(InvalidModuleArchiveError):
+        solo_module.materialize()
+    assert solo_module._scratch_dir is None
+
+
+def test_materialize_rejects_missing_subfolders(solo_module):
+    with zipfile.ZipFile(solo_module.module_archive_path, "w") as zf:
+        zf.writestr("code/marker.txt", "x")  # tests/ missing, and no .git
+    with pytest.raises(InvalidModuleArchiveError):
+        solo_module.materialize()
+
+
+def test_materialize_rejects_missing_git_repo(solo_module):
+    """code/ and tests/ present but without a .git directory is rejected."""
+    with zipfile.ZipFile(solo_module.module_archive_path, "w") as zf:
+        zf.writestr("code/main.py", "print('x')")
+        zf.writestr("tests/test_main.py", "def test_x(): pass")
+    with pytest.raises(InvalidModuleArchiveError):
+        solo_module.materialize()
+
+
+def test_materialize_rejects_zip_slip(solo_module):
+    with zipfile.ZipFile(solo_module.module_archive_path, "w") as zf:
+        zf.writestr("../escape.txt", "x")
+    with pytest.raises(InvalidModuleArchiveError):
+        solo_module.materialize()
+
+
+def test_ensure_module_unpacked_leaves_no_partial_on_invalid_archive(solo_module):
+    default = solo_module._default_module_folder
+    with zipfile.ZipFile(solo_module.module_archive_path, "w") as zf:
+        zf.writestr("code/marker.txt", "x")  # invalid layout
+    with pytest.raises(InvalidModuleArchiveError):
+        solo_module.ensure_module_unpacked()
+    assert not os.path.exists(default)  # no half-written module folder
+    assert os.path.isfile(solo_module.module_archive_path)  # archive preserved on failure
 
 
 # --------------------------------------------------------------------------

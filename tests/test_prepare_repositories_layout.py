@@ -8,13 +8,18 @@ Each module renders into a single tree under the build folder:
     <build>/<module>/tests/        git repo with the conformance tests
 """
 
+import json
 import os
+import shutil
 import tempfile
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
+from partial_rendering import archive_missing_conformance_tests, get_plain_module_render_state, get_render_choices
 from plain_modules import PlainModule
 from render_machine.actions.prepare_repositories import PrepareRepositories
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -47,6 +52,29 @@ def _make_render_context(module: PlainModule, render_conformance_tests: bool) ->
         conformance_tests=ConformanceTests(module.build_folder, CONFORMANCE_TESTS_DEFINITION_FILE_NAME),
         base_folder=None,
     )
+
+
+def _init_repo_with_finished_frid(repo_path: str, module_name: str, frid: str = "1") -> None:
+    os.makedirs(repo_path, exist_ok=True)
+    init_git_repo(repo_path, module_name=module_name)
+    (Path(repo_path) / f"frid_{frid}.txt").write_text(f"frid {frid}\n")
+    add_all_files_and_commit(
+        repo_path,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(frid),
+        module_name=module_name,
+        frid=frid,
+    )
+
+
+def _archive_module(module: PlainModule) -> None:
+    """Zip the module's folder contents (code/, tests/ incl. .git) into <module>.module, then
+    remove the folder, so the module exists only as an archive."""
+    with zipfile.ZipFile(module.module_archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _dirs, files in os.walk(module.module_folder):
+            for name in files:
+                full = os.path.join(root, name)
+                zf.write(full, os.path.relpath(full, module.module_folder))
+    shutil.rmtree(module.module_folder)
 
 
 # --------------------------------------------------------------------------
@@ -117,3 +145,133 @@ def test_cross_module_copy_lands_in_hidden_folder_under_tests(tmp_build_folder):
     expected = os.path.join(tmp_build_folder, "top_module", "tests", ".required_module", "1_frid_feature")
     assert new_folder == expected
     assert source_folder == expected
+
+
+# --------------------------------------------------------------------------
+# Zipped modules — consuming a required module shipped as "<module>.module"
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def root_module(get_test_data_path, tmp_build_folder):
+    """pr_root -> pr_middle -> pr_leaf; root.required_modules[-1] == pr_middle."""
+    return PlainModule("pr_root.plain", tmp_build_folder, [get_test_data_path("data/partial_rendering")])
+
+
+def test_full_render_clones_from_archived_required_module(root_module):
+    """A required module shipped only as a "<module>.module" archive is materialized and used as
+    the clone starting point, and its code hash is recorded correctly in the module metadata."""
+    previous = root_module.required_modules[-1]
+    _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
+    _init_repo_with_finished_frid(previous.module_conformance_tests_folder, previous.module_name)
+    _archive_module(previous)
+    assert previous.is_archived_only()
+
+    render_context = _make_render_context(root_module, render_conformance_tests=False)
+    PrepareRepositories().execute(render_context, None)
+
+    # The root code repo was cloned (from the materialized archive), and the required module was
+    # materialized rather than left as an unusable archive.
+    assert os.path.isdir(os.path.join(root_module.module_build_folder, ".git"))
+    assert previous._resolved_module_folder is not None
+    assert not os.path.exists(previous._default_module_folder)  # archive not unpacked in place
+    assert os.path.isfile(previous.module_archive_path)  # archive preserved
+
+    # seed_module_metadata recorded the required module's real code hash (ordering guard).
+    metadata = root_module.load_module_metadata()
+    assert metadata["required_modules_code_hash"] == previous.get_module_code_hash()
+
+    previous.cleanup_scratch()
+
+
+def test_archive_missing_conformance_tests_detects_code_only_required_module(root_module):
+    """A required module shipped as a code-only .module (no tests/) is flagged only when conformance
+    testing is enabled."""
+    previous = root_module.required_modules[-1]
+    _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
+    _archive_module(previous)  # code/ only, no tests/
+
+    assert archive_missing_conformance_tests(root_module, True) is previous
+    assert archive_missing_conformance_tests(root_module, False) is None
+
+
+def test_archive_with_tests_not_flagged(root_module):
+    previous = root_module.required_modules[-1]
+    _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
+    _init_repo_with_finished_frid(previous.module_conformance_tests_folder, previous.module_name)
+    _archive_module(previous)  # code/ + tests/
+
+    assert archive_missing_conformance_tests(root_module, True) is None
+
+
+def test_render_state_flags_missing_tests_and_offers_rerender(root_module):
+    """A code-only archive (conformance on) surfaces a 'missing_conformance_tests' render state with
+    a rerender choice and a quit choice."""
+    previous = root_module.required_modules[-1]
+    _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
+    _archive_module(previous)  # code/ only
+
+    state = get_plain_module_render_state(root_module, render_conformance_tests=True)
+    assert state is not None
+    assert state.change_type == "missing_conformance_tests"
+    assert state.change.module_name == previous.module_name
+
+    choice_types = {c.choice_type for c in get_render_choices(root_module, state).values()}
+    assert "quit" in choice_types
+    assert "rerender_affected" in choice_types
+
+
+def test_conformance_tests_resolver_overrides_default(tmp_build_folder):
+    """A resolver maps an archived required module's name to its resolved (scratch) tests folder;
+    unknown names fall back to the default base-folder path."""
+    resolved = {"req": "/scratch/req/tests"}
+    conformance_tests = ConformanceTests(
+        tmp_build_folder,
+        CONFORMANCE_TESTS_DEFINITION_FILE_NAME,
+        resolve_module_tests_folder=lambda name: resolved.get(name),
+    )
+    assert conformance_tests.get_module_conformance_tests_folder("req") == "/scratch/req/tests"
+    assert conformance_tests.get_module_conformance_tests_folder("other") == os.path.join(
+        tmp_build_folder, "other", "tests"
+    )
+
+
+def test_conformance_tests_json_stored_relative_read_absolute(tmp_build_folder):
+    """folder_name is stored relative to the module's tests folder on disk, but presented as an
+    absolute path in memory — and the input dict is not mutated."""
+    conformance_tests = ConformanceTests(tmp_build_folder, CONFORMANCE_TESTS_DEFINITION_FILE_NAME)
+    tests_folder = conformance_tests.get_module_conformance_tests_folder("m")
+    os.makedirs(tests_folder)
+
+    absolute_folder = os.path.join(tests_folder, "1_feature")
+    json_in = {"1": {"folder_name": absolute_folder, "functional_requirement": "do a thing"}}
+    conformance_tests.dump_conformance_tests_json("m", json_in)
+
+    # On disk: relative.
+    with open(os.path.join(tests_folder, CONFORMANCE_TESTS_DEFINITION_FILE_NAME)) as f:
+        raw = json.load(f)
+    assert raw["1"]["folder_name"] == "1_feature"
+    # Input dict not mutated.
+    assert json_in["1"]["folder_name"] == absolute_folder
+
+    # On read: absolute again.
+    loaded = conformance_tests.get_conformance_tests_json("m")
+    assert loaded["1"]["folder_name"] == absolute_folder
+    assert loaded["1"]["functional_requirement"] == "do a thing"
+
+
+def test_conformance_tests_json_resolves_against_scratch_base(tmp_build_folder):
+    """A conformance_tests.json shipped in an archive (relative folder_name) resolves against the
+    module's scratch tests folder when the module is materialized."""
+    scratch_tests = os.path.join(tmp_build_folder, "scratch_extract", "tests")
+    os.makedirs(scratch_tests)
+    with open(os.path.join(scratch_tests, CONFORMANCE_TESTS_DEFINITION_FILE_NAME), "w") as f:
+        json.dump({"1": {"folder_name": "1_feature", "functional_requirement": "x"}}, f)
+
+    conformance_tests = ConformanceTests(
+        tmp_build_folder,
+        CONFORMANCE_TESTS_DEFINITION_FILE_NAME,
+        resolve_module_tests_folder=lambda name: scratch_tests if name == "m" else None,
+    )
+    loaded = conformance_tests.get_conformance_tests_json("m")
+    assert loaded["1"]["folder_name"] == os.path.join(scratch_tests, "1_feature")

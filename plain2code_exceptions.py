@@ -117,3 +117,11 @@ class GitNotInstalledError(Exception):
     """Raised when git is not installed or not found on PATH."""
 
     pass
+
+
+class InvalidModuleArchiveError(Exception):
+    """Raised when a ``<module>.module`` archive is missing, corrupt, or has an
+    unexpected layout (not a zip, missing ``code/``/``tests/``, ``.git`` not a real
+    directory, detached HEAD, or an unsafe member path)."""
+
+    pass

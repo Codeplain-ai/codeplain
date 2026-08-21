@@ -28,6 +28,7 @@ from plain2code_exceptions import (
     ImportedModuleWithFunctionalitiesError,
     InvalidAPIKey,
     InvalidFridArgument,
+    InvalidModuleArchiveError,
     MissingAPIKey,
     MissingFunctionalitiesError,
     MissingPreviousFunctionalitiesError,
@@ -79,6 +80,7 @@ EXPECTED_EXCEPTIONS = (
     UnsupportedResourceType,
     UnsupportedBase64Content,
     GitNotInstalledError,
+    InvalidModuleArchiveError,
     SystemExit,
 )
 
@@ -212,6 +214,15 @@ def render(  # noqa: C901
 
     warn_if_acceptance_tests_without_conformance_script(plain_module, args)
 
+    # A built module can be distributed as a "<module>.module" zip archive instead of an unpacked directory.
+    # Extract any such module to a scratch location up front. Scratch dirs are removed in main()'s finally.
+    # Skip an archive-only module that lacks conformance tests while testing is enabled: it cannot be
+    # consumed as-is, so leave it unmaterialized so it is detected below as needing a re-render.
+    for module in plain_module.all_required_modules + [plain_module]:
+        if args.render_conformance_tests and module.is_archived_only() and not module.archive_has_conformance_tests():
+            continue
+        module.materialize()
+
     # The module_metadata file lives outside the code git repo. That means that a crash mid-render can leave it
     # claiming a functionality was implemented even thought it wasn't yet committed (because of the crash).
     # Out of precaution, this reconciles every module_metadata against the code repo.
@@ -220,7 +231,7 @@ def render(  # noqa: C901
 
     render_choice = None
     if render_range is None:
-        plain_module_render_state = get_plain_module_render_state(plain_module)
+        plain_module_render_state = get_plain_module_render_state(plain_module, args.render_conformance_tests)
         if plain_module_render_state is not None:
             render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
             ask_user = True
@@ -417,6 +428,9 @@ def main():  # noqa: C901
             args.filename,
             error_message=error_message,
         )
+        # Remove any scratch extractions created for archive-only ("<module>.module") modules.
+        for module in plain_module.all_required_modules + [plain_module]:
+            module.cleanup_scratch()
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)
