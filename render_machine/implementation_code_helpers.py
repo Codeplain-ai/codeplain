@@ -8,8 +8,12 @@ import plain_spec
 class ImplementationCodeHelpers:
     @staticmethod
     def calculate_build_folder_hash(build_folder: str) -> str:
+        # Hash the code content only (relative paths + file contents), NOT the build folder's
+        # absolute path, so the hash is stable across directories and machines. This is required for
+        # distributable "<module>.module" archives: a module's code hash must match regardless of
+        # where plain_modules/ lives, or consuming an archive elsewhere falsely reports a code change.
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(build_folder)
-        return plain_spec.hash_text(f"folder={build_folder}|{json.dumps(existing_files_content)}")
+        return plain_spec.hash_text(json.dumps(existing_files_content))
 
     @staticmethod
     def fetch_existing_files(build_folder: str):
