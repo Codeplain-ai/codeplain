@@ -12,7 +12,7 @@ class PlainModuleRenderState:
     last_render_module: PlainModule
     last_render_frid: str | None
     change: PlainModule | None = None
-    change_type: Literal["spec_change", "code_change"] | None = None
+    change_type: Literal["spec_change", "code_change", "missing_conformance_tests"] | None = None
 
 
 @dataclass
@@ -56,6 +56,19 @@ def code_change(plain_module: PlainModule) -> PlainModule | None:
     return None
 
 
+def archive_missing_conformance_tests(plain_module: PlainModule, render_conformance_tests: bool) -> PlainModule | None:
+    """Return the first module available only as a "<module>.module" archive that has no conformance
+    tests while conformance testing is enabled. Such an archive cannot be consumed as-is (regression
+    needs the tests), so the module must be re-rendered."""
+    if not render_conformance_tests:
+        return None
+    all_modules = plain_module.all_required_modules + [plain_module]
+    for _module in all_modules:
+        if _module.is_archived_only() and not _module.archive_has_conformance_tests():
+            return _module
+    return None
+
+
 def module_comes_before_or_equal(
     all_required_modules: list[PlainModule],
     module1: PlainModule,
@@ -70,15 +83,24 @@ def module_comes_before_or_equal(
     raise ValueError(f"Module {module1.module_name} and {module2.module_name} not found in {all_required_modules}")
 
 
-def get_plain_module_render_state(plain_module: PlainModule) -> PlainModuleRenderState | None:
+def get_plain_module_render_state(
+    plain_module: PlainModule, render_conformance_tests: bool = False
+) -> PlainModuleRenderState | None:
     sc = spec_change(plain_module)
     cc = code_change(plain_module)
+    mt = archive_missing_conformance_tests(plain_module, render_conformance_tests)
     all_required_modules = plain_module.all_required_modules
     last_rendered_module_name, last_rendered_frid = plain_module.get_module_render_status()
-    if last_rendered_module_name is None and last_rendered_frid is None:
+    if last_rendered_module_name is None and last_rendered_frid is None and mt is None:
         return None
 
-    if last_rendered_module_name == plain_module.module_name:
+    if last_rendered_module_name is None:
+        # Nothing has been rendered yet, but an archived module blocks consumption (no tests).
+        # Anchor the state on that module so the user is prompted to re-render it.
+        assert mt is not None  # guaranteed by the early return above
+        module = mt
+        last_rendered_frid = None
+    elif last_rendered_module_name == plain_module.module_name:
         module = plain_module
     else:
         found_module: PlainModule | None = None
@@ -98,6 +120,13 @@ def get_plain_module_render_state(plain_module: PlainModule) -> PlainModuleRende
         change=None,
         change_type=None,
     )
+
+    # An archive that lacks conformance tests (while testing is enabled) is a hard blocker: it cannot
+    # be consumed as-is, so it takes precedence over spec/code changes.
+    if mt is not None:
+        pr.change = mt
+        pr.change_type = "missing_conformance_tests"
+        return pr
 
     if sc is None and cc is None:
         return pr
@@ -129,6 +158,8 @@ def get_all_affected_modules_from_change(
             start_module = plain_module.get_next_module(plain_module_render_state.change.module_name)
         else:
             start_module = plain_module_render_state.change
+    elif plain_module_render_state.change_type == "missing_conformance_tests":
+        start_module = plain_module_render_state.change
     else:
         raise ValueError(f"Unknown change type: {plain_module_render_state.change_type}")
 

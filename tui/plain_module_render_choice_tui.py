@@ -118,21 +118,38 @@ class PlainModuleRenderChoiceTUI(App):
         info_panel.mount(change_box)
 
         if pr.change:
-            title_start = "Spec changes" if pr.change_type == "spec_change" else "Code changes"
             is_required_module = pr.change.module_name != self.plain_module.module_name
-            change_box.mount(
-                Label(
-                    f"--- {title_start} detected in {'required ' if is_required_module else 'current '}module [#5593FF]{pr.change.module_name}[/] ---",
-                    classes="rendering-info-row",
-                )
-            )
-            if is_required_module:
+            module_kind = "required " if is_required_module else "current "
+            if pr.change_type == "missing_conformance_tests":
                 change_box.mount(
                     Label(
-                        f"{title_start} in a required module may affect the current module",
+                        f"--- Conformance tests missing from the archive of {module_kind}module "
+                        f"[#5593FF]{pr.change.module_name}[/] ---",
+                        classes="rendering-info-row",
+                    )
+                )
+                change_box.mount(
+                    Label(
+                        "The .module archive has no conformance tests but testing is enabled; "
+                        "the module must be re-rendered (its .module file will be removed).",
                         classes="rendering-info-title",
                     )
                 )
+            else:
+                title_start = "Spec changes" if pr.change_type == "spec_change" else "Code changes"
+                change_box.mount(
+                    Label(
+                        f"--- {title_start} detected in {module_kind}module [#5593FF]{pr.change.module_name}[/] ---",
+                        classes="rendering-info-row",
+                    )
+                )
+                if is_required_module:
+                    change_box.mount(
+                        Label(
+                            f"{title_start} in a required module may affect the current module",
+                            classes="rendering-info-title",
+                        )
+                    )
 
         elif pr.last_render_module.is_module_fully_rendered():
             change_box.mount(Label("The current module is fully rendered.", classes="rendering-info-title"))

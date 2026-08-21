@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Callable, Optional
 
 import file_utils
 from plain2code_console import console
@@ -16,11 +17,20 @@ class ConformanceTests:
         self,
         modules_base_folder: str,
         conformance_tests_definition_file_name: str,
+        resolve_module_tests_folder: Optional[Callable[[str], Optional[str]]] = None,
     ):
         self.modules_base_folder = modules_base_folder
         self.conformance_tests_definition_file_name = conformance_tests_definition_file_name
+        # Optional resolver mapping a module name to its resolved tests folder. Lets an
+        # archive-only ("<module>.module") required module resolve to its scratch extraction
+        # instead of the (non-existent) default plain_modules/<module>/tests path.
+        self._resolve_module_tests_folder = resolve_module_tests_folder
 
     def get_module_conformance_tests_folder(self, module_name: str) -> str:
+        if self._resolve_module_tests_folder is not None:
+            resolved = self._resolve_module_tests_folder(module_name)
+            if resolved is not None:
+                return resolved
         return get_module_tests_folder(self.modules_base_folder, module_name)
 
     def _get_full_conformance_tests_definition_file_name(self, module_name: str) -> str:
@@ -29,21 +39,48 @@ class ConformanceTests:
             self.conformance_tests_definition_file_name,
         )
 
+    def _resolve_folder_names(self, module_name: str, conformance_tests_json: dict) -> dict:
+        """Turn each entry's on-disk relative ``folder_name`` into an absolute path rooted at the
+        module's (resolved) tests folder. An already-absolute value is left as-is, so archives
+        written by older builds still load."""
+        base = self.get_module_conformance_tests_folder(module_name)
+        resolved: dict = {}
+        for frid, entry in conformance_tests_json.items():
+            if isinstance(entry, dict) and "folder_name" in entry:
+                entry = {**entry, "folder_name": os.path.join(base, entry["folder_name"])}
+            resolved[frid] = entry
+        return resolved
+
+    def _relativize_folder_names(self, module_name: str, conformance_tests_json: dict) -> dict:
+        """Turn each entry's absolute in-memory ``folder_name`` into a path relative to the module's
+        tests folder, so the stored definition is location-independent (portable across projects and
+        usable from a "<module>.module" archive). Does not mutate the input dict."""
+        base = self.get_module_conformance_tests_folder(module_name)
+        serializable: dict = {}
+        for frid, entry in conformance_tests_json.items():
+            if isinstance(entry, dict) and "folder_name" in entry:
+                entry = {**entry, "folder_name": os.path.relpath(entry["folder_name"], base)}
+            serializable[frid] = entry
+        return serializable
+
     def get_conformance_tests_json(self, module_name: str) -> dict:
         try:
             with open(self._get_full_conformance_tests_definition_file_name(module_name), "r") as f:
-                return json.load(f)
+                conformance_tests_json = json.load(f)
         except FileNotFoundError:
             return {}
+        return self._resolve_folder_names(module_name, conformance_tests_json)
 
     def dump_conformance_tests_json(self, module_name: str, conformance_tests_json: dict) -> None:
-        """Dump the conformance tests definition to the file."""
+        """Dump the conformance tests definition to the file. Folder names are stored relative to the
+        module's tests folder so the definition is portable and works from a scratch extraction."""
         if os.path.exists(self.get_module_conformance_tests_folder(module_name)):
             console.debug(
                 f"Storing conformance tests definition to {self._get_full_conformance_tests_definition_file_name(module_name)}"
             )
+            serializable = self._relativize_folder_names(module_name, conformance_tests_json)
             with open(self._get_full_conformance_tests_definition_file_name(module_name), "w") as f:
-                json.dump(conformance_tests_json, f, indent=4)
+                json.dump(serializable, f, indent=4)
 
     def fetch_existing_conformance_test_folder_names(self, module_name: str) -> list[str]:
         if os.path.isdir(self.get_module_conformance_tests_folder(module_name)):
