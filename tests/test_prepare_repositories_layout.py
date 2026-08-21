@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
+from memory_management import MemoryManager
 from partial_rendering import archive_missing_conformance_tests, get_plain_module_render_state, get_render_choices
 from plain_modules import PlainModule
 from render_machine.actions.prepare_repositories import PrepareRepositories
@@ -51,6 +52,9 @@ def _make_render_context(module: PlainModule, render_conformance_tests: bool) ->
         render_conformance_tests=render_conformance_tests,
         conformance_tests=ConformanceTests(module.build_folder, CONFORMANCE_TESTS_DEFINITION_FILE_NAME),
         base_folder=None,
+        # A real manager, because preparing the repositories is where global memory is carried forward, and
+        # doing that after the module folder is wiped rather than before it is part of what these tests cover.
+        memory_manager=MemoryManager(None, module.module_memory_folder),
     )
 
 

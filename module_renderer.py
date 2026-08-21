@@ -37,6 +37,23 @@ class ModuleRenderer:
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
 
+    def _predecessor_memory_folder(self, plain_module: PlainModule) -> str | None:
+        """The memory folder of the module rendered immediately before this one, if there is one.
+
+        Taken from the module tree rather than from what has been rendered so far, so that the chain is the same
+        whether or not a module was skipped as unchanged: a skipped module's global memory is still on disk and
+        still belongs in the sequence.
+        """
+        ordered: list[PlainModule] = []
+        for module in plain_module.all_required_modules + [plain_module]:
+            if all(seen.module_name != module.module_name for seen in ordered):
+                ordered.append(module)
+
+        position = [module.module_name for module in ordered].index(plain_module.module_name)
+        if position == 0:
+            return None
+        return ordered[position - 1].module_memory_folder
+
     def _build_render_context_for_module(
         self,
         plain_module: PlainModule,
@@ -120,6 +137,7 @@ class ModuleRenderer:
         memory_manager = MemoryManager(
             self.codeplainAPI,
             plain_module.module_memory_folder,
+            self._predecessor_memory_folder(plain_module),
         )
         render_context = self._build_render_context_for_module(
             plain_module,

@@ -236,6 +236,8 @@ class CodeplainAPI:
         module_name: str,
         required_modules,
         unittests_issue,
+        memory_files_content,
+        conformance_fix_changes,
         run_state: RunState,
     ):
         endpoint_url = f"{self.api_url}/fix_unittests_issue"
@@ -250,6 +252,8 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "unittests_issue": unittests_issue,
             "unittest_batch_id": run_state.unittest_batch_id,
+            "memory_files_content": memory_files_content,
+            "conformance_fix_changes": conformance_fix_changes,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
@@ -269,6 +273,8 @@ class CodeplainAPI:
         conformance_tests_issue,
         conformance_tests_folder_name,
         previous_conformance_tests_issue_old,
+        test_surface,
+        attempt_file_name,
         run_state: RunState,
     ):
         endpoint_url = f"{self.api_url}/create_conformance_test_memory"
@@ -288,6 +294,38 @@ class CodeplainAPI:
             "conformance_tests_issue": conformance_tests_issue,
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "previous_conformance_tests_issue": previous_conformance_tests_issue_old,
+            "test_surface": test_surface,
+            "attempt_file_name": attempt_file_name,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def consolidate_global_memory(
+        self,
+        frid,
+        plain_source_tree,
+        linked_resources,
+        memory_files_content,
+        module_name,
+        required_modules,
+        conformance_tests_files,
+        acceptance_tests,
+        conformance_tests_folder_name,
+        run_state: RunState,
+    ):
+        endpoint_url = f"{self.api_url}/consolidate_global_memory"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": frid,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+            "conformance_tests_files": conformance_tests_files,
+            "acceptance_tests": acceptance_tests,
+            "conformance_tests_folder_name": conformance_tests_folder_name,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)

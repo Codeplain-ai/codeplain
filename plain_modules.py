@@ -24,11 +24,7 @@ import git_utils
 import metadata_utils
 import plain_file
 import plain_spec
-from metadata_utils import (
-    MODULE_FUNCTIONALITIES,
-    MODULE_METADATA_FILENAME,
-    REQUIRED_MODULES_FUNCTIONALITIES,
-)
+from metadata_utils import MODULE_FUNCTIONALITIES, MODULE_METADATA_FILENAME, REQUIRED_MODULES_FUNCTIONALITIES
 from plain2code_console import console
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 

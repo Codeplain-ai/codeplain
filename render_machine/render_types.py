@@ -53,6 +53,11 @@ class UnitTestsRunningContext:
     fix_attempts: int
     changed_files: set[str] = field(default_factory=set)
 
+    # The failure the last fix was made in response to, and the change it made. Held so that the round can be
+    # recorded once the tests have been run again, which is the point at which its outcome is known.
+    previous_unittests_issue: Optional[str] = None
+    code_diff_files: Optional[dict[str, str]] = None
+
 
 class ConformanceTestsRunningContext:
     def __init__(

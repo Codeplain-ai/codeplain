@@ -62,7 +62,9 @@ class StateMachineConfig:
                 git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
             ),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
-            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
+            f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(
+                inside_conformance_fix_loop=True
+            ),
             States.RENDER_COMPLETED.value: CreateDist(),
             States.RENDER_FAILED.value: ExitWithError(),
         }

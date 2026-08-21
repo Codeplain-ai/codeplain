@@ -216,7 +216,9 @@ Two logging modes:
   - `<build-folder>/<module>/code/` — implementation code (its own git repo)
   - `<build-folder>/<module>/tests/` — conformance tests (its own git repo; only created when a conformance tests script is configured)
   - `<build-folder>/<module>/.codeplain/` — module metadata (`module_metadata.json`), not tracked in git
-  - `<build-folder>/<module>/.memory/` — conformance test memory, not tracked in git
+  - `<build-folder>/<module>/.memory/` — test-fixing memory, not tracked in git: `attempts/` holds the
+    current functionality's fix journal (one file per round, append-only), and `global_memory.json` holds
+    the condensed learnings, carried forward to the next module in the render chain
 - Each FRID render produces a git commit in the `code/` and `tests/` repos for rollback capability
 
 ### Configuration

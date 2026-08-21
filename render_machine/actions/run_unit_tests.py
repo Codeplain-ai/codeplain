@@ -31,6 +31,10 @@ class RunUnitTests(BaseAction):
 
         render_context.script_execution_history.latest_unit_test_output_path = unittests_temp_log_file_path
         render_context.script_execution_history.should_update_script_outputs = True
+
+        # Recorded here rather than where the fix was made, because only now is the outcome of that fix known.
+        render_context.memory_manager.record_unit_test_fix_attempt(render_context, exit_code, unittests_issue)
+
         if exit_code == 0:
             return self.SUCCESSFUL_OUTCOME, None
 

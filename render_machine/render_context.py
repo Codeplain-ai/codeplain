@@ -169,6 +169,11 @@ class RenderContext:
             functional_requirement_render_attempts=0,
         )
         self.run_state.current_frid = frid
+
+        # The journal describes rounds of fixing the previous functionality's tests. Those rounds are about a
+        # problem that is no longer the one being worked on, and anything durable in them has already been
+        # consolidated into global memory.
+        self.memory_manager.clear_functionality_journal()
         return
 
     def has_next_frid(self) -> bool:

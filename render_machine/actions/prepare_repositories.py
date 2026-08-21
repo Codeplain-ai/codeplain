@@ -40,6 +40,10 @@ class PrepareRepositories(BaseAction):
             file_utils.delete_folder(render_context.plain_module.module_folder)
             render_context.plain_module.seed_module_metadata()
 
+            # After the wipe, not before it: the module folder that was just deleted holds .memory, so global
+            # memory has to be carried forward once there is somewhere for it to live.
+            render_context.memory_manager.inherit_global_memory()
+
             if render_context.required_modules:
                 previous_module = render_context.required_modules[-1]
                 console.debug(f"Cloning git repo from module {previous_module.module_name}.")
