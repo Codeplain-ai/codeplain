@@ -17,6 +17,22 @@ if (-not $env:CODEPLAIN_API_URL) {
     $env:CODEPLAIN_API_URL = "https://api.codeplain.ai"
 }
 
+# PostHog analytics. Both values are substituted at publish time by the
+# publish-install-script workflow, from the repository's POSTHOG_PROJECT_TOKEN
+# secret and POSTHOG_CAPTURE_URL variable. A copy run straight from a clone
+# keeps the placeholders and reports nothing, unless the environment supplies
+# both values.
+$POSTHOG_CAPTURE_URL = if ($env:CODEPLAIN_POSTHOG_CAPTURE_URL) { $env:CODEPLAIN_POSTHOG_CAPTURE_URL } else { "__POSTHOG_CAPTURE_URL__" }
+$POSTHOG_PROJECT_TOKEN = if ($env:CODEPLAIN_POSTHOG_PROJECT_TOKEN) { $env:CODEPLAIN_POSTHOG_PROJECT_TOKEN } else { "__POSTHOG_PROJECT_TOKEN__" }
+
+# Email of the user the API key belongs to; set by Test-ApiKey. Analytics
+# identify a user by email, so an install that never verified a key sends no
+# event.
+$validatedUserEmail = ""
+
+# "fresh" or "upgrade"; set when codeplain is installed below.
+$installType = ""
+
 # Brand Colors (True Color / 24-bit)
 $ESC = [char]27
 $YELLOW     = "$ESC[38;2;224;255;110m"      # #E0FF6E
@@ -161,6 +177,8 @@ function Assert-Git {
 # Verify an API key against the Codeplain API's /status endpoint.
 # Returns a status string: "valid" (HTTP 200), "invalid" (HTTP 401), or
 # "error" (could not reach the API). This checks only the API key.
+# On success it also records the email of the user the key belongs to in
+# $validatedUserEmail, which identifies the user in analytics.
 function Test-ApiKey {
     param([string]$Key)
 
@@ -173,7 +191,15 @@ function Test-ApiKey {
             -TimeoutSec 30 `
             -UseBasicParsing `
             -ErrorAction Stop
-        if ($response.StatusCode -eq 200) { return "valid" }
+        if ($response.StatusCode -eq 200) {
+            # Analytics are optional; never fail key validation over them.
+            try {
+                $script:validatedUserEmail = ($response.Content | ConvertFrom-Json).user.email
+            } catch {
+                $script:validatedUserEmail = ""
+            }
+            return "valid"
+        }
         return "error"
     } catch {
         $statusCode = $null
@@ -182,6 +208,63 @@ function Test-ApiKey {
         }
         if ($statusCode -eq 401) { return "invalid" }
         return "error"
+    }
+}
+
+# Analytics honor the same CODEPLAIN_TELEMETRY opt-out as the CLI's crash
+# reporting. The CLI defaults to off outside a real user install; running this
+# installer *is* a real user install, so here the default is on.
+function Test-TelemetryEnabled {
+    $setting = "$($env:CODEPLAIN_TELEMETRY)".Trim().ToLower()
+    return @("0", "false", "off") -notcontains $setting
+}
+
+# Report the finished install to PostHog, keyed on the user's email so the
+# install lands on the same person as their signup on the web app.
+# Never fails the install: no email, an opt-out, or an unreachable PostHog are
+# all silent no-ops.
+# True only once the publish workflow (or the environment) has supplied a real
+# PostHog token and host. Every PostHog project token starts with "phc_", so
+# that prefix also tells a published installer apart from an unsubstituted one.
+function Test-AnalyticsConfigured {
+    return $POSTHOG_PROJECT_TOKEN.StartsWith("phc_") -and $POSTHOG_CAPTURE_URL.StartsWith("https://")
+}
+
+function Send-InstallEvent {
+    param([bool]$InstallVerified)
+
+    if (-not $validatedUserEmail -or -not (Test-TelemetryEnabled) -or -not (Test-AnalyticsConfigured)) { return }
+
+    try {
+        $versionLine = @(uv tool list 2>$null) | Where-Object { $_ -match '^codeplain' } | Select-Object -First 1
+        $installedVersion = ($versionLine -replace 'codeplain v', '').Trim()
+
+        $payload = @{
+            api_key     = $POSTHOG_PROJECT_TOKEN
+            event       = "cli_installed"
+            distinct_id = $validatedUserEmail
+            properties  = @{
+                '$lib'                 = "codeplain-install-script"
+                client_version         = $installedVersion
+                # This installer is the Windows counterpart of install.sh,
+                # which reports the output of 'uname -s'.
+                os                     = "Windows"
+                install_type           = $installType
+                install_verified       = $InstallVerified
+                plain_forge_installed  = $plainForgeInstalled
+                plyn_installed         = $plynInstalled
+                noninteractive         = $nonInteractive
+            }
+        } | ConvertTo-Json -Compress -Depth 4
+
+        Invoke-RestMethod -Uri $POSTHOG_CAPTURE_URL `
+            -Method Post `
+            -ContentType "application/json" `
+            -Body $payload `
+            -TimeoutSec 2 `
+            -ErrorAction Stop | Out-Null
+    } catch {
+        # Analytics must never break the install.
     }
 }
 
@@ -215,6 +298,7 @@ try {
 # Install or upgrade codeplain using uv tool
 $codeplainLine = $uvOutput | Where-Object { $_ -match '^codeplain' } | Select-Object -First 1
 if ($codeplainLine) {
+    $installType = "upgrade"
     $currentVersion = ($codeplainLine -replace 'codeplain v', '').Trim()
     Write-Host "${GRAY}codeplain ${currentVersion} is already installed.${NC}"
     Write-Host "Upgrading to latest version..."
@@ -237,6 +321,7 @@ if ($codeplainLine) {
         Write-Host "${GREEN}${CHECK}${NC} codeplain upgraded from ${currentVersion} to ${newVersion}!"
     }
 } else {
+    $installType = "fresh"
     Write-Host "Installing codeplain...${NC}"
     Write-Host ""
     uv tool install codeplain
@@ -553,6 +638,7 @@ if ($env:CODEPLAIN_API_KEY) {
         Write-Host $verifyOutput
         Write-Host "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
         Write-Host "  uv tool install --force codeplain"
+        Send-InstallEvent $false
         Stop-Install
         return
     }
@@ -587,6 +673,8 @@ Write-Host "  ${GRAY}Discord: https://discord.gg/cgbynb9hFq   Docs: https://plai
 Write-Host ""
 Write-Host "  ${GRAY}Happy development!${NC} ${ROCKET}"
 Write-Host ""
+
+Send-InstallEvent $true
 
 # Refresh environment for this session
 # Unlike bash's exec "$SHELL", PowerShell doesn't need to restart the shell.

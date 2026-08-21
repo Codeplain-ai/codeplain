@@ -27,6 +27,22 @@ export YELLOW GREEN GREEN_LIGHT GREEN_DARK BLUE BLACK WHITE RED GRAY GRAY_LIGHT 
 
 NONINTERACTIVE="${CODEPLAIN_INSTALL_NONINTERACTIVE:-0}"
 
+# PostHog analytics. Both values are substituted at publish time by the
+# publish-install-script workflow, from the repository's POSTHOG_PROJECT_TOKEN
+# secret and POSTHOG_CAPTURE_URL variable. A copy run straight from a clone
+# keeps the placeholders and reports nothing, unless the environment supplies
+# both values.
+POSTHOG_CAPTURE_URL="${CODEPLAIN_POSTHOG_CAPTURE_URL:-__POSTHOG_CAPTURE_URL__}"
+POSTHOG_PROJECT_TOKEN="${CODEPLAIN_POSTHOG_PROJECT_TOKEN:-__POSTHOG_PROJECT_TOKEN__}"
+
+# Email of the user the API key belongs to; set by validate_api_key. Analytics
+# identify a user by email, so an install that never verified a key sends no
+# event.
+VALIDATED_USER_EMAIL=""
+
+# "fresh" or "upgrade"; set when codeplain is installed below.
+INSTALL_TYPE=""
+
 if [ "$NONINTERACTIVE" = "1" ]; then
     echo "Running in non-interactive mode (CODEPLAIN_INSTALL_NONINTERACTIVE=1)"
 else
@@ -84,18 +100,99 @@ trim_whitespace() {
 }
 
 # Verify an API key against the Codeplain API's /status endpoint.
-# Sets the global VALIDATION_HTTP_CODE and returns 0 only when the key is valid
-# (HTTP 200). This checks only the API key, nothing else about the install.
+# Sets the globals VALIDATION_HTTP_CODE and VALIDATED_USER_EMAIL, and returns 0
+# only when the key is valid (HTTP 200). This checks only the API key, nothing
+# else about the install.
 validate_api_key() {
     local key="$1"
-    local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    local response
+    response=$(curl -s -w $'\n%{http_code}' \
         --max-time 30 \
         -X POST "${CODEPLAIN_API_URL}/status" \
         -H "Content-Type: application/json" \
         --data "{\"api_key\":\"${key}\"}" 2>/dev/null || true)
-    VALIDATION_HTTP_CODE="${http_code:-000}"
+
+    # The status code is appended on its own last line; everything above it is
+    # the JSON body.
+    VALIDATION_HTTP_CODE="$(printf '%s' "$response" | tail -n 1)"
+    VALIDATION_HTTP_CODE="${VALIDATION_HTTP_CODE:-000}"
+
+    # /status reports the user this key belongs to. The email identifies the
+    # user in analytics (see capture_install_event). Matching on "email" with
+    # the leading quote skips "organization_owner_email", which is a different
+    # user in an organization.
+    local body
+    body="$(printf '%s' "$response" | sed '$d')"
+    VALIDATED_USER_EMAIL="$(printf '%s' "$body" \
+        | grep -o '"email"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | head -n 1 \
+        | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+
     [ "$VALIDATION_HTTP_CODE" = "200" ]
+}
+
+# Analytics honor the same CODEPLAIN_TELEMETRY opt-out as the CLI's crash
+# reporting. The CLI defaults to off outside a real user install; running this
+# installer *is* a real user install, so here the default is on.
+telemetry_enabled() {
+    local setting
+    setting="$(printf '%s' "${CODEPLAIN_TELEMETRY:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    case "$setting" in
+        0 | false | off) return 1 ;;
+    esac
+    return 0
+}
+
+# True only once the publish workflow (or the environment) has supplied a real
+# PostHog token and host. Every PostHog project token starts with "phc_", so
+# that prefix also tells a published installer apart from an unsubstituted one.
+analytics_configured() {
+    case "$POSTHOG_PROJECT_TOKEN" in
+        phc_*) ;;
+        *) return 1 ;;
+    esac
+    case "$POSTHOG_CAPTURE_URL" in
+        https://*) ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# Report the finished install to PostHog, keyed on the user's email so the
+# install lands on the same person as their signup on the web app. Takes "true"
+# or "false" for whether 'codeplain --status' ran successfully.
+# Never fails the install: no email, an opt-out, or an unreachable PostHog are
+# all silent no-ops.
+capture_install_event() {
+    local install_verified="$1"
+
+    if [ -z "$VALIDATED_USER_EMAIL" ] || ! telemetry_enabled || ! analytics_configured; then
+        return 0
+    fi
+
+    local installed_version noninteractive payload
+    installed_version="$(uv tool list 2>/dev/null | grep "^codeplain" | sed 's/codeplain v//' || true)"
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        noninteractive=true
+    else
+        noninteractive=false
+    fi
+
+    payload="$(printf '{"api_key":"%s","event":"cli_installed","distinct_id":"%s","properties":{"$lib":"codeplain-install-script","client_version":"%s","os":"%s","install_type":"%s","install_verified":%s,"plain_forge_installed":%s,"plyn_installed":%s,"noninteractive":%s}}' \
+        "$POSTHOG_PROJECT_TOKEN" \
+        "$VALIDATED_USER_EMAIL" \
+        "$installed_version" \
+        "$(uname -s)" \
+        "$INSTALL_TYPE" \
+        "$install_verified" \
+        "${PLAIN_FORGE_INSTALLED:-false}" \
+        "${PLYN_INSTALLED:-false}" \
+        "$noninteractive")"
+
+    curl -s -o /dev/null --max-time 2 \
+        -X POST "$POSTHOG_CAPTURE_URL" \
+        -H "Content-Type: application/json" \
+        --data "$payload" > /dev/null 2>&1 || true
 }
 
 # Check if uv is installed
@@ -121,6 +218,7 @@ echo -e ""
 # Install or upgrade codeplain using uv tool
 if uv tool list 2>/dev/null | grep -q "^codeplain"; then
     CURRENT_VERSION=$(uv tool list 2>/dev/null | grep "^codeplain" | sed 's/codeplain v//')
+    INSTALL_TYPE="upgrade"
     echo -e "${GRAY}codeplain ${CURRENT_VERSION} is already installed.${NC}"
     echo -e "Upgrading to latest version..."
     echo -e ""
@@ -132,6 +230,7 @@ if uv tool list 2>/dev/null | grep -q "^codeplain"; then
         echo -e "${GREEN}✓${NC} codeplain upgraded from ${CURRENT_VERSION} to ${NEW_VERSION}!"
     fi
 else
+    INSTALL_TYPE="fresh"
     echo -e "Installing codeplain...${NC}"
     echo -e ""
     uv tool install codeplain
@@ -445,6 +544,7 @@ if [ -n "${CODEPLAIN_API_KEY:-}" ]; then
         echo "$verify_output"
         echo -e "${GRAY}Please restart your terminal and try again, or reinstall with:${NC}"
         echo -e "  uv tool install --force codeplain"
+        capture_install_event false
         exit 1
     fi
 fi
@@ -480,6 +580,9 @@ echo -e "  ${GRAY}Discord: https://discord.gg/cgbynb9hFq   Docs: https://plainla
 echo ""
 echo -e "  ${GRAY}Happy development!${NC} 🚀"
 echo ""
+
+# Reported last: exec below replaces this process, so nothing after it runs.
+capture_install_event true
 
 if [ "$NONINTERACTIVE" != "1" ]; then
     # Replace this subshell with a fresh shell that has the new environment

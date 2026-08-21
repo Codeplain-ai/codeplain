@@ -20,6 +20,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Inject PostHog analytics configuration
+        # Substituted into the checkout only - never committed back. A source
+        # checkout keeps the placeholders, so a clone reports no analytics.
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_CAPTURE_URL: ${{ vars.POSTHOG_CAPTURE_URL }}
+        run: |
+          set -euo pipefail
+
+          # Fail loudly rather than ship an artifact that silently reports nothing.
+          case "${POSTHOG_PROJECT_TOKEN:-}" in
+            phc_*) ;;
+            *) echo "::error::POSTHOG_PROJECT_TOKEN secret is missing or does not start with phc_"; exit 1 ;;
+          esac
+          case "${POSTHOG_CAPTURE_URL:-}" in
+            https://*) ;;
+            *) echo "::error::POSTHOG_CAPTURE_URL variable is missing or is not an https URL"; exit 1 ;;
+          esac
+
+          for f in install/bash/install.sh install/powershell/install.ps1; do
+            # '|' as the sed delimiter: the URL contains '/', the token cannot contain '|'.
+            # Written through a temp file rather than with 'sed -i', which is not
+            # portable, and copied back with 'cat' so the file keeps its mode.
+            tmp="$(mktemp)"
+            sed -e "s|__POSTHOG_PROJECT_TOKEN__|${POSTHOG_PROJECT_TOKEN}|g" \
+                -e "s|__POSTHOG_CAPTURE_URL__|${POSTHOG_CAPTURE_URL}|g" \
+                "$f" > "$tmp"
+            cat "$tmp" > "$f"
+            rm -f "$tmp"
+            if grep -q "__POSTHOG_" "$f"; then
+              echo "::error::$f still holds an unsubstituted PostHog placeholder"
+              exit 1
+            fi
+            echo "Injected analytics configuration into $f"
+          done
+
       - name: Upload install scripts to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
