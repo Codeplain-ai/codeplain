@@ -143,7 +143,11 @@ class CodeplainAPI:
                     self.console.debug(f"Failed to decode JSON response: {e}. Response text: {response.text}")
                     raise Exception(f"Error rendering plain code: Failed to decode API response ({e}).\n") from e
 
-                if response.status_code == requests.codes.bad_request and "error_code" in response_json:
+                # Any status the server declines on, not only 400. The server returns
+                # error_code with 500 as well, and reading it only on 400 meant those
+                # reached the user as the raw "500 Server Error for url: ..." rather than
+                # the message the code was paired with.
+                if not response.ok and "error_code" in response_json:
                     self._raise_for_error_code(response_json)
 
                 response.raise_for_status()
