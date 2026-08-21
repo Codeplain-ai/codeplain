@@ -2,15 +2,24 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
+import zipfile
 from functools import cached_property
 
-from plain2code_exceptions import GitNotInstalledError, MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
+from plain2code_exceptions import (
+    GitNotInstalledError,
+    InvalidModuleArchiveError,
+    MissingPreviousFunctionalitiesError,
+    ModuleDoesNotExistError,
+)
 
 try:
+    from git import Repo
     from git.exc import NoSuchPathError
 except ImportError:
     raise GitNotInstalledError("git is not installed. Please install git and try again.")
 
+import file_utils
 import git_utils
 import metadata_utils
 import plain_file
@@ -28,6 +37,11 @@ CODEPLAIN_METADATA_FOLDER = ".codeplain"
 MODULE_CODE_SUBFOLDER = "code"
 MODULE_TESTS_SUBFOLDER = "tests"
 
+# A module's build output may be shipped as a single zip archive named
+# "<module>.module" instead of an unpacked "<module>/" folder. See PlainModule.materialize
+# (read/consume) and PlainModule.ensure_module_unpacked (unpack-on-change).
+MODULE_ARCHIVE_EXTENSION = ".module"
+
 
 def get_module_code_folder(modules_base_folder: str, module_name: str) -> str:
     return os.path.join(modules_base_folder, module_name, MODULE_CODE_SUBFOLDER)
@@ -35,6 +49,81 @@ def get_module_code_folder(modules_base_folder: str, module_name: str) -> str:
 
 def get_module_tests_folder(modules_base_folder: str, module_name: str) -> str:
     return os.path.join(modules_base_folder, module_name, MODULE_TESTS_SUBFOLDER)
+
+
+def _validate_module_repo(repo_path: str, subfolder: str, archive_path: str) -> None:
+    """Validate one extracted git repo (code/ or tests/) inside a module archive."""
+    if not os.path.isdir(os.path.join(repo_path, ".git")):
+        raise InvalidModuleArchiveError(
+            f"Module archive '{archive_path}' has no git repository in '{subfolder}/' "
+            "(the archive must include the '.git' directory)."
+        )
+    try:
+        repo = Repo(repo_path)
+        if repo.bare or repo.head.is_detached:
+            raise InvalidModuleArchiveError(
+                f"The git repository in '{subfolder}/' of module archive '{archive_path}' "
+                "must be a working tree checked out on a branch."
+            )
+    except InvalidModuleArchiveError:
+        raise
+    except Exception as e:
+        raise InvalidModuleArchiveError(
+            f"The git repository in '{subfolder}/' of module archive '{archive_path}' is invalid: {e}"
+        ) from e
+
+
+def _validate_module_tree(root: str, archive_path: str) -> None:
+    """Verify an extracted module tree. ``code/`` is required. ``tests/`` is optional: a module
+    rendered without a conformance-tests script has no tests folder, so its archive has none either.
+    When ``tests/`` is present it must be a valid git repo."""
+    code_path = os.path.join(root, MODULE_CODE_SUBFOLDER)
+    if not os.path.isdir(code_path):
+        raise InvalidModuleArchiveError(
+            f"Module archive '{archive_path}' is missing the '{MODULE_CODE_SUBFOLDER}/' folder at its root. "
+            "The archive must contain the module folder's contents (code/, optionally tests/, ...) at its "
+            "root, not nested under a top-level directory."
+        )
+    _validate_module_repo(code_path, MODULE_CODE_SUBFOLDER, archive_path)
+
+    tests_path = os.path.join(root, MODULE_TESTS_SUBFOLDER)
+    if os.path.isdir(tests_path):
+        _validate_module_repo(tests_path, MODULE_TESTS_SUBFOLDER, archive_path)
+
+
+def _extract_module_archive(archive_path: str, dest: str) -> None:
+    """Extract a "<module>.module" zip into dest and validate the module layout.
+
+    Guards against zip-slip, restores unix mode bits (zipfile drops them), and validates
+    that dest contains valid code/ and tests/ git repositories. Raises
+    InvalidModuleArchiveError on any problem.
+    """
+    if not zipfile.is_zipfile(archive_path):
+        raise InvalidModuleArchiveError(f"Module archive '{archive_path}' is not a valid zip file.")
+
+    os.makedirs(dest, exist_ok=True)
+    dest_root = os.path.realpath(dest)
+
+    try:
+        with zipfile.ZipFile(archive_path) as zf:
+            for member in zf.namelist():
+                target = os.path.realpath(os.path.join(dest, member))
+                if target != dest_root and not target.startswith(dest_root + os.sep):
+                    raise InvalidModuleArchiveError(
+                        f"Module archive '{archive_path}' contains an unsafe path: {member}"
+                    )
+            zf.extractall(dest)
+            for info in zf.infolist():
+                mode = (info.external_attr >> 16) & 0o777
+                if not mode:
+                    continue
+                member_path = os.path.join(dest, info.filename)
+                if os.path.exists(member_path) and not os.path.islink(member_path):
+                    os.chmod(member_path, mode)
+    except zipfile.BadZipFile as e:
+        raise InvalidModuleArchiveError(f"Module archive '{archive_path}' is corrupt: {e}") from e
+
+    _validate_module_tree(dest, archive_path)
 
 
 def _strip_functional_requirements(plain_source_tree: dict) -> dict:
@@ -49,6 +138,10 @@ class PlainModule:
         self.filename = filename
         self.build_folder = build_folder
         self.template_dirs = template_dirs
+        # When the module exists only as a "<module>.module" archive, these hold the
+        # scratch extraction used for read-only consumption. See materialize().
+        self._resolved_module_folder: str | None = None
+        self._scratch_dir: str | None = None
         module_name, plain_source, required_modules_names = plain_file.plain_file_parser(
             self.filename, self.template_dirs
         )
@@ -81,16 +174,28 @@ class PlainModule:
         return all_required_modules
 
     @property
-    def module_folder(self):
+    def _default_module_folder(self) -> str:
         return os.path.join(self.build_folder, self.module_name)
 
     @property
+    def module_folder(self):
+        # When the module was materialized from a "<module>.module" archive, all subpaths
+        # resolve against the scratch extraction; otherwise against the real folder.
+        if self._resolved_module_folder is not None:
+            return self._resolved_module_folder
+        return self._default_module_folder
+
+    @property
+    def module_archive_path(self) -> str:
+        return self._default_module_folder + MODULE_ARCHIVE_EXTENSION
+
+    @property
     def module_conformance_tests_folder(self):
-        return get_module_tests_folder(self.build_folder, self.module_name)
+        return os.path.join(self.module_folder, MODULE_TESTS_SUBFOLDER)
 
     @property
     def module_build_folder(self):
-        return get_module_code_folder(self.build_folder, self.module_name)
+        return os.path.join(self.module_folder, MODULE_CODE_SUBFOLDER)
 
     @property
     def module_memory_folder(self):
@@ -98,6 +203,84 @@ class PlainModule:
 
     def get_codeplain_folder(self):
         return os.path.join(self.module_folder, CODEPLAIN_METADATA_FOLDER)
+
+    def has_module_archive(self) -> bool:
+        return os.path.isfile(self.module_archive_path)
+
+    def is_archived_only(self) -> bool:
+        return not os.path.isdir(self._default_module_folder) and self.has_module_archive()
+
+    def archive_has_conformance_tests(self) -> bool:
+        """True if the "<module>.module" archive contains a tests/ folder. A module rendered without
+        a conformance-tests script has no tests/, so its archive has none either."""
+        if not self.has_module_archive() or not zipfile.is_zipfile(self.module_archive_path):
+            return False
+        prefix = MODULE_TESTS_SUBFOLDER + "/"
+        with zipfile.ZipFile(self.module_archive_path) as zf:
+            return any(name.startswith(prefix) for name in zf.namelist())
+
+    def materialize(self) -> None:
+        """Make an archive-only module readable without populating plain_modules/<module>/.
+
+        If the real folder is absent but a "<module>.module" archive exists, extract it to a
+        scratch directory and point this module's paths there. No-op if the real folder exists
+        or the module is already materialized. The archive file is preserved.
+        """
+        if self._resolved_module_folder is not None:
+            return
+        if os.path.isdir(self._default_module_folder):
+            return
+        if not self.has_module_archive():
+            return
+
+        scratch_dir = tempfile.mkdtemp(prefix=f"codeplain-module-{self.module_name}-")
+        try:
+            _extract_module_archive(self.module_archive_path, scratch_dir)
+        except BaseException:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+            raise
+        self._scratch_dir = scratch_dir
+        self._resolved_module_folder = scratch_dir
+
+    def ensure_module_unpacked(self) -> None:
+        """Unpack an archive-only module into the real plain_modules/<module>/ in place.
+
+        Called before a module is (re)rendered. Idempotent. If the real folder already exists,
+        only a stray archive is removed. Extraction is atomic (extract to a temp sibling under
+        the build folder, then os.replace), and the archive is deleted only after success.
+        """
+        if os.path.isdir(self._default_module_folder):
+            if self.has_module_archive():
+                os.remove(self.module_archive_path)
+            self._reset_scratch()
+            self._resolved_module_folder = None
+            return
+
+        if not self.has_module_archive():
+            return
+
+        os.makedirs(self.build_folder, exist_ok=True)
+        staging_dir = tempfile.mkdtemp(prefix=f".{self.module_name}-unpacking-", dir=self.build_folder)
+        try:
+            _extract_module_archive(self.module_archive_path, staging_dir)
+            os.replace(staging_dir, self._default_module_folder)
+        except BaseException:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+
+        os.remove(self.module_archive_path)
+        self._reset_scratch()
+        self._resolved_module_folder = None
+
+    def _reset_scratch(self) -> None:
+        if self._scratch_dir is not None:
+            shutil.rmtree(self._scratch_dir, ignore_errors=True)
+            self._scratch_dir = None
+
+    def cleanup_scratch(self) -> None:
+        """Remove any scratch extraction created by materialize(). Safe to call multiple times."""
+        self._reset_scratch()
+        self._resolved_module_folder = None
 
     def get_module_render_status(self) -> tuple[str | None, str | None]:
         module_name, frid = git_utils.get_last_rendered_functionality(self.module_build_folder)
@@ -149,6 +332,9 @@ class PlainModule:
         return plain_spec.get_hash_value([stripped] + self.resources_list)
 
     def get_module_code_hash(self) -> str:
+        # Content-only hash (see calculate_build_folder_hash): reading from the resolved (possibly
+        # scratch) folder yields the same hash as the in-place folder and the same hash across
+        # locations, so archived modules stay portable.
         return ImplementationCodeHelpers.calculate_build_folder_hash(self.module_build_folder)
 
     def has_required_modules_code_changed(
@@ -408,6 +594,10 @@ class PlainModule:
         return False
 
     def wipe_module(self) -> None:
-        if os.path.exists(self.module_folder):
-            console.warning(f"Wiping module {self.module_folder}...")
-            shutil.rmtree(self.module_folder)
+        if os.path.isdir(self._default_module_folder):
+            console.warning(f"Wiping module {self._default_module_folder}...")
+            file_utils.delete_folder(self._default_module_folder)
+        if self.has_module_archive():
+            os.remove(self.module_archive_path)
+        self._reset_scratch()
+        self._resolved_module_folder = None
