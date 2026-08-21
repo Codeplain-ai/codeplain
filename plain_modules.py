@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 import zipfile
 from functools import cached_property
@@ -237,7 +236,7 @@ class PlainModule:
         try:
             _extract_module_archive(self.module_archive_path, scratch_dir)
         except BaseException:
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+            file_utils.delete_folder_best_effort(scratch_dir)
             raise
         self._scratch_dir = scratch_dir
         self._resolved_module_folder = scratch_dir
@@ -265,7 +264,7 @@ class PlainModule:
             _extract_module_archive(self.module_archive_path, staging_dir)
             os.replace(staging_dir, self._default_module_folder)
         except BaseException:
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            file_utils.delete_folder_best_effort(staging_dir)
             raise
 
         os.remove(self.module_archive_path)
@@ -274,7 +273,7 @@ class PlainModule:
 
     def _reset_scratch(self) -> None:
         if self._scratch_dir is not None:
-            shutil.rmtree(self._scratch_dir, ignore_errors=True)
+            file_utils.delete_folder_best_effort(self._scratch_dir)
             self._scratch_dir = None
 
     def cleanup_scratch(self) -> None:
@@ -469,34 +468,52 @@ class PlainModule:
                 f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
             )
 
-    def _ensure_frid_commit_exists(
+    def _raise_for_missing_frid_commits(
         self,
-        frid: str,
+        previous_frids: list[str],
         first_render_frid: str,
         render_conformance_tests: bool,
     ) -> None:
         """
-        Ensure commit exists for a single FRID in both repositories.
+        Ensure commits exist for every previous FRID in both repositories.
+
+        Each repository is asked once for the whole list rather than once per FRID, and the
+        first FRID that is missing anywhere decides the error, in the order given.
 
         Args:
-            frid: The FRID to check
+            previous_frids: The FRIDs that should already have been rendered
             first_render_frid: The first FRID in the render range (for error messages)
             render_conformance_tests: Whether to check for conformance tests
 
         Raises:
-            MissingPreviousFridCommitsError: If the commit is missing
+            MissingPreviousFunctionalitiesError: If any commit is missing
         """
-        # Check in build folder
-        if not git_utils.has_commit_for_frid(self.module_build_folder, frid, self.module_name):
-            raise MissingPreviousFunctionalitiesError(
-                f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the implementation of the previous functionality ({frid}) hasn't been completed yet.\n\n"
-                f"To fix this, please render the missing functionality ({frid}) first by running:\n"
-                f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
-            )
-
-        # Check in conformance tests folder (only if conformance tests are enabled)
+        missing_in_build = set(
+            git_utils.frids_missing_commits(self.module_build_folder, previous_frids, self.module_name)
+        )
+        missing_in_tests = set()
         if render_conformance_tests:
-            if not git_utils.has_commit_for_frid(self.module_conformance_tests_folder, frid, self.module_name):
+            try:
+                missing_in_tests = set(
+                    git_utils.frids_missing_commits(
+                        self.module_conformance_tests_folder, previous_frids, self.module_name
+                    )
+                )
+            except Exception:
+                # A broken tests repo must not mask the actionable build-repo error below;
+                # with nothing missing in the build repo it is a real failure and propagates.
+                if not missing_in_build:
+                    raise
+
+        for frid in previous_frids:
+            if frid in missing_in_build:
+                raise MissingPreviousFunctionalitiesError(
+                    f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the implementation of the previous functionality ({frid}) hasn't been completed yet.\n\n"
+                    f"To fix this, please render the missing functionality ({frid}) first by running:\n"
+                    f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
+                )
+
+            if frid in missing_in_tests:
                 raise MissingPreviousFunctionalitiesError(
                     f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the conformance tests for the previous functionality ({frid}) haven't been completed yet.\n\n"
                     f"To fix this, please render the missing functionality ({frid}) first by running:\n"
@@ -528,8 +545,7 @@ class PlainModule:
         self._ensure_module_folders_exist(first_render_frid, render_conformance_tests)
 
         # Verify commits exist for all previous FRIDs
-        for prev_frid in previous_frids:
-            self._ensure_frid_commit_exists(prev_frid, first_render_frid, render_conformance_tests)
+        self._raise_for_missing_frid_commits(previous_frids, first_render_frid, render_conformance_tests)
 
     def get_required_module_by_name(self, module_name: str) -> PlainModule:
         for module in self.all_required_modules:

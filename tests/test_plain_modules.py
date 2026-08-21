@@ -7,7 +7,7 @@ These tests build real ``PlainModule`` instances from fixtures in
 
 import json
 import os
-import shutil
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from change_detection import determine_partial_render_start
+from file_utils import delete_folder
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from plain2code_exceptions import InvalidModuleArchiveError, ModuleDoesNotExistError
 from plain_modules import MODULE_METADATA_FILENAME, PlainModule
@@ -403,7 +404,7 @@ def _archive_module(module: PlainModule) -> str:
     """Turn an on-disk module into an archive-only module: zip it, then remove the folder."""
     archive_path = module.module_archive_path
     _zip_module_flat(module.module_folder, archive_path)
-    shutil.rmtree(module.module_folder)
+    delete_folder(module.module_folder)
     return archive_path
 
 
@@ -792,3 +793,38 @@ def test_reconcile_metadata_with_git_no_metadata_is_noop(solo_module):
     solo_module.reconcile_metadata_with_git()
 
     assert solo_module.load_module_metadata() is None
+
+
+# --------------------------------------------------------------------------
+# _raise_for_missing_frid_commits
+# --------------------------------------------------------------------------
+
+
+def test_a_broken_tests_repo_does_not_mask_the_missing_build_commit_error(solo_module, monkeypatch):
+    """The actionable --render-from guidance wins over a raw failure from the tests repo."""
+    import git_utils
+    from plain2code_exceptions import MissingPreviousFunctionalitiesError
+
+    def fake_missing(folder, frids, module_name):
+        if folder == solo_module.module_build_folder:
+            return ["1"]
+        raise RuntimeError("the conformance tests repository is broken")
+
+    monkeypatch.setattr(git_utils, "frids_missing_commits", fake_missing)
+
+    with pytest.raises(MissingPreviousFunctionalitiesError):
+        solo_module._raise_for_missing_frid_commits(["1"], "2", render_conformance_tests=True)
+
+
+def test_a_broken_tests_repo_with_a_healthy_build_repo_still_fails(solo_module, monkeypatch):
+    import git_utils
+
+    def fake_missing(folder, frids, module_name):
+        if folder == solo_module.module_build_folder:
+            return []
+        raise RuntimeError("the conformance tests repository is broken")
+
+    monkeypatch.setattr(git_utils, "frids_missing_commits", fake_missing)
+
+    with pytest.raises(RuntimeError, match="conformance tests repository"):
+        solo_module._raise_for_missing_frid_commits(["1"], "2", render_conformance_tests=True)

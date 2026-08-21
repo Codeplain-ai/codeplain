@@ -10,7 +10,6 @@ Each module renders into a single tree under the build folder:
 
 import json
 import os
-import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -18,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from file_utils import delete_folder
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from partial_rendering import archive_missing_conformance_tests, get_plain_module_render_state, get_render_choices
 from plain_modules import PlainModule
@@ -74,7 +74,7 @@ def _archive_module(module: PlainModule) -> None:
             for name in files:
                 full = os.path.join(root, name)
                 zf.write(full, os.path.relpath(full, module.module_folder))
-    shutil.rmtree(module.module_folder)
+    delete_folder(module.module_folder)
 
 
 # --------------------------------------------------------------------------

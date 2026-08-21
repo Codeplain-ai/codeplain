@@ -36,13 +36,17 @@ def test_dotdot_segments_are_normalized():
 
 
 def test_leading_tilde_is_expanded(monkeypatch):
+    # os.path.expanduser reads HOME on POSIX and USERPROFILE on Windows.
     monkeypatch.setenv("HOME", "/home/alice")
+    monkeypatch.setenv("USERPROFILE", "/home/alice")
     result = resolve_path("~/scripts/run.sh", "cli", cwd=CWD, config_dir=CONFIG_DIR, spec_dir=SPEC_DIR)
     assert result == os.path.normpath("/home/alice/scripts/run.sh")
 
 
 def test_tilde_expansion_applies_regardless_of_source(monkeypatch):
+    # os.path.expanduser reads HOME on POSIX and USERPROFILE on Windows.
     monkeypatch.setenv("HOME", "/home/alice")
+    monkeypatch.setenv("USERPROFILE", "/home/alice")
     for source in ("cli", "config", "default"):
         result = resolve_path("~/x", source, cwd=CWD, config_dir=CONFIG_DIR, spec_dir=SPEC_DIR)
         assert result == os.path.normpath("/home/alice/x")

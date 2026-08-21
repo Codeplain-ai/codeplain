@@ -43,21 +43,20 @@ def _get_full_commit_message(message, module_name, frid, render_id) -> str:
 
 
 def _ensure_git_config(repo: Repo) -> None:
-    config = repo.config_reader()
+    with repo.config_reader() as config:
+        try:
+            config.get_value("user", "name")
+        except (NoSectionError, NoOptionError):
+            # user.name not configured, set a default at repo level
+            with repo.config_writer(config_level="repository") as writer:
+                writer.set_value("user", "name", "Codeplain")
 
-    try:
-        config.get_value("user", "name")
-    except (NoSectionError, NoOptionError):
-        # user.name not configured, set a default at repo level
-        with repo.config_writer(config_level="repository") as writer:
-            writer.set_value("user", "name", "Codeplain")
-
-    try:
-        config.get_value("user", "email")
-    except (NoSectionError, NoOptionError):
-        # user.email not configured, set a default at repo level
-        with repo.config_writer(config_level="repository") as writer:
-            writer.set_value("user", "email", "codeplain@localhost")
+        try:
+            config.get_value("user", "email")
+        except (NoSectionError, NoOptionError):
+            # user.email not configured, set a default at repo level
+            with repo.config_writer(config_level="repository") as writer:
+                writer.set_value("user", "email", "codeplain@localhost")
 
 
 def init_git_repo(
@@ -75,12 +74,16 @@ def init_git_repo(
     else:
         os.makedirs(path_to_repo)
 
-    repo = Repo.init(path_to_repo)
-    _ensure_git_config(repo)
+    # Every function here closes its Repo before returning: GitPython's persistent
+    # `git cat-file` children are only reaped by close(), and on Windows a live child
+    # keeps the repository directory undeletable. A closed Repo stays usable — it
+    # re-acquires its resources lazily — so returning it is safe.
+    with Repo.init(path_to_repo) as repo:
+        _ensure_git_config(repo)
 
-    repo.git.commit(
-        "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
-    )
+        repo.git.commit(
+            "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
+        )
 
     return repo
 
@@ -91,17 +94,18 @@ def clone_repo(
     module_name: Optional[str] = None,
     render_id: Optional[str] = None,
 ) -> Repo:
-    repo = Repo.clone_from(source_repo_path, new_repo_path)
+    with Repo.clone_from(source_repo_path, new_repo_path) as repo:
+        repo.git.commit(
+            "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
+        )
 
-    repo.git.commit(
-        "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
-    )
+    return repo
 
 
 def is_dirty(repo_path: Union[str, os.PathLike]) -> bool:
     """Checks if the repository is dirty."""
-    repo = Repo(repo_path)
-    return repo.is_dirty(untracked_files=True)
+    with Repo(repo_path) as repo:
+        return repo.is_dirty(untracked_files=True)
 
 
 def add_all_files_and_commit(
@@ -112,25 +116,25 @@ def add_all_files_and_commit(
     render_id: Optional[str] = None,
 ) -> Repo:
     """Adds all files to the git repository and commits them."""
-    repo = Repo(repo_path)
-    repo.git.add(".")
+    with Repo(repo_path) as repo:
+        repo.git.add(".")
 
-    message = _get_full_commit_message(commit_message, module_name, frid, render_id)
+        message = _get_full_commit_message(commit_message, module_name, frid, render_id)
 
-    # Check if there are any changes to commit
-    if not repo.is_dirty(untracked_files=True):
-        repo.git.commit("--allow-empty", "-m", message)
-    else:
-        repo.git.commit("-m", message)
+        # Check if there are any changes to commit
+        if not repo.is_dirty(untracked_files=True):
+            repo.git.commit("--allow-empty", "-m", message)
+        else:
+            repo.git.commit("-m", message)
 
     return repo
 
 
 def revert_changes(repo_path: Union[str, os.PathLike]) -> Repo:
     """Reverts all changes made since the last commit."""
-    repo = Repo(repo_path)
-    repo.git.reset("--hard")
-    repo.git.clean("-xdf")
+    with Repo(repo_path) as repo:
+        repo.git.reset("--hard")
+        repo.git.clean("-xdf")
     return repo
 
 
@@ -144,15 +148,16 @@ def revert_to_commit_with_frid(repo_path: Union[str, os.PathLike], frid: Optiona
     It is expected that the repo has at least one commit related to provided frid if frid is not None.
     In case the frid related commit is not found, an exception is raised.
     """
-    repo = Repo(repo_path)
+    with Repo(repo_path) as repo:
+        commit = _get_commit(repo, frid)
 
-    commit = _get_commit(repo, frid)
+        if not commit:
+            raise InvalidGitRepositoryError(
+                "Git repository is in an invalid state. Relevant commit could not be found."
+            )
 
-    if not commit:
-        raise InvalidGitRepositoryError("Git repository is in an invalid state. Relevant commit could not be found.")
-
-    repo.git.reset("--hard", commit)
-    repo.git.clean("-xdf")
+        repo.git.reset("--hard", commit)
+        repo.git.clean("-xdf")
     return repo
 
 
@@ -166,14 +171,15 @@ def checkout_commit_with_frid(repo_path: Union[str, os.PathLike], frid: Optional
     It is expected that the repo has at least one commit related to provided frid if frid is not None.
     In case the frid related commit is not found, an exception is raised.
     """
-    repo = Repo(repo_path)
+    with Repo(repo_path) as repo:
+        commit = _get_commit(repo, frid)
 
-    commit = _get_commit(repo, frid)
+        if not commit:
+            raise InvalidGitRepositoryError(
+                "Git repository is in an invalid state. Relevant commit could not be found."
+            )
 
-    if not commit:
-        raise InvalidGitRepositoryError("Git repository is in an invalid state. Relevant commit could not be found.")
-
-    repo.git.checkout(commit)
+        repo.git.checkout(commit)
     return repo
 
 
@@ -187,8 +193,8 @@ def checkout_previous_branch(repo_path: Union[str, os.PathLike]) -> Repo:
     Returns:
         Repo: The git repository object
     """
-    repo = Repo(repo_path)
-    repo.git.checkout("-")
+    with Repo(repo_path) as repo:
+        repo.git.checkout("-")
     return repo
 
 
@@ -255,15 +261,14 @@ def diff(repo_path: Union[str, os.PathLike], previous_frid: str = None) -> dict:
     Returns:
         dict: Dictionary with file names as keys and their clean diff strings as values
     """
-    repo = Repo(repo_path)
+    with Repo(repo_path) as repo:
+        commit = _get_commit(repo, previous_frid)
 
-    commit = _get_commit(repo, previous_frid)
+        # Add all files to the index to get a clean diff
+        repo.git.add("-N", ".")
 
-    # Add all files to the index to get a clean diff
-    repo.git.add("-N", ".")
-
-    # Get the raw git diff output, excluding .pyc files
-    diff_output = repo.git.diff(commit, "--text", ":!*.pyc")
+        # Get the raw git diff output, excluding .pyc files
+        diff_output = repo.git.diff(commit, "--text", ":!*.pyc")
 
     if not diff_output:
         return {}
@@ -322,7 +327,21 @@ def _get_commit_with_frid(repo: Repo, frid: str, module_name: Optional[str] = No
 
 
 def has_commit_for_frid(repo_path: Union[str, os.PathLike], frid: str, module_name: Optional[str] = None) -> bool:
-    return bool(_get_commit_with_frid(Repo(repo_path), frid, module_name))
+    with Repo(repo_path) as repo:
+        return bool(_get_commit_with_frid(repo, frid, module_name))
+
+
+def frids_missing_commits(
+    repo_path: Union[str, os.PathLike], frids: list[str], module_name: Optional[str] = None
+) -> list[str]:
+    """The frids from `frids` with no commit in the repository, in the order given.
+
+    One Repo answers for the whole list. Asking per frid instead opens and closes a Repo
+    each time, and close() runs gc.collect() twice on win32, so a render resumed late paid
+    that for every functionality before it.
+    """
+    with Repo(repo_path) as repo:
+        return [frid for frid in frids if not _get_commit_with_frid(repo, frid, module_name)]
 
 
 def _get_base_folder_commit(repo: Repo) -> str:
@@ -343,18 +362,17 @@ def _get_commit_with_message(repo: Repo, message: str) -> str:
 
 
 def get_implementation_code_diff(repo_path: Union[str, os.PathLike], frid: str, previous_frid: str) -> dict:
-    repo = Repo(repo_path)
+    with Repo(repo_path) as repo:
+        implementation_commit = _get_commit_with_message(repo, REFACTORED_CODE_COMMIT_MESSAGE.format(frid))
+        if not implementation_commit:
+            implementation_commit = _get_commit_with_message(
+                repo, FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format(frid)
+            )
 
-    implementation_commit = _get_commit_with_message(repo, REFACTORED_CODE_COMMIT_MESSAGE.format(frid))
-    if not implementation_commit:
-        implementation_commit = _get_commit_with_message(
-            repo, FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format(frid)
-        )
+        previous_frid_commit = _get_commit(repo, previous_frid)
 
-    previous_frid_commit = _get_commit(repo, previous_frid)
-
-    # Get the raw git diff output, excluding .pyc files
-    diff_output = repo.git.diff(previous_frid_commit, implementation_commit, "--text", ":!*.pyc")
+        # Get the raw git diff output, excluding .pyc files
+        diff_output = repo.git.diff(previous_frid_commit, implementation_commit, "--text", ":!*.pyc")
 
     if not diff_output:
         return {}
@@ -363,22 +381,21 @@ def get_implementation_code_diff(repo_path: Union[str, os.PathLike], frid: str, 
 
 
 def get_fixed_implementation_code_diff(repo_path: Union[str, os.PathLike], frid: str) -> dict:
-    repo = Repo(repo_path)
+    with Repo(repo_path) as repo:
+        implementation_commit = _get_commit_with_message(repo, REFACTORED_CODE_COMMIT_MESSAGE.format(frid))
+        if not implementation_commit:
+            implementation_commit = _get_commit_with_message(
+                repo, FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format(frid)
+            )
 
-    implementation_commit = _get_commit_with_message(repo, REFACTORED_CODE_COMMIT_MESSAGE.format(frid))
-    if not implementation_commit:
-        implementation_commit = _get_commit_with_message(
-            repo, FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format(frid)
+        conformance_tests_passed_commit = _get_commit_with_message(
+            repo, CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE.format(frid)
         )
+        if not conformance_tests_passed_commit:
+            return None
 
-    conformance_tests_passed_commit = _get_commit_with_message(
-        repo, CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE.format(frid)
-    )
-    if not conformance_tests_passed_commit:
-        return None
-
-    # Get the raw git diff output, excluding .pyc files
-    diff_output = repo.git.diff(implementation_commit, conformance_tests_passed_commit, "--text", ":!*.pyc")
+        # Get the raw git diff output, excluding .pyc files
+        diff_output = repo.git.diff(implementation_commit, conformance_tests_passed_commit, "--text", ":!*.pyc")
 
     if not diff_output:
         return {}
@@ -396,31 +413,30 @@ def get_repo_info(repo_path: Union[str, os.PathLike]) -> dict:
       - is_dirty: boolean (includes untracked files)
       - remotes: dict mapping remote name to list of URLs
     """
-    repo = Repo(repo_path)
+    with Repo(repo_path) as repo:
+        info = {"path": os.path.abspath(repo_path)}
 
-    info = {"path": os.path.abspath(repo_path)}
+        # Active branch (handle detached HEAD safely)
+        try:
+            if getattr(repo.head, "is_detached", False):
+                # Provide short commit identifier for detached head if available
+                try:
+                    commit_sha = repo.head.commit.hexsha[:7]
+                    info["active_branch"] = f"DETACHED_{commit_sha}"
+                except Exception:
+                    info["active_branch"] = "DETACHED"
+            else:
+                info["active_branch"] = repo.active_branch.name
+        except Exception:
+            info["active_branch"] = None
 
-    # Active branch (handle detached HEAD safely)
-    try:
-        if getattr(repo.head, "is_detached", False):
-            # Provide short commit identifier for detached head if available
-            try:
-                commit_sha = repo.head.commit.hexsha[:7]
-                info["active_branch"] = f"DETACHED_{commit_sha}"
-            except Exception:
-                info["active_branch"] = "DETACHED"
-        else:
-            info["active_branch"] = repo.active_branch.name
-    except Exception:
-        info["active_branch"] = None
+        info["is_dirty"] = repo.is_dirty(untracked_files=True)
 
-    info["is_dirty"] = repo.is_dirty(untracked_files=True)
-
-    # Remotes
-    remotes = {}
-    for remote in repo.remotes:
-        remotes[remote.name] = list(remote.urls)
-    info["remotes"] = remotes
+        # Remotes
+        remotes = {}
+        for remote in repo.remotes:
+            remotes[remote.name] = list(remote.urls)
+        info["remotes"] = remotes
 
     return info
 
@@ -429,35 +445,38 @@ def get_last_rendered_functionality(repo_path: Union[str, os.PathLike]) -> tuple
     if not os.path.exists(repo_path):
         return None, None
 
-    repo = Repo(repo_path)
-    grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
-    grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
-    commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
-
-    if not commit_sha:
-        # Repo was interrupted during the first functionality, fallback to initial commit and provide only module name
-        grep_pattern = INITIAL_COMMIT_MESSAGE
+    with Repo(repo_path) as repo:
+        grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
         grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
         commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
+
         if not commit_sha:
-            raise InvalidGitRepositoryError("Git repository is in an invalid state. Initial commit could not be found.")
+            # Repo was interrupted during the first functionality, fallback to initial commit
+            # and provide only module name
+            grep_pattern = INITIAL_COMMIT_MESSAGE
+            grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
+            commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
+            if not commit_sha:
+                raise InvalidGitRepositoryError(
+                    "Git repository is in an invalid state. Initial commit could not be found."
+                )
+
+            commit_message = repo.commit(commit_sha).message
+            if isinstance(commit_message, bytes):
+                commit_message = commit_message.decode("utf-8")
+
+            match = re.search(r"Module name:\s*(\S+)\n", commit_message)
+            if not match:
+                raise InvalidGitRepositoryError(
+                    "Git repository is in an invalid state. Could not find module name in initial commit."
+                )
+
+            module_name = match.group(1)
+            return module_name, None
 
         commit_message = repo.commit(commit_sha).message
         if isinstance(commit_message, bytes):
             commit_message = commit_message.decode("utf-8")
-
-        match = re.search(r"Module name:\s*(\S+)\n", commit_message)
-        if not match:
-            raise InvalidGitRepositoryError(
-                "Git repository is in an invalid state. Could not find module name in initial commit."
-            )
-
-        module_name = match.group(1)
-        return module_name, None
-
-    commit_message = repo.commit(commit_sha).message
-    if isinstance(commit_message, bytes):
-        commit_message = commit_message.decode("utf-8")
 
     match = re.search(r"FRID\):(\S+) fully implemented", commit_message)
     if not match:

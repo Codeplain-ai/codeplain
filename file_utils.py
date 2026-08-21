@@ -103,6 +103,24 @@ def delete_folder(folder_name):
         shutil.rmtree(folder_name, onerror=_on_rm_error)
 
 
+def _on_rm_error_best_effort(func, path, _exc_info):
+    """Clear the read-only flag and retry; give up quietly if that does not help."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        pass
+
+
+def delete_folder_best_effort(folder_name):
+    """Delete a folder without failing the caller if part of it survives.
+
+    shutil.rmtree's ignore_errors skips a read-only file rather than clearing the flag,
+    so on Windows a folder holding a git object store is left behind.
+    """
+    shutil.rmtree(folder_name, onerror=_on_rm_error_best_effort)
+
+
 def delete_files_and_subfolders(directory):
     """Delete all contents of a directory but keep the directory itself."""
     for entry in os.scandir(directory):
