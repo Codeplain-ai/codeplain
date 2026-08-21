@@ -32,6 +32,11 @@ class PrepareRepositories(BaseAction):
                 )
 
         else:
+            if render_context.required_modules:
+                # If the required module exists only as a "<module>.module" archive, extract it to scratch first
+                # (no-op if it is already an unpacked folder or already materialized).
+                render_context.required_modules[-1].materialize()
+
             file_utils.delete_folder(render_context.plain_module.module_folder)
             render_context.plain_module.seed_module_metadata()
 
