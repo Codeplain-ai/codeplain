@@ -73,7 +73,7 @@ class TestErrorCodesAreReadOnEveryDeclinedStatus:
         api, response = self._api_returning(500, {"error_code": "InternalServerError", "message": "boom"})
 
         with patch("requests.post", return_value=response):
-            with pytest.raises(plain2code_exceptions.InternalServerError, match="support@codeplain.ai"):
+            with pytest.raises(plain2code_exceptions.InternalServerError, match="render log"):
                 api.post_request("https://api.example/x", {}, {}, None, num_retries=0)
 
     def test_a_success_is_returned_untouched(self):

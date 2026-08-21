@@ -112,8 +112,7 @@ class CodeplainAPI:
             raise plain2code_exceptions.plain_syntax_error(message or "Unknown error")
         if error_code == "InternalServerError":
             raise plain2code_exceptions.InternalServerError(
-                "Internal server error.\n\n"
-                "Please report the error to support@codeplain.ai with the attached .log file."
+                "Internal server error. The render log records the render ID and what the render was doing."
             )
         exception_class = ERROR_CODE_EXCEPTIONS[error_code]
         raise exception_class(message)
