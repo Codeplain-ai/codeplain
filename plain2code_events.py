@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from render_machine.render_types import (
-    ConformanceTestsRunningContext,
     FridContext,
     ModuleConformanceTestsRunningContext,
     ScriptExecutionHistory,
@@ -19,7 +18,6 @@ class BaseEvent:
 @dataclass
 class RenderContextSnapshot:
     frid_context: Optional[FridContext]
-    conformance_tests_running_context: Optional[ConformanceTestsRunningContext]
     module_conformance_tests_running_context: Optional[ModuleConformanceTestsRunningContext]
     unit_tests_running_context: Optional[UnitTestsRunningContext]
     script_execution_history: Optional[ScriptExecutionHistory]

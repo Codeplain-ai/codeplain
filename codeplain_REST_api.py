@@ -574,7 +574,6 @@ class CodeplainAPI:
 
     def render_acceptance_tests(
         self,
-        frid,
         plain_source_tree,
         linked_resources,
         existing_files_content,
@@ -583,13 +582,17 @@ class CodeplainAPI:
         module_name: str,
         required_modules,
         acceptance_test,
+        acceptance_test_frid,
         run_state: RunState,
     ):
         """
         Renders acceptance tests based on the provided parameters.
 
         Args:
-            frid (str): The unique identifier for the functionality.
+            acceptance_test_frid (str): The functionality the acceptance test specifies. The request
+                                       itself is module-scoped, so `frid` carries the module scope
+                                       sentinel and this identifies which functionality the
+                                       acceptance test is rendered against.
             plain_source_tree (dict): A dictionary containing the plain source tree.
             linked_resources (dict): A dictionary where the keys represent resource names
                                     and the values are the content of those resources.
@@ -612,7 +615,8 @@ class CodeplainAPI:
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
 
         payload = {
-            "frid": frid,
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "acceptance_test_frid": acceptance_test_frid,
             "plain_source_tree": plain_source_tree,
             "linked_resources": linked_resources,
             "existing_files_content": existing_files_content,

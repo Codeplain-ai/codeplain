@@ -1,41 +1,7 @@
 from dataclasses import dataclass, field
-from enum import Enum, auto
 from typing import Any, Optional
 
-import plain_spec
 from plain2code_exceptions import InternalClientError
-
-
-class TestExecutionPhase(Enum):
-    """Explicit phases of conformance test execution."""
-
-    # Initial testing of current FRID
-    TESTING_CURRENT_FRID = auto()
-
-    # Running regression tests on earlier FRIDs
-    RUNNING_REGRESSION = auto()
-
-    # Re-running a specific test that failed after code change
-    RETRYING_AFTER_CODE_CHANGE = auto()
-
-    # All tests passed
-    COMPLETED = auto()
-
-
-class AcceptanceTestPhase(Enum):
-    """Phases for incremental acceptance test execution."""
-
-    # No acceptance tests have been run yet
-    NOT_STARTED = auto()
-
-    # Currently running acceptance tests incrementally
-    IN_PROGRESS = auto()
-
-    # All acceptance tests completed
-    COMPLETED = auto()
-
-    # No acceptance tests defined for this FRID
-    NOT_APPLICABLE = auto()
 
 
 @dataclass
@@ -53,92 +19,6 @@ class FridContext:
 class UnitTestsRunningContext:
     fix_attempts: int
     changed_files: set[str] = field(default_factory=set)
-
-
-class ConformanceTestsRunningContext:
-    def __init__(
-        self,
-        current_testing_module_name: str,
-        current_testing_frid: Optional[str],
-        fix_attempts: int,
-        conformance_tests_json: dict,
-        conformance_tests_render_attempts: int,
-        current_testing_frid_specifications: Optional[dict[str, list]],
-        should_prepare_testing_environment: bool,
-        conflicting_requirement_count: int = 0,
-        conflicting_module_name: Optional[str] = None,
-        conflicting_frid: Optional[str] = None,
-        frid_being_implemented: Optional[str] = None,
-    ):
-        self.current_testing_module_name = current_testing_module_name
-        self.current_testing_frid = current_testing_frid
-        self.fix_attempts = fix_attempts
-        self._conformance_tests_json = {current_testing_module_name: conformance_tests_json}
-        self.conformance_tests_render_attempts = conformance_tests_render_attempts
-        self.current_testing_frid_specifications = current_testing_frid_specifications
-        self.should_prepare_testing_environment = should_prepare_testing_environment
-        self.conflicting_requirement_count = conflicting_requirement_count
-        self.conflicting_module_name = conflicting_module_name
-        self.conflicting_frid = conflicting_frid
-
-        self.execution_phase: TestExecutionPhase = TestExecutionPhase.TESTING_CURRENT_FRID
-        self.acceptance_test_phase: AcceptanceTestPhase = AcceptanceTestPhase.NOT_STARTED
-        self.acceptance_tests_completed: int = 0
-        self.frid_being_implemented: Optional[str] = frid_being_implemented
-        self.test_that_triggered_code_change: Optional[tuple[str, str]] = None
-        self.code_changed_during_regression: bool = False
-
-        self.regenerating_conformance_tests: bool = False
-
-        self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
-        self.previous_conformance_tests_issue_old: Optional[str] = None
-        self.previous_conformance_tests_issue_frid: Optional[str] = None
-        self.previous_conformance_tests_issue_module: Optional[str] = None
-        self.code_diff_files: Optional[dict[str, str]] = None
-
-    def get_conformance_tests_json(self, module_name: str) -> dict:
-        return self._conformance_tests_json[module_name]
-
-    def conformance_tests_json_has_module_populated(self, module_name: str) -> bool:
-        return module_name in self._conformance_tests_json and len(self._conformance_tests_json[module_name]) > 0
-
-    def set_conformance_tests_json(self, module_name: str, conformance_tests_json: dict):
-        self._conformance_tests_json[module_name] = conformance_tests_json
-
-    def get_current_conformance_test_folder_name(self) -> str:
-        return self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
-            "folder_name"
-        ]
-
-    def current_conformance_tests_exist(self) -> bool:
-        return (
-            self.get_conformance_tests_json(self.current_testing_module_name).get(self.current_testing_frid) is not None
-        )
-
-    def get_current_acceptance_tests(self) -> Optional[list[str]]:
-        if (
-            plain_spec.ACCEPTANCE_TESTS
-            in self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid]
-        ):
-            return self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
-                plain_spec.ACCEPTANCE_TESTS
-            ]
-
-        return []
-
-    def get_current_acceptance_test(self) -> Optional[str]:
-        """Get the current acceptance test text (raw, unformatted)."""
-        if plain_spec.ACCEPTANCE_TESTS not in self.current_testing_frid_specifications:
-            return None
-        acceptance_tests = self.current_testing_frid_specifications[plain_spec.ACCEPTANCE_TESTS]
-        if not acceptance_tests or self.acceptance_tests_completed == 0:
-            return None
-        return acceptance_tests[self.acceptance_tests_completed - 1]
-
-    def set_conformance_tests_summary(self, summary: list[dict]):
-        self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
-            "test_summary"
-        ] = summary
 
 
 class ModuleConformanceSuite:
@@ -197,6 +77,11 @@ class ModuleConformanceTestsRunningContext:
         self.number_of_batches: int = 0
         self.batches_rendered: int = 0
 
+        # The module's acceptance tests, as (frid, acceptance test) pairs in functionality order.
+        # They are implemented into the same suite once the planned tests are in place.
+        self.acceptance_tests: list[tuple[str, str]] = []
+        self.acceptance_tests_rendered: int = 0
+
         self.fix_attempts: int = 0
         self.conformance_tests_render_attempts: int = 0
         self.should_prepare_testing_environment: bool = True
@@ -219,6 +104,16 @@ class ModuleConformanceTestsRunningContext:
 
     def has_more_batches_to_render(self) -> bool:
         return self.batches_rendered < self.number_of_batches
+
+    def has_more_acceptance_tests_to_render(self) -> bool:
+        return self.acceptance_tests_rendered < len(self.acceptance_tests)
+
+    def next_acceptance_test(self) -> tuple[str, str]:
+        """The (frid, acceptance test) pair to implement next."""
+        return self.acceptance_tests[self.acceptance_tests_rendered]
+
+    def has_more_tests_to_render(self) -> bool:
+        return self.has_more_batches_to_render() or self.has_more_acceptance_tests_to_render()
 
     def has_next_suite(self) -> bool:
         return self.current_suite_index + 1 < len(self.suites)

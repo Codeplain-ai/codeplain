@@ -28,87 +28,6 @@ class MemoryManager:
         self.codeplain_api = codeplain_api
         self.memory_folder = memory_folder
 
-    def create_conformance_tests_memory(
-        self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str
-    ):
-
-        current_conformance_tests_issue_frid = render_context.conformance_tests_running_context.current_testing_frid
-        current_conformance_tests_issue_module = (
-            render_context.conformance_tests_running_context.current_testing_module_name
-        )
-        old_conformance_tests_issue_frid = (
-            render_context.conformance_tests_running_context.previous_conformance_tests_issue_frid
-        )
-        old_conformance_tests_issue_module = (
-            render_context.conformance_tests_running_context.previous_conformance_tests_issue_module
-        )
-
-        old_conformance_tests_issue = (
-            render_context.conformance_tests_running_context.previous_conformance_tests_issue_old
-        )
-
-        is_first_time_running_conformance_tests = (
-            old_conformance_tests_issue_frid is None
-            or old_conformance_tests_issue_frid == ""
-            or old_conformance_tests_issue_module != current_conformance_tests_issue_module
-        )
-        is_same_frid_as_previous_failing_test = (
-            current_conformance_tests_issue_frid == old_conformance_tests_issue_frid
-            and current_conformance_tests_issue_module == old_conformance_tests_issue_module
-        )
-        is_conformance_test_failed = exit_code != CONFORMANCE_TESTS_SUCCESS_EXIT_CODE
-
-        should_create_memory = not is_first_time_running_conformance_tests and (
-            is_same_frid_as_previous_failing_test or is_conformance_test_failed
-        )
-        code_diff_files = render_context.conformance_tests_running_context.code_diff_files
-
-        if not should_create_memory or code_diff_files is None:
-            console.debug(
-                "Skipping creation of conformance test memory because the conditions for creating memories are not met."
-            )
-            return
-
-        existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
-            render_context.build_folder
-        )
-        memory_files, memory_files_content = MemoryManager.fetch_memory_files(self.memory_folder)
-
-        conformance_tests_folder_name = (
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
-        )
-
-        (
-            _,
-            existing_conformance_test_files_content,
-        ) = render_context.conformance_tests.fetch_existing_conformance_test_files(
-            render_context.module_name,
-            render_context.required_modules,
-            render_context.conformance_tests_running_context.current_testing_module_name,
-            conformance_tests_folder_name,
-        )
-        acceptance_tests = render_context.conformance_tests_running_context.get_current_acceptance_tests()
-
-        response_files = render_context.codeplain_api.create_conformance_test_memory(
-            render_context.frid_context.frid,
-            render_context.plain_source_tree,
-            render_context.frid_context.linked_resources,
-            existing_files_content,
-            memory_files_content,
-            render_context.module_name,
-            render_context.get_required_modules_functionalities(),
-            code_diff_files,
-            existing_conformance_test_files_content,
-            acceptance_tests,
-            conformance_tests_issue,
-            conformance_tests_folder_name,
-            old_conformance_tests_issue,
-            run_state=render_context.run_state,
-        )
-        if len(response_files) > 0:
-            memory_folder_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
-            file_utils.store_response_files(memory_folder_path, response_files, memory_files)
-
     def create_module_conformance_tests_memory(
         self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str
     ):
@@ -160,7 +79,7 @@ class MemoryManager:
             render_context.get_required_modules_functionalities(),
             ctx.code_diff_files,
             existing_conformance_test_files_content,
-            render_context.get_module_acceptance_tests(),
+            [acceptance_test for _, acceptance_test in ctx.acceptance_tests],
             conformance_tests_issue,
             ctx.current_suite.require_folder_name(),
             ctx.previous_conformance_tests_issue_old,

@@ -138,20 +138,20 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 
 **Functionalities (FRIDs)**: Each functional requirement in a `.plain` file has a unique ID (FRID). The renderer processes them sequentially. State is checkpointed after each FRID.
 
-**Render State Machine** (`render_machine/states.py`): Hierarchical FSM with states like:
-- `IMPLEMENTING_FRID` → `PROCESSING_UNIT_TESTS` → `REFACTORING_CODE` → `PROCESSING_CONFORMANCE_TESTS`
+**Render State Machine** (`render_machine/states.py`): Hierarchical FSM. Each functionality is
+implemented in turn under `IMPLEMENTING_FRID` (`READY_FOR_FRID_IMPLEMENTATION` →
+`PROCESSING_UNIT_TESTS` → `REFACTORING_CODE` → `FRID_FULLY_IMPLEMENTED`); once every functionality is
+done, the root-level `PROCESSING_MODULE_CONFORMANCE_TESTS` phase runs.
 - Transitions handled by triggers in `render_machine/triggers.py`
 - Config in `render_machine/state_machine_config.py`
 
-**Conformance scope** (`--conformance-scope`): selects the shape of the machine's conformance
-testing. Unit tests are always per functionality; conformance tests are either:
-- `functionality` (default) — `PROCESSING_CONFORMANCE_TESTS` runs inside `IMPLEMENTING_FRID`, so each
-  functionality gets its own planned test folder, run and fixed before the next functionality starts.
-- `module` — `PROCESSING_MODULE_CONFORMANCE_TESTS` is a root-level phase entered after every
-  functionality has been implemented. One plan covers all of the module's functionalities, it is
-  implemented into a single suite in batches, and the suites in scope (the required modules', then the
-  module's own) are run in turn. A fix that touches the implementation code re-runs the unit tests and
-  then restarts the sweep, since a fix for one functionality can regress another.
+**Conformance testing is scoped to the whole module.** Unit tests are per functionality; conformance
+tests are not. `PROCESSING_MODULE_CONFORMANCE_TESTS` plans one suite covering every functionality of
+the module, implements it into a single folder (`<module>/tests/module_conformance_tests`) in steps —
+the planned tests a batch at a time, then the module's acceptance tests one at a time — and then runs
+the suites in scope in turn: the required modules' first as regression, then the module's own. A fix
+that touches the implementation code reconciles the unit tests and restarts the sweep, since a fix for
+one functionality can regress another. There is no per-functionality conformance mode.
 
 **Memory Management** (`memory_management.py`): Tracks previously rendered code to provide context to the LLM for incremental changes. Uses git commits to persist checkpoints.
 

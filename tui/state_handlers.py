@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from plain2code_events import RenderContextSnapshot
-from render_machine.render_types import AcceptanceTestPhase
 from render_machine.states import States
 
 from . import components as tui_components
@@ -18,22 +17,6 @@ from .widget_helpers import (
     update_progress_item_status,
     update_progress_item_substates,
 )
-
-
-def format_acceptance_test_text(raw_text: str | None) -> str:
-    """Format acceptance test text for display by removing list prefix if present.
-
-    Args:
-        raw_text: The raw acceptance test text from specifications (can be None during state transitions)
-
-    Returns:
-        Formatted text with "- " prefix removed if present, or empty string if None
-    """
-    if raw_text is None:
-        return ""
-    if raw_text.startswith("- "):
-        return raw_text[2:]
-    return raw_text
 
 
 class StateHandler(ABC):
@@ -171,81 +154,6 @@ class RefactoringHandler(StateHandler):
                     self.tui,
                     TUIComponents.FRID_PROGRESS_REFACTORING.value,
                     [Substate("Refactoring code", children=[Substate("Fixing unit tests")])],
-                )
-
-
-class ConformanceTestsHandler(StateHandler):
-    """Handler for PROCESSING_CONFORMANCE_TESTS state."""
-
-    def __init__(self, tui, unittests_script: Optional[str], conformance_tests_script: Optional[str]):
-        """Initialize handler with TUI instance.
-
-        Args:
-            tui: The Plain2CodeTUI instance
-        """
-        self.tui = tui
-        self.unittests_script = unittests_script
-        self.conformance_tests_script = conformance_tests_script
-
-    def handle(self, segments: list[str], snapshot: RenderContextSnapshot, previous_state_segments: list[str]) -> None:
-        """Handle PROCESSING_CONFORMANCE_TESTS state."""
-        if previous_state_segments[1] == States.REFACTORING_CODE.value:
-            if self.conformance_tests_script is not None:
-                update_progress_item_status(
-                    self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, ProgressItem.PROCESSING
-                )
-
-        if segments[2] != States.POSTPROCESSING_CONFORMANCE_TESTS.value:
-            if segments[2] == States.CONFORMANCE_TESTING_INITIALISED.value:
-                phase = snapshot.conformance_tests_running_context.acceptance_test_phase
-                # Rendering full conformance tests (if there are no acceptance tests available or haven't been started yet)
-                if phase == AcceptanceTestPhase.NOT_STARTED or phase == AcceptanceTestPhase.NOT_APPLICABLE:
-                    rendering_text = f"Rendering conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
-                    update_progress_item_substates(
-                        self.tui,
-                        TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
-                        [Substate(rendering_text)],
-                    )
-                else:
-                    acceptance_test = snapshot.conformance_tests_running_context.get_current_acceptance_test()
-                    acceptance_test_text = f"Rendering acceptance test: {format_acceptance_test_text(acceptance_test)}"  # type: ignore
-                    update_progress_item_substates(
-                        self.tui,
-                        TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
-                        [Substate(acceptance_test_text)],
-                    )
-            elif segments[2] == States.CONFORMANCE_TEST_GENERATED.value:
-                update_progress_item_substates(
-                    self.tui,
-                    TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
-                    [Substate("Preparing testing environment for conformance tests")],
-                )
-            elif segments[2] == States.CONFORMANCE_TEST_ENV_PREPARED.value:
-                running_text = f"Running conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
-                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
-                    running_text += (
-                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
-                    )
-
-                update_progress_item_substates(
-                    self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(running_text)]
-                )
-            elif segments[2] == States.CONFORMANCE_TEST_FAILED.value:
-                fixing_text = f"Fixing conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
-                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
-                    fixing_text += (
-                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
-                    )
-
-                update_progress_item_substates(
-                    self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(fixing_text)]
-                )
-        else:
-            if segments[3] == States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value:
-                update_progress_item_substates(
-                    self.tui,
-                    TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
-                    [Substate("Summarizing conformance tests")],
                 )
 
 
@@ -458,7 +366,3 @@ class StateCompletionHandler(StateHandler):
             update_progress_item_status(self.tui, TUIComponents.FRID_PROGRESS_UNIT_TEST.value, ProgressItem.COMPLETED)
         if previous_segment == States.REFACTORING_CODE.value:
             update_progress_item_status(self.tui, TUIComponents.FRID_PROGRESS_REFACTORING.value, ProgressItem.COMPLETED)
-        if previous_segment == States.PROCESSING_CONFORMANCE_TESTS.value:
-            update_progress_item_status(
-                self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, ProgressItem.COMPLETED
-            )

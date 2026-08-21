@@ -42,7 +42,6 @@ from .components import (
     TUIComponents,
 )
 from .state_handlers import (
-    ConformanceTestsHandler,
     FridFullyImplementedHandler,
     FridReadyHandler,
     ModuleConformanceTestsHandler,
@@ -115,9 +114,6 @@ class Plain2CodeTUI(App):
                 self, self.unittests_script, self.conformance_tests_script
             ),
             States.REFACTORING_CODE.value: RefactoringHandler(
-                self, self.unittests_script, self.conformance_tests_script
-            ),
-            States.PROCESSING_CONFORMANCE_TESTS.value: ConformanceTestsHandler(
                 self, self.unittests_script, self.conformance_tests_script
             ),
             States.FRID_FULLY_IMPLEMENTED.value: FridFullyImplementedHandler(

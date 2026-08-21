@@ -10,7 +10,6 @@ from unittest.mock import MagicMock
 import pytest
 from transitions.extensions.diagrams import HierarchicalGraphMachine
 
-from plain2code_arguments import CONFORMANCE_SCOPE_FUNCTIONALITY, CONFORMANCE_SCOPE_MODULE
 from render_machine import triggers as triggers_module
 from render_machine.state_machine_config import StateMachineConfig
 from render_machine.states import States
@@ -106,7 +105,6 @@ class TestOutcomeToTriggerMap:
         imperative_triggers = {
             triggers_module.RESTART_FRID_PROCESSING,
             triggers_module.START_NEW_REFACTORING_ITERATION,
-            triggers_module.MARK_ALL_CONFORMANCE_TESTS_PASSED,
         }
         # CreateDist runs while the machine already rests in RENDER_COMPLETED, and the renderer breaks
         # out of its loop before dispatching, so this trigger never needs a transition.
@@ -124,7 +122,7 @@ class TestOutcomeToTriggerMap:
 
 
 class TestModuleConformanceTopology:
-    """Module-scoped conformance testing is a root-level phase, not a child of IMPLEMENTING_FRID."""
+    """Conformance testing is a root-level phase, not a child of IMPLEMENTING_FRID."""
 
     def test_module_conformance_phase_is_a_root_state(self, config, render_context):
         root_state_names = {
@@ -150,7 +148,7 @@ class TestModuleConformanceTopology:
 
         assert destinations == {States.RENDER_COMPLETED.value}
 
-    def test_last_functionality_enters_the_module_phase_only_in_module_scope(self, config, render_context):
+    def test_the_phase_is_entered_after_the_last_functionality(self, config, render_context):
         transitions = config.get_transitions(render_context)
         source = f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}"
 
@@ -162,27 +160,243 @@ class TestModuleConformanceTopology:
 
         assert len(module_phase_transitions) == 1
         transition = module_phase_transitions[0]
-        assert render_context.should_run_module_conformance_tests in transition["conditions"]
+        assert render_context.should_run_conformance_tests in transition["conditions"]
         assert render_context.has_next_frid in transition["unless"]
 
-    def test_per_functionality_conformance_is_gated_on_the_functionality_scope(self, config, render_context):
-        """Under module scope, implementing a functionality must not run conformance tests for it."""
+    def test_implementing_a_functionality_never_runs_conformance_tests(self, config, render_context):
+        """Conformance testing is reached only from the root level, once every frid is implemented."""
         transitions = config.get_transitions(render_context)
-        source = (
-            f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_" f"{States.READY_FOR_REFACTORING.value}"
-        )
 
-        conformance_transitions = [
+        frid_scoped_conformance = [
             transition
             for transition in transitions
-            if transition["source"] == source
-            and transition["dest"] == f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}"
+            if transition["dest"].startswith(f"{States.IMPLEMENTING_FRID.value}_")
+            and "onformanceTests" in transition["dest"]
         ]
 
-        assert len(conformance_transitions) == 1
-        assert conformance_transitions[0]["conditions"] == render_context.should_run_frid_conformance_tests
+        assert frid_scoped_conformance == []
+
+    def test_refactoring_leads_straight_to_the_functionality_being_done(self, config, render_context):
+        transitions = config.get_transitions(render_context)
+        source = (
+            f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.READY_FOR_REFACTORING.value}"
+        )
+
+        destinations = {
+            transition["dest"]
+            for transition in transitions
+            if transition["source"] == source and transition["trigger"] == triggers_module.PROCEED_FRID_PROCESSING
+        }
+
+        assert destinations == {f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}"}
 
 
-class TestConformanceScopeValues:
-    def test_the_two_scopes_are_distinct(self):
-        assert CONFORMANCE_SCOPE_FUNCTIONALITY != CONFORMANCE_SCOPE_MODULE
+class _FakeRenderContext:
+    """A render context that only knows how to answer the machine's questions.
+
+    It stands in for RenderContext so the topology can be walked without a build folder, a git repo
+    or an API. The callbacks the configuration wires up are declared explicitly rather than caught by
+    a __getattr__, because the machine binds its own trigger methods onto the model and a catch-all
+    would shadow them.
+    """
+
+    def __init__(self, number_of_frids: int, conformance_tests_enabled: bool = True):
+        self.frids_left = number_of_frids
+        self.conformance_tests_enabled = conformance_tests_enabled
+
+    # ---- predicates the transitions are guarded on ----
+    def has_next_frid(self):
+        return self.frids_left > 0
+
+    def should_run_unit_tests(self):
+        return True
+
+    def should_run_conformance_tests(self):
+        return self.conformance_tests_enabled
+
+    # ---- state callbacks ----
+    def start_implementing_frid(self):
+        # Consumes a functionality, the way the real callback walks on to the next frid.
+        self.frids_left -= 1
+
+    def finish_implementing_frid(self):
+        pass
+
+    def start_unittests_processing(self):
+        pass
+
+    def finish_unittests_processing(self):
+        pass
+
+    def start_fixing_unit_tests(self, _on_limit_exceeded):
+        pass
+
+    def _on_unit_test_limit_exceeded_in_implementation(self):
+        pass
+
+    def _on_unit_test_limit_exceeded_in_refactoring(self):
+        pass
+
+    def _on_unit_test_limit_exceeded_in_module_conformance_tests(self):
+        pass
+
+    def start_module_conformance_tests_processing(self):
+        pass
+
+    def finish_module_conformance_tests_processing(self):
+        pass
+
+    def start_render_completed(self):
+        pass
+
+    def start_render_failed(self):
+        pass
+
+
+def _walk(machine, context, trigger):
+    machine.dispatch(trigger)
+    return context.state
+
+
+class TestRenderFlowOrder:
+    """The order the phases actually run in: every functionality first, conformance at the very end."""
+
+    def _machine_for(self, config, context):
+        return HierarchicalGraphMachine(
+            model=context,
+            states=config.get_states(context),
+            transitions=config.get_transitions(context),
+            initial=States.RENDER_INITIALISED.value,
+        )
+
+    def _implement_one_functionality(self, machine, context):
+        """Drive one functionality through implementation, unit tests and refactoring."""
+        visited = [_walk(machine, context, triggers_module.RENDER_FUNCTIONAL_REQUIREMENT)]
+        visited.append(_walk(machine, context, triggers_module.MARK_UNIT_TESTS_PASSED))
+        visited.append(_walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING))
+        visited.append(_walk(machine, context, triggers_module.REFACTOR_CODE))
+        visited.append(_walk(machine, context, triggers_module.MARK_UNIT_TESTS_PASSED))
+        visited.append(_walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING))
+        visited.append(_walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING))
+        return visited
+
+    def test_conformance_testing_only_starts_after_the_last_functionality(self, config):
+        context = _FakeRenderContext(number_of_frids=3)
+        machine = self._machine_for(config, context)
+
+        _walk(machine, context, triggers_module.START_RENDER)
+
+        visited_per_functionality = []
+        for _ in range(3):
+            visited_per_functionality.append(self._implement_one_functionality(machine, context))
+            # Leaving a functionality either starts the next one or enters conformance testing.
+            visited_per_functionality[-1].append(_walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING))
+
+        # No conformance state is visited while functionalities are still being implemented.
+        while_implementing = [state for states in visited_per_functionality[:-1] for state in states]
+        assert not any("onformance" in state for state in while_implementing)
+
+        # The last functionality hands over to the module conformance phase.
+        assert context.state.startswith(States.PROCESSING_MODULE_CONFORMANCE_TESTS.value)
+
+    def test_the_conformance_phase_plans_then_implements_then_runs_then_finishes(self, config):
+        context = _FakeRenderContext(number_of_frids=1)
+        machine = self._machine_for(config, context)
+
+        _walk(machine, context, triggers_module.START_RENDER)
+        self._implement_one_functionality(machine, context)
+        _walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING)
+
+        phase = States.PROCESSING_MODULE_CONFORMANCE_TESTS.value
+        assert context.state == f"{phase}_{States.MODULE_CONFORMANCE_TESTING_INITIALISED.value}"
+
+        # Planning, then a batch of the plan, then another step (an acceptance test) into the suite.
+        assert (
+            _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_PLANNED)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}"
+        )
+        assert (
+            _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_PLANNED)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}"
+        )
+
+        # Suite complete: prepare the environment, then run.
+        assert (
+            _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_READY)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}"
+        )
+        assert (
+            _walk(machine, context, triggers_module.MARK_MODULE_TESTING_ENVIRONMENT_PREPARED)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}"
+        )
+
+        # A suite passed and another one is pending: back through environment preparation.
+        assert (
+            _walk(machine, context, triggers_module.MOVE_TO_NEXT_MODULE_CONFORMANCE_SUITE)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}"
+        )
+        _walk(machine, context, triggers_module.MARK_MODULE_TESTING_ENVIRONMENT_PREPARED)
+
+        # Every suite passed: summarize, commit, analyze, finish, done.
+        assert _walk(machine, context, triggers_module.MARK_ALL_MODULE_CONFORMANCE_TESTS_PASSED) == (
+            f"{phase}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_"
+            f"{States.MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}"
+        )
+        assert _walk(machine, context, triggers_module.MARK_NEXT_MODULE_CONFORMANCE_TESTS_POSTPROCESSING_STEP) == (
+            f"{phase}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_"
+            f"{States.MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT.value}"
+        )
+        assert _walk(machine, context, triggers_module.MARK_NEXT_MODULE_CONFORMANCE_TESTS_POSTPROCESSING_STEP) == (
+            f"{phase}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_"
+            f"{States.MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value}"
+        )
+        assert (
+            _walk(machine, context, triggers_module.PROCEED_MODULE_CONFORMANCE_TESTING)
+            == f"{phase}_{States.MODULE_FULLY_IMPLEMENTED.value}"
+        )
+        assert (
+            _walk(machine, context, triggers_module.PROCEED_MODULE_CONFORMANCE_TESTING) == States.RENDER_COMPLETED.value
+        )
+
+    def test_a_failing_suite_is_fixed_and_re_run(self, config):
+        context = _FakeRenderContext(number_of_frids=1)
+        machine = self._machine_for(config, context)
+        phase = States.PROCESSING_MODULE_CONFORMANCE_TESTS.value
+
+        _walk(machine, context, triggers_module.START_RENDER)
+        self._implement_one_functionality(machine, context)
+        _walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING)
+        _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_PLANNED)
+        _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_READY)
+        _walk(machine, context, triggers_module.MARK_MODULE_TESTING_ENVIRONMENT_PREPARED)
+
+        assert (
+            _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_FAILED)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_FAILED.value}"
+        )
+
+        # A fix confined to the test code re-runs the same suite.
+        assert (
+            _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_READY)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}"
+        )
+
+        # A fix that touched the implementation code goes through the unit tests first.
+        _walk(machine, context, triggers_module.MARK_MODULE_CONFORMANCE_TESTS_FAILED)
+        assert (
+            _walk(machine, context, triggers_module.MARK_UNIT_TESTS_READY)
+            == f"{phase}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}"
+        )
+        assert (
+            _walk(machine, context, triggers_module.MARK_UNIT_TESTS_PASSED)
+            == f"{phase}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}"
+        )
+
+    def test_conformance_testing_is_skipped_without_a_conformance_script(self, config):
+        context = _FakeRenderContext(number_of_frids=1, conformance_tests_enabled=False)
+        machine = self._machine_for(config, context)
+
+        _walk(machine, context, triggers_module.START_RENDER)
+        self._implement_one_functionality(machine, context)
+
+        assert _walk(machine, context, triggers_module.PROCEED_FRID_PROCESSING) == States.RENDER_COMPLETED.value

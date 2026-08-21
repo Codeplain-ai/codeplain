@@ -35,16 +35,9 @@ class States(Enum):
     REFACTORING_CODE = "refactoringCode"
     READY_FOR_REFACTORING = "readyForRefactoring"
 
-    # Conformance test processing states
-    PROCESSING_CONFORMANCE_TESTS = "processingConformanceTests"
-    CONFORMANCE_TESTING_INITIALISED = "conformanceTestingInitialised"
-    CONFORMANCE_TEST_GENERATED = "conformanceTestGenerated"
-    CONFORMANCE_TEST_ENV_PREPARED = "conformanceTestEnvironmentPrepared"
-    CONFORMANCE_TEST_FAILED = "conformanceTestFailed"
-
-    # Module-scoped conformance test processing states. Unlike PROCESSING_CONFORMANCE_TESTS, which is
-    # nested inside IMPLEMENTING_FRID, this is a root-level phase that runs once, after every
-    # functionality of the module has been implemented.
+    # Module conformance test processing states. Conformance tests are scoped to the whole module, so
+    # this is a root-level phase that runs once, after every functionality has been implemented -
+    # not a child of IMPLEMENTING_FRID the way unit testing and refactoring are.
     PROCESSING_MODULE_CONFORMANCE_TESTS = "processingModuleConformanceTests"
     MODULE_CONFORMANCE_TESTING_INITIALISED = "moduleConformanceTestingInitialised"
     MODULE_CONFORMANCE_TESTS_PLANNED = "moduleConformanceTestsPlanned"
@@ -58,12 +51,6 @@ class States(Enum):
     MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT = "moduleConformanceTestsReadyForCommit"
     MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS = "moduleConformanceTestsReadyForAmbiguityAnalysis"
     MODULE_FULLY_IMPLEMENTED = "moduleFullyImplemented"
-
-    # Postprocessing conformance tests states
-    POSTPROCESSING_CONFORMANCE_TESTS = "postprocessingConformanceTests"
-    CONFORMANCE_TESTS_READY_FOR_SUMMARY = "conformanceTestsReadyForSummary"
-    CONFORMANCE_TESTS_READY_FOR_COMMIT = "conformanceTestsReadyForCommit"
-    CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS = "conformanceTestsReadyForAmbiguityAnalysis"
 
     def __str__(self):
         return self.value
