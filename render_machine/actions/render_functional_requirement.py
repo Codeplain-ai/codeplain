@@ -46,7 +46,8 @@ class RenderFunctionalRequirement(BaseAction):
             msg += f", attempt number {render_context.frid_context.functional_requirement_render_attempts}/{MAX_CODE_GENERATION_RETRIES}"
         msg += f":\n{render_context.frid_context.functional_requirement_text}\n"
         msg += "-------------------------------------"
-        console.info(msg)
+        # Carries the functional requirement verbatim, so the narration sink filters it.
+        console.info(msg, spec_content=True)
 
         try:
             render_utils.print_inputs(render_context, existing_files_content, "Files sent as input to code generation:")
