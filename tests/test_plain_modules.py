@@ -7,7 +7,6 @@ These tests build real ``PlainModule`` instances from fixtures in
 
 import json
 import os
-import shutil
 import sys
 import tempfile
 import zipfile
@@ -16,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from change_detection import determine_partial_render_start
+from file_utils import delete_folder
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
 from plain2code_exceptions import InvalidModuleArchiveError, ModuleDoesNotExistError
 from plain_modules import MODULE_METADATA_FILENAME, PlainModule
@@ -404,7 +404,7 @@ def _archive_module(module: PlainModule) -> str:
     """Turn an on-disk module into an archive-only module: zip it, then remove the folder."""
     archive_path = module.module_archive_path
     _zip_module_flat(module.module_folder, archive_path)
-    shutil.rmtree(module.module_folder)
+    delete_folder(module.module_folder)
     return archive_path
 
 
