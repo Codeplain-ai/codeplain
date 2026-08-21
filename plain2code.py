@@ -15,6 +15,7 @@ import file_utils
 import plain_file
 import plain_modules
 import plain_spec
+from analytics import capture_render_finished
 from cli_output import print_dry_run_output, print_exit_summary, print_status
 from event_bus import EventBus
 from module_renderer import ModuleRenderer
@@ -403,6 +404,7 @@ def main():  # noqa: C901
 
     exc_info = None
     error_message = None
+    error_type = None
 
     try:
         # Validate API key is present
@@ -412,6 +414,7 @@ def main():  # noqa: C901
             )
         render(plain_module, args, run_state, event_bus, default_log_level)
     except BaseException as e:
+        error_type = type(e).__name__
         if isinstance(e, KeyboardInterrupt):
             error_message = "Keyboard interrupt"
         else:
@@ -427,6 +430,13 @@ def main():  # noqa: C901
             run_state,
             args.filename,
             error_message=error_message,
+        )
+        capture_render_finished(
+            run_state,
+            args,
+            module_count=len(plain_module.all_required_modules) + 1,
+            error_type=error_type,
+            crashed=exc_info is not None,
         )
         # Remove any scratch extractions created for archive-only ("<module>.module") modules.
         for module in plain_module.all_required_modules + [plain_module]:

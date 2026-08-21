@@ -91,3 +91,83 @@ def test_warning_covers_required_modules_for_real_plain_module(get_test_data_pat
     mock_console.warning.assert_called_once()
     warning_message = mock_console.warning.call_args.args[0]
     assert "required_with_acceptance_tests" in warning_message
+
+
+def _run_main_with(render_side_effect, required_module_count):
+    """Drive plain2code.main() far enough to reach its exit path.
+
+    Everything outside the exit path is stubbed: the point is to observe what
+    main() reports once the render is over.
+    """
+    args = Namespace(
+        version=False,
+        status=False,
+        full_plain=False,
+        dry_run=False,
+        headless=True,
+        filename="test.plain",
+        template_dir=None,
+        build_folder="plain_modules",
+        api="https://api.codeplain.ai",
+        api_key="test-key",
+        replay_with=None,
+        render_range=None,
+        render_from=None,
+        log_to_file=False,
+        log_file_name=None,
+        unittests_script=None,
+        conformance_tests_script=None,
+        prepare_environment_script=None,
+    )
+    required_modules = [SimpleNamespace(cleanup_scratch=lambda: None) for _ in range(required_module_count)]
+    plain_module = SimpleNamespace(
+        plain_source={},
+        all_required_modules=required_modules,
+        cleanup_scratch=lambda: None,
+    )
+
+    with (
+        patch.object(plain2code, "parse_arguments", return_value=args),
+        patch.object(plain2code.file_utils, "get_template_directories", return_value=["templates"]),
+        patch.object(plain2code.plain_modules, "PlainModule", return_value=plain_module),
+        patch.object(plain2code, "setup_logging", return_value="INFO"),
+        patch.object(plain2code, "initialize_telemetry"),
+        patch.object(plain2code, "print_exit_summary"),
+        patch.object(plain2code, "dump_crash_logs"),
+        patch.object(plain2code, "capture_crash"),
+        patch.object(plain2code, "render", side_effect=render_side_effect) as render_mock,
+        patch.object(plain2code, "capture_render_finished") as capture_mock,
+        patch.object(plain2code.sys, "exit"),
+    ):
+        plain2code.main()
+
+    assert render_mock.called
+    assert capture_mock.call_count == 1
+    return capture_mock.call_args
+
+
+def test_render_outcome_is_reported_for_a_successful_render():
+    call_args = _run_main_with(render_side_effect=None, required_module_count=1)
+
+    assert call_args.kwargs["module_count"] == 2
+    assert call_args.kwargs["error_type"] is None
+    assert call_args.kwargs["crashed"] is False
+
+
+def test_render_outcome_is_reported_for_an_expected_failure():
+    call_args = _run_main_with(
+        render_side_effect=plain2code.PlainSyntaxError("bad spec"),
+        required_module_count=0,
+    )
+
+    assert call_args.kwargs["module_count"] == 1
+    assert call_args.kwargs["error_type"] == "PlainSyntaxError"
+    # An expected error is a failed render, not a crash.
+    assert call_args.kwargs["crashed"] is False
+
+
+def test_render_outcome_is_reported_for_an_unexpected_crash():
+    call_args = _run_main_with(render_side_effect=RuntimeError("boom"), required_module_count=0)
+
+    assert call_args.kwargs["error_type"] == "RuntimeError"
+    assert call_args.kwargs["crashed"] is True
