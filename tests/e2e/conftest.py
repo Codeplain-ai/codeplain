@@ -49,6 +49,10 @@ def e2e_container(docker_image: str, api_key: str):
             f"CODEPLAIN_API_KEY={api_key}",
             "-e",
             "CODEPLAIN_INSTALL_NONINTERACTIVE=1",
+            # A test run is not a real install or a real render; keep its events
+            # out of PostHog and its crashes out of Sentry.
+            "-e",
+            "CODEPLAIN_TELEMETRY=0",
             docker_image,
         ],
         capture_output=True,
@@ -120,6 +124,8 @@ def codeplain_exe(api_key: str) -> Path:
         **os.environ,
         "CODEPLAIN_API_KEY": api_key,
         "CODEPLAIN_INSTALL_NONINTERACTIVE": "1",
+        # A test run is not a real install; keep its events out of PostHog.
+        "CODEPLAIN_TELEMETRY": "0",
     }
     result = subprocess.run(
         ["pwsh", "-NoProfile", "-File", str(INSTALL_PS1)],

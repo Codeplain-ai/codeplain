@@ -18,7 +18,8 @@ RENDER_TIMEOUT_SECONDS = 180
 def test_render_and_run_hello_world_python_windows(codeplain_exe: Path, api_key: str, tmp_path: Path):
     shutil.copy(EXAMPLE_PLAIN, tmp_path / "hello_world_python.plain")
 
-    env = {**os.environ, "CODEPLAIN_API_KEY": api_key}
+    # A test render is not a real render; keep its events out of PostHog.
+    env = {**os.environ, "CODEPLAIN_API_KEY": api_key, "CODEPLAIN_TELEMETRY": "0"}
 
     result = subprocess.run(
         [str(codeplain_exe), "--help"],
