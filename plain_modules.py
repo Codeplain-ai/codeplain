@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 import zipfile
 from functools import cached_property
@@ -237,7 +236,7 @@ class PlainModule:
         try:
             _extract_module_archive(self.module_archive_path, scratch_dir)
         except BaseException:
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+            file_utils.delete_folder_best_effort(scratch_dir)
             raise
         self._scratch_dir = scratch_dir
         self._resolved_module_folder = scratch_dir
@@ -265,7 +264,7 @@ class PlainModule:
             _extract_module_archive(self.module_archive_path, staging_dir)
             os.replace(staging_dir, self._default_module_folder)
         except BaseException:
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            file_utils.delete_folder_best_effort(staging_dir)
             raise
 
         os.remove(self.module_archive_path)
@@ -274,7 +273,7 @@ class PlainModule:
 
     def _reset_scratch(self) -> None:
         if self._scratch_dir is not None:
-            shutil.rmtree(self._scratch_dir, ignore_errors=True)
+            file_utils.delete_folder_best_effort(self._scratch_dir)
             self._scratch_dir = None
 
     def cleanup_scratch(self) -> None:
