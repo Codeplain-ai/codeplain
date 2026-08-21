@@ -11,14 +11,27 @@ from those observations.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from datetime import datetime, timezone
 from typing import Optional
 
-from memory_management.record import Failure, Intervention, MemoryRecord, Scope, Status, build_record
-from memory_management.retrieval import MemoryMode, retrieval_depth, select_records
+from memory_management.record import (
+    Failure,
+    Intervention,
+    MemoryRecord,
+    Scope,
+    Status,
+    build_record,
+    serialize_for_prompt,
+)
+from memory_management.retrieval import MemoryMode, select_memory
 from plain2code_console import console
+
+# The derived chain over the current fix loop travels in the same payload as the records,
+# under a name that reads as what it is.
+LOOP_SUMMARY_FILE_NAME = "fix-loop-summary.json"
 
 
 class MemoryStore:
@@ -63,6 +76,8 @@ class MemoryStore:
 
     def retrieve(
         self,
+        testing_module: Optional[str] = None,
+        testing_frid: Optional[str] = None,
         fingerprint: Optional[str] = None,
         test_name: Optional[str] = None,
         files_changed: Optional[list[str]] = None,
@@ -70,28 +85,46 @@ class MemoryStore:
         fix_attempts: int = 0,
         suite: Optional[str] = None,
     ) -> dict[str, str]:
-        """Select the records relevant to the current failure.
+        """Select the memory relevant to the fix currently being attempted.
 
-        Returns ``{file_name: record JSON}`` - the same shape the API payload has always
-        used, so the wire contract is unchanged and only the content differs.
+        Two things are returned together: every attempt already made against this
+        functionality, and ranked evidence from elsewhere in the render. The first is what
+        narrows the search space, so it is always included in full; the second is budgeted.
+
+        Returns ``{file_name: JSON}`` - the same shape the API payload has always used, so
+        the wire contract is unchanged and only the content differs.
         """
         if self.memory_mode is MemoryMode.OFF:
             return {}
 
-        selected = select_records(
+        result = select_memory(
             self.load_all(),
-            depth=retrieval_depth(fix_attempts),
+            testing_module=testing_module,
+            testing_frid=testing_frid,
+            suite=suite,
             fingerprint=fingerprint,
             test_name=test_name,
             files_changed=files_changed,
             signature=signature,
+            fix_attempts=fix_attempts,
             mode=self.memory_mode,
-            suite=suite,
         )
-        if selected:
-            console.debug(f"Retrieved {len(selected)} memory record(s) for the current failure.")
 
-        return {record.file_name: record.to_json() for record in selected}
+        memory_files: dict[str, str] = {}
+        if result.loop_summary is not None:
+            memory_files[LOOP_SUMMARY_FILE_NAME] = json.dumps(result.loop_summary, indent=2, sort_keys=False) + "\n"
+        for position, record in enumerate(result.loop_history, start=1):
+            memory_files[record.file_name] = serialize_for_prompt(record, loop_history=True, attempt_position=position)
+        for record in result.associative:
+            memory_files[record.file_name] = serialize_for_prompt(record, loop_history=False)
+
+        if memory_files:
+            console.debug(
+                f"Retrieved {len(result.loop_history)} previous attempt(s) against this functionality "
+                f"and {len(result.associative)} related observation(s) from elsewhere in the render."
+            )
+
+        return memory_files
 
     # --- writing ------------------------------------------------------------------
 

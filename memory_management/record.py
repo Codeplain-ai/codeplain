@@ -17,6 +17,11 @@ from typing import Any, Optional
 
 SCHEMA_VERSION = 1
 
+# Emitted entries are tagged so a reader can tell an observation from the derived summary
+# of a fix loop. The tag is added at retrieval time and is never persisted.
+RECORD_KIND_OBSERVATION = "observation"
+RECORD_KIND_FIX_LOOP_SUMMARY = "fix_loop_summary"
+
 # Line-count thresholds for deriving attribution confidence. A small diff that flips a
 # failing test to green is strong evidence that the diff caused the change; a large diff
 # is weak evidence for any particular part of it.
@@ -202,6 +207,25 @@ class MemoryRecord:
             occurrences=int(data.get("occurrences", 1)),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
         )
+
+
+def serialize_for_prompt(record: MemoryRecord, loop_history: bool, attempt_position: Optional[int] = None) -> str:
+    """Serialize a record for the prompt, tagged with how it was retrieved.
+
+    The tag lives only in the emitted copy - never on disk - because how a record was
+    found is a property of the query, not of the observation. ``loop_history`` marks the
+    records describing attempts already made against the functionality being fixed right
+    now; those are read as a chronology rather than as isolated evidence.
+    """
+    payload: dict[str, Any] = {
+        "kind": RECORD_KIND_OBSERVATION,
+        "retrieval": {"loop_history": loop_history},
+    }
+    if attempt_position is not None:
+        payload["retrieval"]["attempt_position"] = attempt_position
+    payload.update(asdict(record))
+
+    return json.dumps(payload, indent=2, sort_keys=False) + "\n"
 
 
 def _build(dataclass_type: Any, data: dict[str, Any]) -> Any:

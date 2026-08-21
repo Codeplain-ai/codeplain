@@ -301,9 +301,11 @@ def create_parser():
         type=str,
         choices=[mode.value for mode in MemoryMode],
         default=MemoryMode.ALL.value,
-        help="Which memory records may be used while rendering. "
-        "`all` uses both confirmed and ruled-out interventions, `verified` only confirmed ones, "
-        "`refuted` only ruled-out ones, and `off` disables memory entirely.",
+        help="Which memory may be used while rendering. "
+        "`all` uses previous attempts against the functionality being fixed plus related observations "
+        "from elsewhere in the render, `loop` uses only the previous attempts, "
+        "`verified` only confirmed interventions, `refuted` only ruled-out ones, "
+        "and `off` disables memory entirely.",
     )
 
     _add_arg(

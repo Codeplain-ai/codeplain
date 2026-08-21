@@ -124,12 +124,18 @@ class RenderContext:
         )
 
     def retrieve_memory_for_conformance_failure(self, failure_output: Optional[str]) -> dict[str, str]:
-        """Select memory records relevant to the conformance failure being fixed."""
+        """Select memory relevant to the conformance failure being fixed.
+
+        The fix loop is identified by the functionality under test, not by the failure, so
+        an attempt that turned one failure into a different one is still retrieved.
+        """
         running_context = self.conformance_tests_running_context
 
         return self._retrieve_memory(
             failure_output,
             suite=Suite.CONFORMANCE.value,
+            testing_module=running_context.current_testing_module_name if running_context else None,
+            testing_frid=running_context.current_testing_frid if running_context else None,
             test_name=(
                 running_context.get_current_conformance_test_folder_name()
                 if running_context and running_context.current_conformance_tests_exist()
@@ -139,8 +145,10 @@ class RenderContext:
         )
 
     def retrieve_memory_for_unittest_failure(self, failure_output: Optional[str]) -> dict[str, str]:
-        """Select memory records relevant to the unit-test failure being fixed.
+        """Select memory relevant to the unit-test failure being fixed.
 
+        The unit-test loop has no per-test identity to key on, so the functionality being
+        implemented identifies it - matching the scope that ``RunUnitTests`` records.
         Unit-test observations rank first; conformance observations can still surface once
         the same-surface evidence is exhausted, since both loops change the same code.
         """
@@ -149,6 +157,8 @@ class RenderContext:
         return self._retrieve_memory(
             failure_output,
             suite=Suite.UNITTEST.value,
+            testing_module=self.module_name,
+            testing_frid=self.frid_context.frid if self.frid_context else None,
             files_changed=sorted(running_context.changed_files) if running_context else None,
             fix_attempts=running_context.fix_attempts if running_context else 0,
         )
@@ -157,16 +167,19 @@ class RenderContext:
         self,
         failure_output: Optional[str],
         suite: str,
+        testing_module: Optional[str] = None,
+        testing_frid: Optional[str] = None,
         test_name: Optional[str] = None,
         files_changed: Optional[list[str]] = None,
         fix_attempts: int = 0,
     ) -> dict[str, str]:
-        """Query the memory store for the failure currently being fixed.
+        """Query the memory store for the fix currently being attempted.
 
-        The query comes entirely from render state - the failure being worked on, the test
-        that produced it, and how many fix attempts have been made - so no planner call is
-        needed. Depth grows with the attempt count: an early attempt gets little or nothing,
-        a deep fix loop gets the full picture.
+        The query comes entirely from render state - the functionality under repair, the
+        failure being worked on, the test that produced it, and how many attempts have been
+        made - so no planner call is needed. Every attempt already made against this
+        functionality comes back regardless of depth; the associative budget grows with the
+        attempt count.
         """
         if failure_output is None:
             return {}
@@ -174,6 +187,8 @@ class RenderContext:
         fingerprint, signature, _ = fingerprint_output(failure_output)
 
         return self.memory_store.retrieve(
+            testing_module=testing_module,
+            testing_frid=testing_frid,
             fingerprint=fingerprint,
             test_name=test_name,
             files_changed=files_changed,
