@@ -3,11 +3,16 @@ import os
 from typing import Callable, Optional
 
 import file_utils
+import plain_spec
 from plain2code_console import console
 from plain2code_exceptions import InternalClientError
 from plain_modules import PlainModule, get_module_tests_folder
 
 CONFORMANCE_TESTS_DEFINITION_FILE_NAME = "conformance_tests.json"
+
+# Module-scoped conformance testing puts the module's whole suite in one folder, so the folder needs
+# no name derived from a functional requirement.
+MODULE_CONFORMANCE_TESTS_FOLDER_NAME = "module_conformance_tests"
 
 
 class ConformanceTests:
@@ -81,6 +86,36 @@ class ConformanceTests:
             serializable = self._relativize_folder_names(module_name, conformance_tests_json)
             with open(self._get_full_conformance_tests_definition_file_name(module_name), "w") as f:
                 json.dump(serializable, f, indent=4)
+
+    def get_module_suite_entry(self, module_name: str) -> Optional[dict]:
+        """The conformance_tests.json entry describing a module's single (module-scoped) suite.
+
+        Module-scoped conformance testing stores one entry keyed by the module scope sentinel instead
+        of one entry per functionality, so the definition file keeps its shape and older, per-
+        functionality definitions still load.
+        """
+        return self.get_conformance_tests_json(module_name).get(plain_spec.MODULE_SCOPE_FRID)
+
+    def get_module_suite_folder_name(self, module_name: str) -> Optional[str]:
+        entry = self.get_module_suite_entry(module_name)
+        if entry is None:
+            return None
+
+        return entry.get("folder_name")
+
+    def get_module_conformance_tests_summary(self, module_name: str) -> list:
+        """The summary of a module's suite, used to keep later modules from re-testing it."""
+        entry = self.get_module_suite_entry(module_name)
+        if entry is None:
+            return []
+
+        return entry.get("test_summary") or []
+
+    def build_module_suite_folder_name(self, module_name: str) -> str:
+        return os.path.join(
+            self.get_module_conformance_tests_folder(module_name),
+            MODULE_CONFORMANCE_TESTS_FOLDER_NAME,
+        )
 
     def fetch_existing_conformance_test_folder_names(self, module_name: str) -> list[str]:
         if os.path.isdir(self.get_module_conformance_tests_folder(module_name)):

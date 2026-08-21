@@ -11,11 +11,14 @@ class PrepareTestingEnvironment(BaseAction):
     SUCCESSFUL_OUTCOME = "testing_environment_prepared"
     FAILED_OUTCOME = "testing_environment_preparation_failed"
 
+    def _get_running_context(self, render_context: RenderContext):
+        """The conformance context whose should_prepare_testing_environment flag applies."""
+        return render_context.conformance_tests_running_context
+
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
-        if (
-            render_context.prepare_environment_script is None
-            or not render_context.conformance_tests_running_context.should_prepare_testing_environment
-        ):
+        running_context = self._get_running_context(render_context)
+
+        if render_context.prepare_environment_script is None or not running_context.should_prepare_testing_environment:
             return self.SUCCESSFUL_OUTCOME, None
 
         console.info(
@@ -29,7 +32,7 @@ class PrepareTestingEnvironment(BaseAction):
             stop_event=render_context.stop_event,
         )
 
-        render_context.conformance_tests_running_context.should_prepare_testing_environment = False
+        running_context.should_prepare_testing_environment = False
         render_context.script_execution_history.latest_testing_environment_output_path = preparation_temp_file_path
         render_context.script_execution_history.should_update_script_outputs = True
         if exit_code == 0:

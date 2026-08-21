@@ -1,0 +1,64 @@
+from typing import Any
+
+import file_utils
+import git_utils
+from plain2code_console import console
+from plain2code_exceptions import InternalClientError
+from plain2code_utils import AMBIGUITY_CAUSES
+from render_machine.actions.base_action import BaseAction
+from render_machine.implementation_code_helpers import ImplementationCodeHelpers
+from render_machine.render_context import RenderContext
+
+
+class AnalyzeModuleSpecificationAmbiguity(BaseAction):
+    """Look for specification ambiguity behind the fixes the module's conformance tests forced.
+
+    Under module scope the analysis runs once, over the module as a whole: the failing suite covers
+    every functionality, so a fix cannot be attributed to a single functionality the way the
+    per-functionality analysis attributes it.
+    """
+
+    SUCCESSFUL_OUTCOME = "module_conformance_tests_postanalyzed"
+
+    def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        fixed_implementation_code_diff = ImplementationCodeHelpers.get_module_fixed_implementation_code_diff(
+            render_context.build_folder, render_context.module_name
+        )
+        if fixed_implementation_code_diff is None:
+            raise InternalClientError(
+                "Internal client error: Fixes to the implementation code found during module conformance testing are "
+                "not committed to git."
+            )
+
+        # The module's starting point, so that the analysis sees what implementing the module added.
+        git_utils.checkout_commit_with_frid(render_context.build_folder, None)
+        existing_files = file_utils.list_all_text_files(render_context.build_folder)
+        existing_files_content = file_utils.get_existing_files_content(render_context.build_folder, existing_files)
+        git_utils.checkout_previous_branch(render_context.build_folder)
+
+        implementation_code_diff = ImplementationCodeHelpers.get_module_code_diff(render_context.build_folder)
+
+        rendering_analysis = render_context.codeplain_api.analyze_rendering(
+            render_context.frid_context.frid,
+            render_context.plain_source_tree,
+            render_context.all_linked_resources,
+            existing_files_content,
+            render_context.module_name,
+            render_context.get_required_modules_functionalities(),
+            implementation_code_diff,
+            fixed_implementation_code_diff,
+            run_state=render_context.run_state,
+        )
+
+        if rendering_analysis:
+            # TODO: Before this output is exposed to the user, we should check the 'guidance' field using LLM in the
+            # same way as we do conflicting requirements.
+            console.info(
+                f"Specification ambiguity detected! {AMBIGUITY_CAUSES[rendering_analysis['cause']]} "
+                f"of module {render_context.module_name}."
+            )
+            console.info(rendering_analysis["guidance"])
+        else:
+            console.debug(f"No specification ambiguity detected for module {render_context.module_name}.")
+
+        return self.SUCCESSFUL_OUTCOME, None

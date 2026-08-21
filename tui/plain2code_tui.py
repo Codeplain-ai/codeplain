@@ -45,6 +45,7 @@ from .state_handlers import (
     ConformanceTestsHandler,
     FridFullyImplementedHandler,
     FridReadyHandler,
+    ModuleConformanceTestsHandler,
     RefactoringHandler,
     RenderErrorHandler,
     RenderSuccessHandler,
@@ -123,6 +124,9 @@ class Plain2CodeTUI(App):
                 self, self.unittests_script, self.conformance_tests_script
             ),
         }
+        self._module_conformance_tests_handler = ModuleConformanceTestsHandler(
+            self, self.unittests_script, self.conformance_tests_script
+        )
         self._script_outputs_handler = ScriptOutputsHandler(self)
         self._render_error_handler = RenderErrorHandler(self)
         self._render_success_handler = RenderSuccessHandler(self)
@@ -292,6 +296,8 @@ class Plain2CodeTUI(App):
         # 3. Route to appropriate handler based on top-level state
         if segments[0] == States.IMPLEMENTING_FRID.value:
             self._handle_frid_state(segments, event.snapshot, previous_state_segments)
+        elif segments[0] == States.PROCESSING_MODULE_CONFORMANCE_TESTS.value:
+            self._handle_module_conformance_tests_state(segments, event.snapshot, previous_state_segments)
 
     def _handle_frid_state(
         self, segments: list[str], snapshot: RenderContextSnapshot, previous_state_segments: list[str]
@@ -307,6 +313,15 @@ class Plain2CodeTUI(App):
             self._script_outputs_handler.handle(segments, snapshot, previous_state_segments)
 
         self._state_completion_handler.handle(segments, snapshot, previous_state_segments)
+
+    def _handle_module_conformance_tests_state(
+        self, segments: list[str], snapshot: RenderContextSnapshot, previous_state_segments: list[str]
+    ) -> None:
+        """Handle all states under PROCESSING_MODULE_CONFORMANCE_TESTS."""
+        self._module_conformance_tests_handler.handle(segments, snapshot, previous_state_segments)
+
+        if snapshot.script_execution_history.should_update_script_outputs:
+            self._script_outputs_handler.handle(segments, snapshot, previous_state_segments)
 
     def on_render_paused(self, event: RenderPaused):
         footer = self.screen.query_one(CustomFooter)

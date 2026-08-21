@@ -143,6 +143,16 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 - Transitions handled by triggers in `render_machine/triggers.py`
 - Config in `render_machine/state_machine_config.py`
 
+**Conformance scope** (`--conformance-scope`): selects the shape of the machine's conformance
+testing. Unit tests are always per functionality; conformance tests are either:
+- `functionality` (default) — `PROCESSING_CONFORMANCE_TESTS` runs inside `IMPLEMENTING_FRID`, so each
+  functionality gets its own planned test folder, run and fixed before the next functionality starts.
+- `module` — `PROCESSING_MODULE_CONFORMANCE_TESTS` is a root-level phase entered after every
+  functionality has been implemented. One plan covers all of the module's functionalities, it is
+  implemented into a single suite in batches, and the suites in scope (the required modules', then the
+  module's own) are run in turn. A fix that touches the implementation code re-runs the unit tests and
+  then restarts the sweep, since a fix for one functionality can regress another.
+
 **Memory Management** (`memory_management.py`): Tracks previously rendered code to provide context to the LLM for incremental changes. Uses git commits to persist checkpoints.
 
 **Partial Rendering** (`partial_rendering.py`): Detects when specs or code changed and determines the optimal starting point to resume rendering (avoids full re-renders).

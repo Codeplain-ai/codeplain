@@ -9,22 +9,31 @@ from typing import Any, Callable, Dict, List
 
 import git_utils
 from render_machine import triggers
+from render_machine.actions.analyze_module_specification_ambiguity import AnalyzeModuleSpecificationAmbiguity
 from render_machine.actions.analyze_specification_ambiguity import AnalyzeSpecificationAmbiguity
 from render_machine.actions.commit_conformance_tests_changes import CommitConformanceTestsChanges
 from render_machine.actions.commit_implementation_code_changes import CommitImplementationCodeChanges
+from render_machine.actions.commit_module_conformance_tests_changes import CommitModuleConformanceTestsChanges
 from render_machine.actions.create_dist import CreateDist
 from render_machine.actions.exit_with_error import ExitWithError
 from render_machine.actions.finish_functional_requirement import FinishFunctionalRequirement
+from render_machine.actions.finish_module_conformance_tests import FinishModuleConformanceTests
 from render_machine.actions.fix_conformance_test import FixConformanceTest
+from render_machine.actions.fix_module_conformance_test import FixModuleConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
+from render_machine.actions.plan_module_conformance_tests import PlanModuleConformanceTests
+from render_machine.actions.prepare_module_testing_environment import PrepareModuleTestingEnvironment
 from render_machine.actions.prepare_repositories import PrepareRepositories
 from render_machine.actions.prepare_testing_environment import PrepareTestingEnvironment
 from render_machine.actions.refactor_code import RefactorCode
 from render_machine.actions.render_conformance_tests import RenderConformanceTests
 from render_machine.actions.render_functional_requirement import RenderFunctionalRequirement
+from render_machine.actions.render_module_conformance_tests import RenderModuleConformanceTests
 from render_machine.actions.run_conformance_tests import RunConformanceTests
+from render_machine.actions.run_module_conformance_tests import RunModuleConformanceTests
 from render_machine.actions.run_unit_tests import RunUnitTests
 from render_machine.actions.summarize_conformance_tests import SummarizeConformanceTests
+from render_machine.actions.summarize_module_conformance_tests import SummarizeModuleConformanceTests
 from render_machine.render_context import RenderContext
 from render_machine.states import States
 
@@ -63,6 +72,17 @@ class StateMachineConfig:
             ),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
             f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTING_INITIALISED.value}": PlanModuleConformanceTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}": RenderModuleConformanceTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}": PrepareModuleTestingEnvironment(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}": RunModuleConformanceTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_FAILED.value}": FixModuleConformanceTest(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}": RunUnitTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}": FixUnitTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}": SummarizeModuleConformanceTests(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT.value}": CommitModuleConformanceTestsChanges(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value}": AnalyzeModuleSpecificationAmbiguity(),
+            f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_FULLY_IMPLEMENTED.value}": FinishModuleConformanceTests(),
             States.RENDER_COMPLETED.value: CreateDist(),
             States.RENDER_FAILED.value: ExitWithError(),
         }
@@ -98,6 +118,23 @@ class StateMachineConfig:
             CommitConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED: triggers.PROCEED_FRID_PROCESSING,
             SummarizeConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_NEXT_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
             AnalyzeSpecificationAmbiguity.SUCCESSFUL_OUTCOME: triggers.PROCEED_FRID_PROCESSING,
+            PlanModuleConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_MODULE_CONFORMANCE_TESTS_PLANNED,
+            RenderModuleConformanceTests.BATCH_RENDERED_OUTCOME: triggers.MARK_MODULE_CONFORMANCE_TESTS_PLANNED,
+            RenderModuleConformanceTests.SUITE_RENDERED_OUTCOME: triggers.MARK_MODULE_CONFORMANCE_TESTS_READY,
+            PrepareModuleTestingEnvironment.SUCCESSFUL_OUTCOME: triggers.MARK_MODULE_TESTING_ENVIRONMENT_PREPARED,
+            PrepareModuleTestingEnvironment.FAILED_OUTCOME: triggers.HANDLE_ERROR,
+            RunModuleConformanceTests.MOVE_TO_NEXT_SUITE_OUTCOME: triggers.MOVE_TO_NEXT_MODULE_CONFORMANCE_SUITE,
+            RunModuleConformanceTests.ALL_SUITES_PASSED_OUTCOME: triggers.MARK_ALL_MODULE_CONFORMANCE_TESTS_PASSED,
+            RunModuleConformanceTests.FAILED_OUTCOME: triggers.MARK_MODULE_CONFORMANCE_TESTS_FAILED,
+            RunModuleConformanceTests.UNRECOVERABLE_ERROR_OUTCOME: triggers.HANDLE_ERROR,
+            FixModuleConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED: triggers.MARK_MODULE_CONFORMANCE_TESTS_READY,
+            FixModuleConformanceTest.IMPLEMENTATION_CODE_UPDATED: triggers.MARK_UNIT_TESTS_READY,
+            FixModuleConformanceTest.LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,
+            SummarizeModuleConformanceTests.SUCCESSFUL_OUTCOME: triggers.MARK_NEXT_MODULE_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
+            CommitModuleConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED: triggers.MARK_NEXT_MODULE_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
+            CommitModuleConformanceTestsChanges.SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED: triggers.PROCEED_MODULE_CONFORMANCE_TESTING,
+            AnalyzeModuleSpecificationAmbiguity.SUCCESSFUL_OUTCOME: triggers.PROCEED_MODULE_CONFORMANCE_TESTING,
+            FinishModuleConformanceTests.SUCCESSFUL_OUTCOME: triggers.PROCEED_MODULE_CONFORMANCE_TESTING,
         }
 
     def get_processing_unit_tests_states(
@@ -149,6 +186,42 @@ class StateMachineConfig:
             ],
         }
 
+    def get_postprocessing_module_conformance_tests_states(self) -> Dict[str, Any]:
+        return {
+            "name": States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value,
+            "initial": States.MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY.value,
+            "children": [
+                States.MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY.value,
+                States.MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT.value,
+                States.MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value,
+            ],
+        }
+
+    def get_processing_module_conformance_tests_states(self, render_context: RenderContext) -> Dict[str, Any]:
+        """The module-scoped conformance testing phase.
+
+        Unlike the per-functionality phase, this one is not nested inside IMPLEMENTING_FRID: it runs
+        once, at the root level, after every functionality of the module has been implemented.
+        """
+        return {
+            "name": States.PROCESSING_MODULE_CONFORMANCE_TESTS.value,
+            "initial": States.MODULE_CONFORMANCE_TESTING_INITIALISED.value,
+            "on_enter": render_context.start_module_conformance_tests_processing,
+            "on_exit": render_context.finish_module_conformance_tests_processing,
+            "children": [
+                States.MODULE_CONFORMANCE_TESTING_INITIALISED.value,
+                States.MODULE_CONFORMANCE_TESTS_PLANNED.value,
+                States.MODULE_CONFORMANCE_TESTS_GENERATED.value,
+                States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value,
+                States.MODULE_CONFORMANCE_TESTS_FAILED.value,
+                self.get_processing_unit_tests_states(
+                    render_context, render_context._on_unit_test_limit_exceeded_in_module_conformance_tests
+                ),
+                self.get_postprocessing_module_conformance_tests_states(),
+                States.MODULE_FULLY_IMPLEMENTED.value,
+            ],
+        }
+
     def get_states(self, render_context: RenderContext) -> List[Any]:
         """Get the complete state machine state configuration.
 
@@ -188,6 +261,7 @@ class StateMachineConfig:
                     States.FRID_FULLY_IMPLEMENTED.value,
                 ],
             },
+            self.get_processing_module_conformance_tests_states(render_context),
             {"name": States.RENDER_COMPLETED.value, "on_enter": render_context.start_render_completed},
             {"name": States.RENDER_FAILED.value, "on_enter": render_context.start_render_failed},
         ]
@@ -265,13 +339,13 @@ class StateMachineConfig:
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.READY_FOR_REFACTORING.value}",
                 "trigger": triggers.PROCEED_FRID_PROCESSING,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}",
-                "conditions": render_context.should_run_conformance_tests,
+                "conditions": render_context.should_run_frid_conformance_tests,
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.READY_FOR_REFACTORING.value}",
                 "trigger": triggers.PROCEED_FRID_PROCESSING,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}",
-                "unless": render_context.should_run_conformance_tests,
+                "unless": render_context.should_run_frid_conformance_tests,
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}",
@@ -307,8 +381,15 @@ class StateMachineConfig:
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}",
                 "trigger": triggers.PROCEED_FRID_PROCESSING,
+                "dest": States.PROCESSING_MODULE_CONFORMANCE_TESTS.value,
+                "unless": [render_context.has_next_frid],
+                "conditions": [render_context.should_run_module_conformance_tests],
+            },
+            {
+                "source": f"{States.IMPLEMENTING_FRID.value}_{States.FRID_FULLY_IMPLEMENTED.value}",
+                "trigger": triggers.PROCEED_FRID_PROCESSING,
                 "dest": States.RENDER_COMPLETED.value,
-                "unless": render_context.has_next_frid,
+                "unless": [render_context.has_next_frid, render_context.should_run_module_conformance_tests],
             },
             {
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.REFACTORING_CODE.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}",
@@ -396,5 +477,106 @@ class StateMachineConfig:
                 "source": f"{States.IMPLEMENTING_FRID.value}_{States.PROCESSING_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}",
                 "trigger": triggers.RESTART_FRID_PROCESSING,
                 "dest": f"{States.IMPLEMENTING_FRID.value}_{States.READY_FOR_FRID_IMPLEMENTATION.value}",
+            },
+            # ---- Module-scoped conformance testing ----
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTING_INITIALISED.value}",
+                "trigger": triggers.MARK_MODULE_CONFORMANCE_TESTS_PLANNED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}",
+            },
+            {
+                # The plan is implemented one batch at a time, so this state loops back onto itself
+                # until every batch has been rendered.
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}",
+                "trigger": triggers.MARK_MODULE_CONFORMANCE_TESTS_PLANNED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_PLANNED.value}",
+                "trigger": triggers.MARK_MODULE_CONFORMANCE_TESTS_READY,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}",
+                "trigger": triggers.MARK_MODULE_TESTING_ENVIRONMENT_PREPARED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}",
+                "trigger": triggers.MARK_MODULE_CONFORMANCE_TESTS_FAILED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_FAILED.value}",
+            },
+            {
+                # A suite passed and another one is left to run. The run action has already advanced
+                # to it, so this only has to route back through the environment preparation step
+                # (which is a no-op unless the code changed since it last ran).
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}",
+                "trigger": triggers.MOVE_TO_NEXT_MODULE_CONFORMANCE_SUITE,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}",
+                "trigger": triggers.MARK_ALL_MODULE_CONFORMANCE_TESTS_PASSED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}",
+            },
+            {
+                # The fix only touched the test code, so the same suite is re-run as it stands.
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_FAILED.value}",
+                "trigger": triggers.MARK_MODULE_CONFORMANCE_TESTS_READY,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value}",
+            },
+            {
+                # The fix touched the implementation code, so the unit tests have to agree with it
+                # again before the suites are re-run from the first one.
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_FAILED.value}",
+                "trigger": triggers.MARK_UNIT_TESTS_READY,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}",
+                "conditions": render_context.should_run_unit_tests,
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_FAILED.value}",
+                "trigger": triggers.MARK_UNIT_TESTS_READY,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}",
+                "unless": render_context.should_run_unit_tests,
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}",
+                "trigger": triggers.MARK_UNIT_TESTS_PASSED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_GENERATED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}",
+                "trigger": triggers.MARK_UNIT_TESTS_FAILED,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_FAILED.value}",
+                "trigger": triggers.MARK_UNIT_TESTS_READY,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.PROCESSING_UNIT_TESTS.value}_{States.UNIT_TESTS_READY.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY.value}",
+                "trigger": triggers.MARK_NEXT_MODULE_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT.value}",
+                "trigger": triggers.MARK_NEXT_MODULE_CONFORMANCE_TESTS_POSTPROCESSING_STEP,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT.value}",
+                "trigger": triggers.PROCEED_MODULE_CONFORMANCE_TESTING,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_FULLY_IMPLEMENTED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS.value}",
+                "trigger": triggers.PROCEED_MODULE_CONFORMANCE_TESTING,
+                "dest": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_FULLY_IMPLEMENTED.value}",
+            },
+            {
+                "source": f"{States.PROCESSING_MODULE_CONFORMANCE_TESTS.value}_{States.MODULE_FULLY_IMPLEMENTED.value}",
+                "trigger": triggers.PROCEED_MODULE_CONFORMANCE_TESTING,
+                "dest": States.RENDER_COMPLETED.value,
             },
         ]

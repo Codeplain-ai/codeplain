@@ -42,6 +42,23 @@ class States(Enum):
     CONFORMANCE_TEST_ENV_PREPARED = "conformanceTestEnvironmentPrepared"
     CONFORMANCE_TEST_FAILED = "conformanceTestFailed"
 
+    # Module-scoped conformance test processing states. Unlike PROCESSING_CONFORMANCE_TESTS, which is
+    # nested inside IMPLEMENTING_FRID, this is a root-level phase that runs once, after every
+    # functionality of the module has been implemented.
+    PROCESSING_MODULE_CONFORMANCE_TESTS = "processingModuleConformanceTests"
+    MODULE_CONFORMANCE_TESTING_INITIALISED = "moduleConformanceTestingInitialised"
+    MODULE_CONFORMANCE_TESTS_PLANNED = "moduleConformanceTestsPlanned"
+    MODULE_CONFORMANCE_TESTS_GENERATED = "moduleConformanceTestsGenerated"
+    MODULE_CONFORMANCE_TESTS_ENV_PREPARED = "moduleConformanceTestsEnvironmentPrepared"
+    MODULE_CONFORMANCE_TESTS_FAILED = "moduleConformanceTestsFailed"
+
+    # Postprocessing module conformance tests states
+    POSTPROCESSING_MODULE_CONFORMANCE_TESTS = "postprocessingModuleConformanceTests"
+    MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY = "moduleConformanceTestsReadyForSummary"
+    MODULE_CONFORMANCE_TESTS_READY_FOR_COMMIT = "moduleConformanceTestsReadyForCommit"
+    MODULE_CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS = "moduleConformanceTestsReadyForAmbiguityAnalysis"
+    MODULE_FULLY_IMPLEMENTED = "moduleFullyImplemented"
+
     # Postprocessing conformance tests states
     POSTPROCESSING_CONFORMANCE_TESTS = "postprocessingConformanceTests"
     CONFORMANCE_TESTS_READY_FOR_SUMMARY = "conformanceTestsReadyForSummary"

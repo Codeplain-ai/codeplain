@@ -2,6 +2,7 @@ import json
 import os
 
 import file_utils
+import plain_spec
 from plain2code_console import console
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -102,6 +103,67 @@ class MemoryManager:
             conformance_tests_issue,
             conformance_tests_folder_name,
             old_conformance_tests_issue,
+            run_state=render_context.run_state,
+        )
+        if len(response_files) > 0:
+            memory_folder_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
+            file_utils.store_response_files(memory_folder_path, response_files, memory_files)
+
+    def create_module_conformance_tests_memory(
+        self, render_context: RenderContext, exit_code: int, conformance_tests_issue: str
+    ):
+        """Create memory for a module-scoped conformance test run.
+
+        The per-functionality version keys "did we already see this failure?" on the functionality
+        under test. A module-scoped run has no such functionality, so the suite's module takes its
+        place: the failure is worth remembering once the same suite has failed before, or once the
+        suite that previously failed is failing again.
+        """
+        ctx = render_context.module_conformance_tests_running_context
+        current_module = ctx.current_suite.module_name
+        previous_module = ctx.previous_conformance_tests_issue_module
+
+        is_first_time_running_conformance_tests = not previous_module
+        is_same_suite_as_previous_failing_test = current_module == previous_module
+        is_conformance_test_failed = exit_code != CONFORMANCE_TESTS_SUCCESS_EXIT_CODE
+
+        should_create_memory = not is_first_time_running_conformance_tests and (
+            is_same_suite_as_previous_failing_test or is_conformance_test_failed
+        )
+
+        if not should_create_memory or ctx.code_diff_files is None:
+            console.debug(
+                "Skipping creation of conformance test memory because the conditions for creating memories are not met."
+            )
+            return
+
+        _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
+        memory_files, memory_files_content = MemoryManager.fetch_memory_files(self.memory_folder)
+
+        (
+            _,
+            existing_conformance_test_files_content,
+        ) = render_context.conformance_tests.fetch_existing_conformance_test_files(
+            render_context.module_name,
+            render_context.required_modules,
+            current_module,
+            ctx.current_suite.require_folder_name(),
+        )
+
+        response_files = render_context.codeplain_api.create_conformance_test_memory(
+            plain_spec.MODULE_SCOPE_FRID,
+            render_context.plain_source_tree,
+            render_context.all_linked_resources,
+            existing_files_content,
+            memory_files_content,
+            render_context.module_name,
+            render_context.get_required_modules_functionalities(),
+            ctx.code_diff_files,
+            existing_conformance_test_files_content,
+            render_context.get_module_acceptance_tests(),
+            conformance_tests_issue,
+            ctx.current_suite.require_folder_name(),
+            ctx.previous_conformance_tests_issue_old,
             run_state=render_context.run_state,
         )
         if len(response_files) > 0:

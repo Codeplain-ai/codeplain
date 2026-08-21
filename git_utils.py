@@ -17,6 +17,14 @@ CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE = (
 # Following messages are used as checkpoints in the git history
 # Changing them will break backwards compatibility so change them with care
 FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE = "[Codeplain] functionality ID (FRID):{} fully implemented"
+# Module-scoped conformance testing produces one pair of commits per module instead of one per
+# functionality. The per-functionality messages above are left untouched: --render-from locates
+# previous work by matching them, so repositories rendered before this existed keep working.
+MODULE_CONFORMANCE_TESTS_FIXED_CODE_COMMIT_MESSAGE = (
+    "[Codeplain] Fixed issues in the implementation code identified during conformance testing of module {}"
+)
+MODULE_CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE = "[Codeplain] Conformance tests for module {} passed"
+MODULE_FULLY_IMPLEMENTED_COMMIT_MESSAGE = "[Codeplain] module {} fully implemented"
 INITIAL_COMMIT_MESSAGE = "[Codeplain] Initial module commit"
 BASE_FOLDER_COMMIT_MESSAGE = "[Codeplain] Initialize build with Base Folder content"
 
@@ -323,6 +331,41 @@ def _get_commit_with_frid(repo: Repo, frid: str, module_name: Optional[str] = No
 
 def has_commit_for_frid(repo_path: Union[str, os.PathLike], frid: str, module_name: Optional[str] = None) -> bool:
     return bool(_get_commit_with_frid(Repo(repo_path), frid, module_name))
+
+
+def get_module_code_diff(repo_path: Union[str, os.PathLike]) -> dict:
+    """Diff of everything the module's implementation added on top of its starting point.
+
+    Module-scoped conformance testing has no "previous functionality" to diff against - the failing
+    suite covers the whole module - so the baseline is the module's initial (or base folder) commit.
+    """
+    repo = Repo(repo_path)
+    return _get_diff_dict(repo.git.diff(_get_commit(repo, None), "HEAD", "-U10"))
+
+
+def get_module_fixed_implementation_code_diff(repo_path: Union[str, os.PathLike], module_name: str) -> Optional[dict]:
+    """Diff of the implementation code fixes made while getting the module's suite to pass.
+
+    Returns None when the fixes have not been committed yet, mirroring
+    get_fixed_implementation_code_diff for the per-functionality scope.
+    """
+    repo = Repo(repo_path)
+    conformance_tests_commit = _get_commit_with_message(
+        repo, MODULE_CONFORMANCE_TESTS_FIXED_CODE_COMMIT_MESSAGE.format(module_name)
+    )
+    if not conformance_tests_commit:
+        return None
+
+    last_functional_requirement_commit = _get_last_functional_requirement_finished_commit(repo)
+    if not last_functional_requirement_commit:
+        last_functional_requirement_commit = _get_commit(repo, None)
+
+    return _get_diff_dict(repo.git.diff(last_functional_requirement_commit, conformance_tests_commit, "-U10"))
+
+
+def _get_last_functional_requirement_finished_commit(repo: Repo) -> str:
+    """The most recent commit marking a functionality as fully implemented (any frid)."""
+    return _get_commit_with_message(repo, FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*"))
 
 
 def _get_base_folder_commit(repo: Repo) -> str:

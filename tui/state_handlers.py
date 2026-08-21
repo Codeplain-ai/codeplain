@@ -340,6 +340,96 @@ class RenderErrorHandler:
         display_error_message(self.tui, error_message)
 
 
+class ModuleConformanceTestsHandler(StateHandler):
+    """Handler for the PROCESSING_MODULE_CONFORMANCE_TESTS phase.
+
+    The phase is not nested inside IMPLEMENTING_FRID, so it reports into the conformance-tests
+    progress item on its own: by the time it runs, every functionality has been implemented and the
+    remaining work belongs to the module as a whole.
+    """
+
+    MODULE_CONFORMANCE_TESTS_TEXT = "Conformance tests of the whole module"
+
+    def __init__(self, tui, unittests_script: Optional[str], conformance_tests_script: Optional[str]):
+        """Initialize handler with TUI instance.
+
+        Args:
+            tui: The Plain2CodeTUI instance
+        """
+        self.tui = tui
+        self.unittests_script = unittests_script
+        self.conformance_tests_script = conformance_tests_script
+
+    def handle(self, segments: list[str], snapshot: RenderContextSnapshot, previous_state_segments: list[str]) -> None:
+        if len(segments) < 2:
+            return
+
+        if not previous_state_segments or previous_state_segments[0] != segments[0]:
+            # Entering the phase: the per-functionality items are done, the module's tests are next.
+            get_frid_progress(self.tui).update_functionality_text(self.MODULE_CONFORMANCE_TESTS_TEXT)
+            update_progress_item_status(
+                self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, ProgressItem.PROCESSING
+            )
+
+        substate_text = self._get_substate_text(segments, snapshot)
+        if substate_text is not None:
+            update_progress_item_substates(
+                self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(substate_text)]
+            )
+
+        if segments[1] == States.MODULE_FULLY_IMPLEMENTED.value:
+            update_progress_item_status(
+                self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, ProgressItem.COMPLETED
+            )
+
+    def _get_substate_text(self, segments: list[str], snapshot: RenderContextSnapshot) -> Optional[str]:
+        ctx = snapshot.module_conformance_tests_running_context
+        phase = segments[1]
+
+        if phase == States.MODULE_CONFORMANCE_TESTING_INITIALISED.value:
+            return "Planning conformance tests covering all functionalities of the module"
+
+        if phase == States.MODULE_CONFORMANCE_TESTS_PLANNED.value:
+            if ctx is None or not ctx.number_of_batches:
+                return "Implementing conformance tests for the module"
+            return (
+                f"Implementing conformance tests for the module "
+                f"(batch {min(ctx.batches_rendered + 1, ctx.number_of_batches)} of {ctx.number_of_batches})"
+            )
+
+        if phase == States.MODULE_CONFORMANCE_TESTS_GENERATED.value:
+            return "Preparing testing environment for conformance tests"
+
+        if phase == States.MODULE_CONFORMANCE_TESTS_ENV_PREPARED.value:
+            return f"Running conformance tests{self._describe_suite(ctx)}"
+
+        if phase == States.MODULE_CONFORMANCE_TESTS_FAILED.value:
+            return f"Fixing conformance tests{self._describe_suite(ctx)}"
+
+        if phase == States.PROCESSING_UNIT_TESTS.value:
+            return "Adjusting unit tests after the implementation code was fixed"
+
+        if phase == States.POSTPROCESSING_MODULE_CONFORMANCE_TESTS.value:
+            if len(segments) > 2 and segments[2] == States.MODULE_CONFORMANCE_TESTS_READY_FOR_SUMMARY.value:
+                return "Summarizing conformance tests"
+            return None
+
+        return None
+
+    def _describe_suite(self, ctx) -> str:
+        if ctx is None:
+            return ""
+
+        suite = ctx.current_suite
+        if suite.is_own_module:
+            return f" of module {suite.module_name}"
+
+        if suite.frid is not None:
+            return f" of functionality {suite.frid} of module {suite.module_name}"
+
+        return f" of required module {suite.module_name}"
+
+
 class StateCompletionHandler(StateHandler):
     """Handler for state completion."""
 

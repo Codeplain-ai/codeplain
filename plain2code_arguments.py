@@ -21,6 +21,9 @@ DEFAULT_CONFORMANCE_TESTS_DEST = "dist_conformance_tests"
 
 UNIT_TESTS_SCRIPT_NAME = "unittests_script"
 CONFORMANCE_TESTS_SCRIPT_NAME = "conformance_tests_script"
+
+CONFORMANCE_SCOPE_FUNCTIONALITY = "functionality"
+CONFORMANCE_SCOPE_MODULE = "module"
 DEFAULT_LOG_FILE_NAME = "codeplain.log"
 PREPARE_ENVIRONMENT_SCRIPT_NAME = "prepare_environment_script"
 
@@ -311,6 +314,16 @@ def create_parser():
 
     _add_arg(
         parser,
+        "--conformance-scope",
+        type=str,
+        choices=[CONFORMANCE_SCOPE_FUNCTIONALITY, CONFORMANCE_SCOPE_MODULE],
+        default=CONFORMANCE_SCOPE_FUNCTIONALITY,
+        help="Whether conformance tests are generated, run and fixed per functionality (one test folder per "
+        "functionality, the default) or per module (a single test suite covering every functionality of the module, "
+        "planned once and run after the whole module has been implemented). Unit tests are always per functionality.",
+    )
+    _add_arg(
+        parser,
         "--prepare-environment-script",
         type=str,
         help="Path to a shell script that prepares the testing environment. The script should accept the source code folder path as its first argument.",
@@ -483,6 +496,14 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
         parser.error("--build-folder and --build-dest cannot be the same")
     if args.conformance_tests_dest == args.build_folder:
         parser.error("--conformance-tests-dest and --build-folder cannot be the same")
+
+    if args.conformance_scope not in (CONFORMANCE_SCOPE_FUNCTIONALITY, CONFORMANCE_SCOPE_MODULE):
+        # Values read from config.yaml bypass argparse's own choices validation, and this one selects
+        # the shape of the render state machine, so it is checked explicitly.
+        parser.error(
+            f"--conformance-scope must be either '{CONFORMANCE_SCOPE_FUNCTIONALITY}' or "
+            f"'{CONFORMANCE_SCOPE_MODULE}', got '{args.conformance_scope}'"
+        )
 
     args.render_conformance_tests = args.conformance_tests_script is not None
 

@@ -4,6 +4,7 @@ import threading
 from event_bus import EventBus
 from memory_management import MemoryManager
 from partial_rendering import RenderChoice
+from plain2code_arguments import CONFORMANCE_SCOPE_MODULE
 from plain2code_console import console
 from plain2code_events import RenderCompleted, RenderFailed
 from plain2code_state import RunState
@@ -37,6 +38,9 @@ class ModuleRenderer:
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
 
+    def is_module_conformance_scope(self) -> bool:
+        return self.args.conformance_scope == CONFORMANCE_SCOPE_MODULE
+
     def _build_render_context_for_module(
         self,
         plain_module: PlainModule,
@@ -57,6 +61,7 @@ class ModuleRenderer:
             copy_conformance_tests=self.args.copy_conformance_tests,
             render_range=render_range,
             render_conformance_tests=self.args.render_conformance_tests,
+            conformance_scope=self.args.conformance_scope,
             base_folder=self.args.base_folder,
             run_state=self.run_state,
             event_bus=self.event_bus,
@@ -83,7 +88,10 @@ class ModuleRenderer:
             render_range = self.render_choice.render_range
 
         if render_range is not None:
-            plain_module.ensure_previous_frid_commits_exist(render_range, self.args.render_conformance_tests)
+            plain_module.ensure_previous_frid_commits_exist(
+                render_range,
+                self.args.render_conformance_tests and not self.is_module_conformance_scope(),
+            )
 
         has_any_required_module_changed = False
         if not self.args.render_machine_graph and plain_module.required_modules and not is_render_choice_module:

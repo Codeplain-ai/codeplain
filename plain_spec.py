@@ -12,6 +12,11 @@ NON_FUNCTIONAL_REQUIREMENTS = "implementation reqs"
 TEST_REQUIREMENTS = "test reqs"
 FUNCTIONAL_REQUIREMENTS = "functional specs"
 ACCEPTANCE_TESTS = "acceptance_tests"
+
+# Stand-in "frid" for work that is scoped to the whole module rather than to one functionality. It
+# identifies module-scoped conformance testing in the render state, in tracing and in credit
+# reservations. It is deliberately not a valid frid, so get_specifications_for_frid rejects it.
+MODULE_SCOPE_FRID = "module"
 ACCEPTANCE_TEST_HEADING = "acceptance tests"
 
 ALLOWED_SPECIFICATION_HEADINGS = [

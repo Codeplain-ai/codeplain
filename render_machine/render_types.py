@@ -3,6 +3,7 @@ from enum import Enum, auto
 from typing import Any, Optional
 
 import plain_spec
+from plain2code_exceptions import InternalClientError
 
 
 class TestExecutionPhase(Enum):
@@ -138,6 +139,103 @@ class ConformanceTestsRunningContext:
         self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
             "test_summary"
         ] = summary
+
+
+class ModuleConformanceSuite:
+    """One conformance test suite that the module conformance phase has to see pass.
+
+    A module-scoped run has one suite per module: the suites of the required modules (re-run as
+    regression) followed by this module's own.
+    """
+
+    def __init__(
+        self,
+        module_name: str,
+        folder_name: Optional[str],
+        is_own_module: bool,
+        frid: Optional[str] = None,
+    ):
+        self.module_name = module_name
+        self.folder_name = folder_name
+        self.is_own_module = is_own_module
+        # Set only for a suite that a required module rendered per functionality, so that the suite
+        # can be reported by the functionality it covers.
+        self.frid = frid
+
+    def exists(self) -> bool:
+        return self.folder_name is not None
+
+    def require_folder_name(self) -> str:
+        """The suite's folder, for the callers that only run once the suite is known to exist."""
+        if self.folder_name is None:
+            raise InternalClientError(
+                f"Internal client error: conformance tests of module {self.module_name} have no folder yet."
+            )
+
+        return self.folder_name
+
+
+class ModuleConformanceTestsRunningContext:
+    """State of the module-scoped conformance testing phase.
+
+    Where ConformanceTestsRunningContext walks functionality by functionality (and needs phases to
+    track how far along that walk it is), this walks suite by suite: plan once, implement the plan in
+    batches, then run each suite in turn. A fix that touched the implementation code restarts the
+    sweep from the first suite, because a fix made for one suite can regress another.
+    """
+
+    def __init__(self, module_name: str, suites: list[ModuleConformanceSuite]):
+        self.module_name = module_name
+        self.suites = suites
+        self.current_suite_index = 0
+
+        # Planning and implementation of this module's suite.
+        self.conformance_tests_plan: Optional[dict] = None
+        self.conformance_tests_plan_summary: Optional[str] = None
+        self.test_summary: Optional[list[dict]] = None
+        self.uncovered_frids: list[str] = []
+        self.number_of_batches: int = 0
+        self.batches_rendered: int = 0
+
+        self.fix_attempts: int = 0
+        self.conformance_tests_render_attempts: int = 0
+        self.should_prepare_testing_environment: bool = True
+        self.implementation_code_updated: bool = False
+
+        self.conflicting_requirement_count: int = 0
+        self.conflicting_module_name: Optional[str] = None
+
+        self.previous_conformance_tests_issue_old: Optional[str] = None
+        self.previous_conformance_tests_issue_module: Optional[str] = None
+        self.code_diff_files: Optional[dict[str, str]] = None
+
+    @property
+    def current_suite(self) -> ModuleConformanceSuite:
+        return self.suites[self.current_suite_index]
+
+    @property
+    def own_suite(self) -> ModuleConformanceSuite:
+        return self.suites[-1]
+
+    def has_more_batches_to_render(self) -> bool:
+        return self.batches_rendered < self.number_of_batches
+
+    def has_next_suite(self) -> bool:
+        return self.current_suite_index + 1 < len(self.suites)
+
+    def move_to_next_suite(self) -> None:
+        self.current_suite_index += 1
+
+    def restart_suites(self) -> None:
+        """Re-run every suite from the first one, after the implementation code changed."""
+        self.current_suite_index = 0
+
+    def get_conformance_tests_coverage(self) -> list[dict]:
+        """The planned test -> covered functionalities map, for the fixer to reason with."""
+        if not self.conformance_tests_plan:
+            return []
+
+        return self.conformance_tests_plan.get("test_summary") or []
 
 
 @dataclass

@@ -5,6 +5,7 @@ import requests
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
 import plain2code_exceptions
+import plain_spec
 from plain2code_console import RETRY_COLOR
 from plain2code_state import RunState
 
@@ -341,6 +342,167 @@ class CodeplainAPI:
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
         return response["patched_response_files"], response["conformance_tests_plan_summary_string"]
+
+    # ---- Module-scoped conformance testing --------------------------------------------------
+    #
+    # Every module-scoped request carries plain_spec.MODULE_SCOPE_FRID as its `frid`, so that the
+    # server keys the credit reservation and the tracing off the module rather than off a
+    # functionality that does not exist for this phase.
+
+    def devise_module_conformance_tests_plan(
+        self,
+        plain_source_tree,
+        linked_resources,
+        existing_files_content,
+        memory_files_content,
+        module_name: str,
+        required_modules,
+        required_modules_conformance_tests,
+        run_state: RunState,
+    ):
+        endpoint_url = f"{self.api_url}/devise_module_conformance_tests_plan"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+            "required_modules_conformance_tests": required_modules_conformance_tests,
+        }
+
+        response = self.post_request(endpoint_url, headers, payload, run_state)
+        return (
+            response["conformance_tests_plan"],
+            response["conformance_tests_plan_summary"],
+            response["uncovered_frids"],
+            response["number_of_batches"],
+        )
+
+    def render_module_conformance_tests(
+        self,
+        plain_source_tree,
+        linked_resources,
+        existing_files_content,
+        memory_files_content,
+        module_name: str,
+        required_modules,
+        conformance_tests_folder_name,
+        conformance_tests_files,
+        conformance_tests_plan,
+        batch_index: int,
+        run_state: RunState,
+    ):
+        endpoint_url = f"{self.api_url}/render_module_conformance_tests"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+            "conformance_tests_folder_name": conformance_tests_folder_name,
+            "conformance_tests_files": conformance_tests_files,
+            "conformance_tests_plan": conformance_tests_plan,
+            "batch_index": batch_index,
+        }
+
+        response = self.post_request(endpoint_url, headers, payload, run_state)
+        return response["patched_response_files"]
+
+    def fix_module_conformance_tests_issue(
+        self,
+        plain_source_tree,
+        linked_resources,
+        existing_files_content,
+        memory_files_content,
+        module_name: str,
+        conformance_tests_module_name: str,
+        required_modules,
+        code_diff,
+        conformance_tests_files,
+        conformance_tests_coverage,
+        conformance_tests_issue,
+        implementation_fix_count,
+        conformance_tests_folder_name,
+        module_conformance_tests_plan_summary,
+        conflicting_requirements_count,
+        run_state: RunState,
+    ):
+        endpoint_url = f"{self.api_url}/fix_module_conformance_tests_issue"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "memory_files_content": memory_files_content,
+            "module_name": module_name,
+            "conformance_tests_module_name": conformance_tests_module_name,
+            "required_modules": required_modules,
+            "code_diff": code_diff,
+            "conformance_tests_files": conformance_tests_files,
+            "conformance_tests_coverage": conformance_tests_coverage,
+            "conformance_tests_issue": conformance_tests_issue,
+            "implementation_fix_count": implementation_fix_count,
+            "conformance_tests_folder_name": conformance_tests_folder_name,
+            "module_conformance_tests_plan_summary": module_conformance_tests_plan_summary,
+            "conflicting_requirements_count": conflicting_requirements_count,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def summarize_module_conformance_tests(
+        self,
+        plain_source_tree,
+        linked_resources,
+        conformance_test_files_content,
+        module_name: str,
+        required_modules,
+        run_state: RunState,
+    ):
+        endpoint_url = f"{self.api_url}/summarize_module_conformance_tests"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "conformance_test_files_content": conformance_test_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def finish_module_conformance_tests(self, module_name: str, run_state: RunState):
+        endpoint_url = f"{self.api_url}/finish_module_conformance_tests"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "module_name": module_name,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def fail_module_conformance_tests(self, module_name: str, run_state: RunState):
+        endpoint_url = f"{self.api_url}/fail_module_conformance_tests"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+
+        payload = {
+            "frid": plain_spec.MODULE_SCOPE_FRID,
+            "module_name": module_name,
+        }
+
+        return self.post_request(endpoint_url, headers, payload, run_state)
 
     def generate_folder_name_from_functional_requirement(
         self,

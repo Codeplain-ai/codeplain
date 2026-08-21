@@ -7,6 +7,7 @@ import git_utils
 import plain_spec
 from codeplain_REST_api import CodeplainAPI
 from event_bus import EventBus
+from plain2code_arguments import CONFORMANCE_SCOPE_MODULE
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
@@ -17,12 +18,20 @@ from render_machine.render_types import (
     AcceptanceTestPhase,
     ConformanceTestsRunningContext,
     FridContext,
+    ModuleConformanceSuite,
+    ModuleConformanceTestsRunningContext,
     ScriptExecutionHistory,
     TestExecutionPhase,
     UnitTestsRunningContext,
 )
 
 MAX_UNITTEST_FIX_ATTEMPTS = 20
+
+# A module conformance suite covers every functionality of the module, so its fix budget scales with
+# the number of functionalities rather than being the flat per-functionality budget.
+MAX_MODULE_CONFORMANCE_TEST_FIX_ATTEMPTS_BASE = 20
+MAX_MODULE_CONFORMANCE_TEST_FIX_ATTEMPTS_PER_FRID = 10
+MAX_MODULE_CONFORMANCE_TEST_FIX_ATTEMPTS_CAP = 120
 MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS = 2
 
 
@@ -42,6 +51,7 @@ class RenderContext:
         copy_conformance_tests: bool,
         render_range: list[str] | None,
         render_conformance_tests: bool,
+        conformance_scope: str,
         base_folder: str,
         run_state: RunState,
         event_bus: EventBus,
@@ -66,6 +76,7 @@ class RenderContext:
         self.copy_conformance_tests = copy_conformance_tests
         self.render_range = render_range
         self.render_conformance_tests = render_conformance_tests
+        self.conformance_scope = conformance_scope
         self.base_folder = base_folder
         self.run_state = run_state
         self.event_bus = event_bus
@@ -85,6 +96,7 @@ class RenderContext:
         self.frid_context: Optional[FridContext] = None
         self.unit_tests_running_context: Optional[UnitTestsRunningContext] = None
         self.conformance_tests_running_context: Optional[ConformanceTestsRunningContext] = None
+        self.module_conformance_tests_running_context: Optional[ModuleConformanceTestsRunningContext] = None
         # Constants that should remain for a single frid, but possible over multiple rerenderings of the same frid
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
 
@@ -126,6 +138,11 @@ class RenderContext:
             frid_context=deepcopy(self.frid_context) if self.frid_context else None,
             conformance_tests_running_context=(
                 deepcopy(self.conformance_tests_running_context) if self.conformance_tests_running_context else None
+            ),
+            module_conformance_tests_running_context=(
+                deepcopy(self.module_conformance_tests_running_context)
+                if self.module_conformance_tests_running_context
+                else None
             ),
             unit_tests_running_context=(
                 deepcopy(self.unit_tests_running_context) if self.unit_tests_running_context else None
@@ -187,6 +204,17 @@ class RenderContext:
 
     def should_run_conformance_tests(self) -> bool:
         return self.conformance_tests_script is not None
+
+    def is_module_conformance_scope(self) -> bool:
+        return self.conformance_scope == CONFORMANCE_SCOPE_MODULE
+
+    def should_run_frid_conformance_tests(self) -> bool:
+        """Whether conformance tests are run as part of implementing each functionality."""
+        return self.should_run_conformance_tests() and not self.is_module_conformance_scope()
+
+    def should_run_module_conformance_tests(self) -> bool:
+        """Whether conformance tests are run once for the whole module, after every functionality."""
+        return self.should_run_conformance_tests() and self.is_module_conformance_scope()
 
     def start_unittests_processing(self):
         self.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
@@ -562,6 +590,130 @@ class RenderContext:
 
         # Should never reach here
         raise RuntimeError(f"Unexpected execution phase: {ctx.execution_phase}")
+
+    # ========== Module-scoped conformance testing ==========
+    #
+    # Where per-functionality conformance testing walks functionality by functionality inside
+    # implementingFrid, this is a single root-level phase entered once every functionality of the
+    # module has been implemented. It plans one test suite covering the whole module, implements the
+    # plan in batches, and then runs every suite in scope - the suites of the required modules as
+    # regression, then this module's own.
+
+    def _build_module_conformance_suites(self) -> list[ModuleConformanceSuite]:
+        """The suites that have to pass before the module is considered done, in the order they run.
+
+        A required module may have been rendered under either scope, so it contributes either its one
+        module suite or one suite per functionality. That keeps regression working across a requires
+        chain whose modules were not all rendered with the same conformance scope.
+        """
+        suites = []
+
+        for required_module in self.required_modules or []:
+            module_suite_folder_name = self.conformance_tests.get_module_suite_folder_name(required_module.module_name)
+            if module_suite_folder_name is not None:
+                suites.append(
+                    ModuleConformanceSuite(
+                        module_name=required_module.module_name,
+                        folder_name=module_suite_folder_name,
+                        is_own_module=False,
+                    )
+                )
+                continue
+
+            required_module_conformance_tests = self.conformance_tests.get_conformance_tests_json(
+                required_module.module_name
+            )
+            for frid, entry in required_module_conformance_tests.items():
+                if not isinstance(entry, dict) or "folder_name" not in entry:
+                    continue
+                suites.append(
+                    ModuleConformanceSuite(
+                        module_name=required_module.module_name,
+                        folder_name=entry["folder_name"],
+                        is_own_module=False,
+                        frid=frid,
+                    )
+                )
+
+        suites.append(
+            ModuleConformanceSuite(
+                module_name=self.module_name,
+                folder_name=self.conformance_tests.get_module_suite_folder_name(self.module_name),
+                is_own_module=True,
+            )
+        )
+
+        return suites
+
+    def start_module_conformance_tests_processing(self):
+        console.info(f"Implementing conformance tests for module {self.module_name}...")
+        self.module_conformance_tests_running_context = ModuleConformanceTestsRunningContext(
+            module_name=self.module_name,
+            suites=self._build_module_conformance_suites(),
+        )
+        self.run_state.current_frid = plain_spec.MODULE_SCOPE_FRID
+
+    def finish_module_conformance_tests_processing(self):
+        self.module_conformance_tests_running_context = None
+
+    def get_max_module_conformance_test_fix_attempts(self) -> int:
+        """How many fix attempts a module suite gets before the render is failed.
+
+        A module suite covers every functionality of the module, so it can fail in more ways than a
+        per-functionality suite can. The budget therefore grows with the number of functionalities,
+        up to a cap that keeps a hopeless run from going on indefinitely.
+        """
+        number_of_frids = len(list(plain_spec.get_frids(self.plain_source_tree)))
+
+        return min(
+            MAX_MODULE_CONFORMANCE_TEST_FIX_ATTEMPTS_BASE
+            + MAX_MODULE_CONFORMANCE_TEST_FIX_ATTEMPTS_PER_FRID * number_of_frids,
+            MAX_MODULE_CONFORMANCE_TEST_FIX_ATTEMPTS_CAP,
+        )
+
+    def get_required_modules_conformance_tests(self) -> dict:
+        """The conformance test summaries of the required modules, keyed by module name.
+
+        The module test plan is grounded in these so that it does not re-test what the modules this
+        one builds upon already cover.
+        """
+        required_modules_conformance_tests = {}
+
+        for required_module in self.required_modules or []:
+            test_summaries = self.conformance_tests.get_module_conformance_tests_summary(required_module.module_name)
+            if not test_summaries:
+                # A required module rendered under the per-functionality scope has one summary per
+                # functionality rather than one for the module.
+                test_summaries = []
+                for entry in self.conformance_tests.get_conformance_tests_json(required_module.module_name).values():
+                    if isinstance(entry, dict) and entry.get("test_summary"):
+                        test_summaries.extend(entry["test_summary"])
+
+            if test_summaries:
+                required_modules_conformance_tests[required_module.module_name] = test_summaries
+
+        return required_modules_conformance_tests
+
+    def get_module_acceptance_tests(self) -> list[str]:
+        """Every acceptance test of the module, in functionality order.
+
+        Module-scoped work has no single functionality whose acceptance tests apply, so the whole
+        module's are passed along.
+        """
+        acceptance_tests = []
+
+        for frid in plain_spec.get_frids(self.plain_source_tree):
+            specifications, _ = plain_spec.get_specifications_for_frid(self.plain_source_tree, frid)
+            acceptance_tests.extend(specifications.get(plain_spec.ACCEPTANCE_TESTS, []))
+
+        return acceptance_tests
+
+    def _on_unit_test_limit_exceeded_in_module_conformance_tests(self):
+        error_msg = (
+            f"Failed to adjust the unit tests of module {self.module_name} after the implementation code was "
+            f"updated while fixing the conformance tests of the module."
+        )
+        self.dispatch_error(error_msg)
 
     def start_render_completed(self):
         self.run_state.set_render_succeeded(True)

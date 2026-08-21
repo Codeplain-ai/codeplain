@@ -39,6 +39,26 @@ class ImplementationCodeHelpers:
         return ImplementationCodeHelpers.remove_system_folder_paths_from_code_diff(previous_frid_code_diff)
 
     @staticmethod
+    def get_module_code_diff(build_folder: str):
+        """Diff of everything the module's implementation added on top of its starting point.
+
+        Module-scoped conformance testing has no "previous functionality" to diff against, since the
+        failing suite covers the whole module.
+        """
+        module_code_diff = git_utils.get_module_code_diff(build_folder)
+
+        return ImplementationCodeHelpers.remove_system_folder_paths_from_code_diff(module_code_diff)
+
+    @staticmethod
+    def get_module_fixed_implementation_code_diff(build_folder: str, module_name: str):
+        """Diff of the implementation fixes made while getting the module's suite to pass."""
+        fixed_implementation_code_diff = git_utils.get_module_fixed_implementation_code_diff(build_folder, module_name)
+        if fixed_implementation_code_diff is None:
+            return None
+
+        return ImplementationCodeHelpers.remove_system_folder_paths_from_code_diff(fixed_implementation_code_diff)
+
+    @staticmethod
     def get_fixed_implementation_code_diff(build_folder: str, frid: str):
         fixed_implementation_code_diff = git_utils.get_fixed_implementation_code_diff(build_folder, frid)
         if fixed_implementation_code_diff is None:
