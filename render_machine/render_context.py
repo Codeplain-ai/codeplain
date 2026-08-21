@@ -396,8 +396,20 @@ class RenderContext:
 
         console.info(f"Recreating conformance tests for functionality {ctx.current_testing_frid}.")
 
-        existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(ctx.current_testing_frid)
-        file_utils.delete_folder(existing_folder["folder_name"])
+        # Popped with a default: the entry is gone if a previous regeneration removed it
+        # and the re-render recorded the replacement elsewhere. There is then nothing to
+        # delete, and the test is rendered fresh either way - a state that should not
+        # arise is not worth ending a render that has run for an hour.
+        existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(
+            ctx.current_testing_frid, None
+        )
+        if existing_folder is None:
+            console.warning(
+                f"No conformance test recorded for functionality {ctx.current_testing_frid} of module "
+                f"{ctx.current_testing_module_name}; regenerating without deleting one."
+            )
+        else:
+            file_utils.delete_folder(existing_folder["folder_name"])
 
         ctx.conformance_tests_render_attempts += 1
         ctx.fix_attempts = 0
