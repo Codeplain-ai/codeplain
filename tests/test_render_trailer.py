@@ -104,15 +104,19 @@ def test_the_trailer_is_flushed_so_it_survives_an_abrupt_exit():
     assert handler.flush.called
 
 
-def test_a_completed_render_that_still_raised_reports_the_reason(trailer_lines):
+def test_a_render_that_raised_on_the_way_out_reports_the_reason_and_fails(trailer_lines):
     """A render can finish its functionalities and raise on the way out — publishing the
-    build, for instance. That combination printed a success banner, logged no reason, and
-    exited non-zero, which is how a failure on the publish path went unnoticed across a
-    whole run."""
+    build, for instance. That combination printed a success banner and logged no reason,
+    which is how a failure on the publish path went unnoticed across a whole run.
+
+    The reason belongs on the trailer, and so does an outcome that agrees with it: the
+    success flag is set per module, so an earlier module's success outlives the failure of
+    a later one, and a run that produced no build reported `outcome=completed`."""
     lines = trailer_lines(run_state(succeeded=True), error_message="The generated build references ...")
 
-    assert any("outcome=completed" in line for line in lines)
     assert any("error='The generated build references ...'" in line for line in lines)
+    assert any("outcome=failed" in line for line in lines)
+    assert not any("outcome=completed" in line for line in lines)
 
 
 def test_a_multi_line_reason_still_leaves_the_trailer_on_one_line(trailer_lines):
@@ -124,3 +128,18 @@ def test_a_multi_line_reason_still_leaves_the_trailer_on_one_line(trailer_lines)
     assert "\n" not in lines[0]
     assert "outcome=failed" in lines[0]
     assert "second line" in lines[0]
+
+
+class TestOutcomeAgreesWithTheReason:
+    """A trailer that says `completed` next to an `error=` is worse than no trailer: it is
+    read by tooling, and it was observed on a render that produced no code at all. The
+    success flag is set per module, so an earlier module's success outlives the failure of
+    a later one."""
+
+    def test_success_with_no_error_still_completes(self, trailer_lines):
+        assert "outcome=completed" in trailer_lines(run_state(succeeded=True))[0]
+
+    def test_a_cancelled_render_reports_cancelled_not_failed(self, trailer_lines):
+        lines = trailer_lines(run_state(succeeded=False, cancelled=True), error_message="Keyboard interrupt")
+
+        assert "outcome=cancelled" in lines[0]

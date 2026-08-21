@@ -10,7 +10,12 @@ from render_machine.actions.base_action import BaseAction
 from render_machine.fix_loop_metrics import CONFORMANCE_LOOP, STRATEGY_SWITCH_PREFIX, stalled_reason
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
-from render_machine.render_types import AcceptanceTestPhase, RenderError, TestExecutionPhase
+from render_machine.render_types import (
+    FIX_LOOP_EXHAUSTED_HINT,
+    AcceptanceTestPhase,
+    RenderError,
+    TestExecutionPhase,
+)
 
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 
@@ -101,11 +106,20 @@ class FixConformanceTest(BaseAction):
 
         if ctx.fix_attempts >= MAX_CONFORMANCE_TEST_FIX_ATTEMPTS:
             if ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS:
-                error_msg = f"The renderer was unable to produce an implementation that passes conformance tests for functionality '{render_context.frid_context.frid}' after many attempts. Please review and rewrite the specification. (Render ID: {render_context.run_state.render_id})"
+                error_msg = (
+                    f"Rendering stopped: the conformance tests for functionality "
+                    f"'{render_context.frid_context.frid}' still failed after "
+                    f"{MAX_CONFORMANCE_TEST_FIX_ATTEMPTS} attempts at fixing them. {FIX_LOOP_EXHAUSTED_HINT} "
+                    f"(Render ID: {render_context.run_state.render_id})"
+                )
                 render_context.last_error_message = error_msg
                 return (
                     self.LIMIT_EXCEEDED_OUTCOME,
-                    RenderError.encode(message=error_msg).to_payload(),
+                    RenderError.encode(
+                        message=error_msg,
+                        error_type="CONFORMANCE_TESTS_FIX_EXHAUSTED",
+                        frid=render_context.frid_context.frid,
+                    ).to_payload(),
                 )
             else:
                 ctx.regenerating_conformance_tests = True

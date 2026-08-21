@@ -1,10 +1,12 @@
 import tempfile
 from argparse import Namespace
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import plain2code
 import plain_spec
+from plain2code_exceptions import RenderCancelledError
+from plain2code_state import RunState
 from plain_modules import PlainModule
 
 
@@ -91,3 +93,42 @@ def test_warning_covers_required_modules_for_real_plain_module(get_test_data_pat
     mock_console.warning.assert_called_once()
     warning_message = mock_console.warning.call_args.args[0]
     assert "required_with_acceptance_tests" in warning_message
+
+
+class TestRenderRecordsItsOutcome:
+    """The headless path and the TUI path both have to record how the render ended. Only
+    the TUI path did, so a headless render that failed after one module had completed
+    reported `outcome=completed` and, when the failure was an expected exception, exited 0.
+    """
+
+    @staticmethod
+    def _renderer(error=None):
+        renderer = MagicMock()
+        if error is not None:
+            renderer.render_module.side_effect = error
+        return renderer
+
+    def test_a_failure_clears_a_success_left_by_an_earlier_module(self):
+        run_state = RunState("reports.plain")
+        run_state.set_render_succeeded(True)
+        failure = RuntimeError("conformance fix loop exhausted")
+
+        returned = plain2code._render_recording_outcome(self._renderer(failure), run_state)
+
+        assert returned is failure
+        assert run_state.render_succeeded is False
+
+    def test_a_clean_run_leaves_the_outcome_alone(self):
+        run_state = RunState("reports.plain")
+        run_state.set_render_succeeded(True)
+
+        assert plain2code._render_recording_outcome(self._renderer(), run_state) is None
+        assert run_state.render_succeeded is True
+
+    def test_cancellation_is_recorded_as_cancelled_rather_than_returned(self):
+        run_state = RunState("reports.plain")
+
+        returned = plain2code._render_recording_outcome(self._renderer(RenderCancelledError()), run_state)
+
+        assert returned is None
+        assert run_state.render_cancelled is True

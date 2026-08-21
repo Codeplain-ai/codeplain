@@ -94,10 +94,22 @@ class RenderContext:
         self.conformance_tests_running_context: Optional[ConformanceTestsRunningContext] = None
         # Constants that should remain for a single frid, but possible over multiple rerenderings of the same frid
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
-        # Initialize conformance tests utilities
+
+        # Initialize conformance tests utilities. The resolver lets a required module that ships
+        # as a "<module>.module" archive resolve to its scratch extraction (via materialize())
+        # rather than the non-existent default plain_modules/<module>/tests path.
+        def _resolve_module_tests_folder(module_name: str) -> Optional[str]:
+            if module_name == plain_module.module_name:
+                return plain_module.module_conformance_tests_folder
+            for required_module in plain_module.all_required_modules:
+                if required_module.module_name == module_name:
+                    return required_module.module_conformance_tests_folder
+            return None
+
         self.conformance_tests = ConformanceTests(
             modules_base_folder=plain_module.build_folder,
             conformance_tests_definition_file_name=CONFORMANCE_TESTS_DEFINITION_FILE_NAME,
+            resolve_module_tests_folder=_resolve_module_tests_folder,
         )
 
         self.machine = None

@@ -112,8 +112,7 @@ class CodeplainAPI:
             raise plain2code_exceptions.plain_syntax_error(message or "Unknown error")
         if error_code == "InternalServerError":
             raise plain2code_exceptions.InternalServerError(
-                "Internal server error.\n\n"
-                "Please report the error to support@codeplain.ai with the attached .log file."
+                "Internal server error. The render log records the render ID and what the render was doing."
             )
         exception_class = ERROR_CODE_EXCEPTIONS[error_code]
         raise exception_class(message)
@@ -143,7 +142,11 @@ class CodeplainAPI:
                     self.console.debug(f"Failed to decode JSON response: {e}. Response text: {response.text}")
                     raise Exception(f"Error rendering plain code: Failed to decode API response ({e}).\n") from e
 
-                if response.status_code == requests.codes.bad_request and "error_code" in response_json:
+                # Any status the server declines on, not only 400. The server returns
+                # error_code with 500 as well, and reading it only on 400 meant those
+                # reached the user as the raw "500 Server Error for url: ..." rather than
+                # the message the code was paired with.
+                if not response.ok and "error_code" in response_json:
                     self._raise_for_error_code(response_json)
 
                 response.raise_for_status()

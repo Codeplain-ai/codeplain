@@ -148,6 +148,12 @@ class ScriptExecutionHistory:
     should_update_script_outputs: bool = False
 
 
+# Both fix loops end the same way when they run out of attempts, and neither ending tells us
+# the specification is at fault - only that we did not converge. The reason points at the
+# evidence instead of assigning blame.
+FIX_LOOP_EXHAUSTED_HINT = "The render log records what each attempt failed on."
+
+
 @dataclass
 class RenderError:
     """Standardized error format for all render failures."""

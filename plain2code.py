@@ -29,6 +29,7 @@ from plain2code_exceptions import (
     ImportedModuleWithFunctionalitiesError,
     InvalidAPIKey,
     InvalidFridArgument,
+    InvalidModuleArchiveError,
     MissingAPIKey,
     MissingFunctionalitiesError,
     MissingPreviousFunctionalitiesError,
@@ -81,6 +82,7 @@ EXPECTED_EXCEPTIONS = (
     UnsupportedResourceType,
     UnsupportedBase64Content,
     GitNotInstalledError,
+    InvalidModuleArchiveError,
     SystemExit,
 )
 
@@ -190,6 +192,25 @@ def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> N
     )
 
 
+def _render_recording_outcome(module_renderer, run_state: RunState) -> Exception | None:
+    """Runs the render and records how it ended, returning the failure if there was one.
+
+    The outcome is recorded per module, so a render that fails after an earlier module has
+    completed is still holding that module's success. Both the render trailer and the
+    headless exit code read that flag, and the exit code is 0 when the failure is one of
+    EXPECTED_EXCEPTIONS - so a caller that skips this reports a failed render as a
+    successful one.
+    """
+    try:
+        module_renderer.render_module()
+    except RenderCancelledError:
+        run_state.set_render_cancelled()  # The TUI is already closed, nothing to report.
+    except Exception as error:
+        run_state.set_render_succeeded(False)
+        return error
+    return None
+
+
 def render(  # noqa: C901
     plain_module: plain_modules.PlainModule,
     args,
@@ -214,6 +235,15 @@ def render(  # noqa: C901
 
     warn_if_acceptance_tests_without_conformance_script(plain_module, args)
 
+    # A built module can be distributed as a "<module>.module" zip archive instead of an unpacked directory.
+    # Extract any such module to a scratch location up front. Scratch dirs are removed in main()'s finally.
+    # Skip an archive-only module that lacks conformance tests while testing is enabled: it cannot be
+    # consumed as-is, so leave it unmaterialized so it is detected below as needing a re-render.
+    for module in plain_module.all_required_modules + [plain_module]:
+        if args.render_conformance_tests and module.is_archived_only() and not module.archive_has_conformance_tests():
+            continue
+        module.materialize()
+
     # The module_metadata file lives outside the code git repo. That means that a crash mid-render can leave it
     # claiming a functionality was implemented even thought it wasn't yet committed (because of the crash).
     # Out of precaution, this reconciles every module_metadata against the code repo.
@@ -222,7 +252,7 @@ def render(  # noqa: C901
 
     render_choice = None
     if render_range is None:
-        plain_module_render_state = get_plain_module_render_state(plain_module)
+        plain_module_render_state = get_plain_module_render_state(plain_module, args.render_conformance_tests)
         if plain_module_render_state is not None:
             render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
             ask_user = True
@@ -274,21 +304,16 @@ def render(  # noqa: C901
     render_error: list[Exception] = []
 
     def run_render():
-        try:
-            module_renderer.render_module()
-        except RenderCancelledError:
-            run_state.set_render_cancelled()  # TUI already closed, nothing to report
-        except Exception as e:
-            run_state.set_render_succeeded(False)
-            render_error.append(e)
-            event_bus.publish(RenderFailed(error_message=str(e)))
+        error = _render_recording_outcome(module_renderer, run_state)
+        if error is not None:
+            render_error.append(error)
+            event_bus.publish(RenderFailed(error_message=str(error)))
 
     if args.headless:
         console.info(f"Render started. Render ID: {run_state.render_id}")
-        try:
-            module_renderer.render_module()
-        except RenderCancelledError:
-            run_state.set_render_cancelled()
+        error = _render_recording_outcome(module_renderer, run_state)
+        if error is not None:
+            raise error
         return
     else:
         render_thread = threading.Thread(target=run_render, daemon=True)
@@ -421,6 +446,11 @@ def main():  # noqa: C901
         if exc_info:
             dump_crash_logs(args, run_state)
             capture_crash(exc_info, run_state, args)
+
+        # Remove any scratch extractions created for archive-only ("<module>.module") modules.
+        # Last, so the crash dump above still sees the files it reports on.
+        for module in plain_module.all_required_modules + [plain_module]:
+            module.cleanup_scratch()
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)

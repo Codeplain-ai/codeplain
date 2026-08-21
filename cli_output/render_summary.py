@@ -15,6 +15,20 @@ logger = logging.getLogger(plain2code_logger.LOGGER_NAME)
 RENDER_TRAILER_PREFIX = "[render-trailer]"
 
 
+def render_outcome(run_state: RunState, error_message: Optional[str]) -> str:
+    """What the render did, for the banner and the trailer alike.
+
+    A reason recorded on the way out overrides the success flag. The flag is set per
+    module, so an earlier module's success can still be standing while the process exits
+    on an error - which read as a completed render that produced nothing.
+    """
+    if run_state.render_succeeded and not error_message:
+        return "completed"
+    if run_state.render_cancelled:
+        return "cancelled"
+    return "failed"
+
+
 def print_exit_summary(
     run_state: RunState,
     spec_filename: str,
@@ -23,7 +37,7 @@ def print_exit_summary(
     """Print render outcome after the TUI exits (terminal restored)."""
     console.quiet = False
 
-    if run_state.render_succeeded:
+    if render_outcome(run_state, error_message) == "completed":
         msg = "\n[#79FC96]✓ rendering completed\n\n"
     elif run_state.render_cancelled:
         msg = "\n[#FFFFFF]— rendering canceled\n\n"
@@ -59,12 +73,7 @@ def log_render_trailer(
     the render did, and because it is written on every exit path a log *without* a
     trailer is itself evidence that the file was truncated.
     """
-    if run_state.render_succeeded:
-        outcome = "completed"
-    elif run_state.render_cancelled:
-        outcome = "cancelled"
-    else:
-        outcome = "failed"
+    outcome = render_outcome(run_state, error_message)
 
     # Both times: an action that raises never reaches the render's own terminal accounting,
     # so the banked figure is stale on the paths this trailer exists to describe, and the
