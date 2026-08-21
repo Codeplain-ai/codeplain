@@ -111,6 +111,12 @@ class ModuleRenderer:
         ):
             return False, False
 
+        # We are going to (re)render this module. If it currently exists only as a
+        # "<module>.module" archive, unpack it into the real plain_modules/<module>/ folder now,
+        # before RenderContext snapshots the build folder path and before the git repos, metadata,
+        # and memory folder are touched.
+        plain_module.ensure_module_unpacked()
+
         memory_manager = MemoryManager(
             self.codeplainAPI,
             plain_module.module_memory_folder,
