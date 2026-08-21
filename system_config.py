@@ -32,11 +32,10 @@ def _resolve_version() -> str:
         # codeplain checkout's repo, not the caller's working directory
         # (codeplain may be run from anywhere).
         source_dir = os.path.dirname(os.path.abspath(__file__))
-        repo = git.Repo(source_dir, search_parent_directories=True)
-
-        # Highest version tag, regardless of branch ancestry (a dev run may sit
-        # on a feature branch that doesn't descend from the latest release tag).
-        latest_tag = repo.git.tag("--list", "--sort=-v:refname").splitlines()[0]
+        with git.Repo(source_dir, search_parent_directories=True) as repo:
+            # Highest version tag, regardless of branch ancestry (a dev run may sit
+            # on a feature branch that doesn't descend from the latest release tag).
+            latest_tag = repo.git.tag("--list", "--sort=-v:refname").splitlines()[0]
         return latest_tag.lstrip("v")
     except Exception:
         return "0.0.0.dev0"
