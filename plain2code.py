@@ -24,6 +24,7 @@ from plain2code_console import console
 from plain2code_events import RenderFailed
 from plain2code_exceptions import (
     ConflictingRequirements,
+    ConformanceTestsFixExhausted,
     GitNotInstalledError,
     ImportedModuleWithFunctionalitiesError,
     InvalidAPIKey,
@@ -74,6 +75,7 @@ EXPECTED_EXCEPTIONS = (
     InvalidAPIKey,
     OutdatedClientVersion,
     ConflictingRequirements,
+    ConformanceTestsFixExhausted,
     RenderingCreditBalanceTooLow,
     NetworkConnectionError,
     ModuleDoesNotExistError,
@@ -190,6 +192,25 @@ def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> N
     )
 
 
+def _render_recording_outcome(module_renderer, run_state: RunState) -> Exception | None:
+    """Runs the render and records how it ended, returning the failure if there was one.
+
+    The outcome is recorded per module, so a render that fails after an earlier module has
+    completed is still holding that module's success. Both the render trailer and the
+    headless exit code read that flag, and the exit code is 0 when the failure is one of
+    EXPECTED_EXCEPTIONS - so a caller that skips this reports a failed render as a
+    successful one.
+    """
+    try:
+        module_renderer.render_module()
+    except RenderCancelledError:
+        run_state.set_render_cancelled()  # The TUI is already closed, nothing to report.
+    except Exception as error:
+        run_state.set_render_succeeded(False)
+        return error
+    return None
+
+
 def render(  # noqa: C901
     plain_module: plain_modules.PlainModule,
     args,
@@ -283,21 +304,16 @@ def render(  # noqa: C901
     render_error: list[Exception] = []
 
     def run_render():
-        try:
-            module_renderer.render_module()
-        except RenderCancelledError:
-            run_state.set_render_cancelled()  # TUI already closed, nothing to report
-        except Exception as e:
-            run_state.set_render_succeeded(False)
-            render_error.append(e)
-            event_bus.publish(RenderFailed(error_message=str(e)))
+        error = _render_recording_outcome(module_renderer, run_state)
+        if error is not None:
+            render_error.append(error)
+            event_bus.publish(RenderFailed(error_message=str(error)))
 
     if args.headless:
         console.info(f"Render started. Render ID: {run_state.render_id}")
-        try:
-            module_renderer.render_module()
-        except RenderCancelledError:
-            run_state.set_render_cancelled()
+        error = _render_recording_outcome(module_renderer, run_state)
+        if error is not None:
+            raise error
         return
     else:
         render_thread = threading.Thread(target=run_render, daemon=True)
@@ -420,15 +436,19 @@ def main():  # noqa: C901
             if not isinstance(e, EXPECTED_EXCEPTIONS):
                 exc_info = sys.exc_info()
     finally:
-        if exc_info:
-            dump_crash_logs(args, run_state)
-            capture_crash(exc_info, run_state, args)
+        # Writes the trailer, so it runs before the crash dump: a log dumped without one
+        # is indistinguishable from a truncated one.
         print_exit_summary(
             run_state,
             args.filename,
             error_message=error_message,
         )
+        if exc_info:
+            dump_crash_logs(args, run_state)
+            capture_crash(exc_info, run_state, args)
+
         # Remove any scratch extractions created for archive-only ("<module>.module") modules.
+        # Last, so the crash dump above still sees the files it reports on.
         for module in plain_module.all_required_modules + [plain_module]:
             module.cleanup_scratch()
 

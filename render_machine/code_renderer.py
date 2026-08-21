@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from transitions.extensions.diagrams import HierarchicalGraphMachine
 
+from plain2code_console import console
 from plain2code_events import (
     RenderModuleCompleted,
     RenderModuleFailed,
@@ -79,6 +80,8 @@ class CodeRenderer:
                 break
 
             if self.render_context.state == States.RENDER_COMPLETED.value:
+                for summary in self.render_context.fix_loop_metrics.render_summary():
+                    console.info(summary)
                 self.render_context.event_bus.publish(
                     RenderModuleCompleted(module_name=self.render_context.module_name)
                 )

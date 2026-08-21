@@ -8,7 +8,7 @@ from plain2code_exceptions import FunctionalRequirementTooComplex
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
-from render_machine.render_types import RenderError
+from render_machine.render_types import FIX_LOOP_EXHAUSTED_HINT, RenderError
 
 MAX_CODE_GENERATION_RETRIES = 2
 
@@ -20,9 +20,20 @@ class RenderFunctionalRequirement(BaseAction):
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if render_context.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functionality {render_context.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
+            error_msg = (
+                f"Rendering stopped: the unit tests for functionality '{render_context.frid_context.frid}' still "
+                f"failed after rendering it from scratch {MAX_CODE_GENERATION_RETRIES} times. "
+                f"{FIX_LOOP_EXHAUSTED_HINT}"
+            )
             render_context.last_error_message = error_msg
-            return self.ITERATION_LIMIT_EXCEEDED_OUTCOME, None
+            return (
+                self.ITERATION_LIMIT_EXCEEDED_OUTCOME,
+                RenderError.encode(
+                    message=error_msg,
+                    error_type="UNIT_TESTS_FIX_EXHAUSTED",
+                    frid=render_context.frid_context.frid,
+                ).to_payload(),
+            )
 
         render_context.frid_context.functional_requirement_render_attempts += 1
 

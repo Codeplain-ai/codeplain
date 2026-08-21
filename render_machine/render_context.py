@@ -13,6 +13,7 @@ from plain2code_state import RunState
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
+from render_machine.fix_loop_metrics import FixLoopMetrics
 from render_machine.render_types import (
     AcceptanceTestPhase,
     ConformanceTestsRunningContext,
@@ -107,6 +108,10 @@ class RenderContext:
 
         self.machine = None
         self.last_error_message: str | None = None
+        # Observations only — see render_machine/fix_loop_metrics.py. Deliberately not
+        # part of the snapshot: a rolled-back FRID still consumed the attempts it made,
+        # and hiding them would understate what convergence cost.
+        self.fix_loop_metrics = FixLoopMetrics()
 
     def set_machine(self, machine):
         self.machine = machine

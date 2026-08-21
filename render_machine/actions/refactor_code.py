@@ -22,7 +22,7 @@ class RefactorCode(BaseAction):
         render_context.frid_context.refactoring_iteration += 1
 
         if render_context.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
-            error_message = "Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {render_context.frid_context.frid}."
+            error_message = f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached for functionality {render_context.frid_context.frid}."
             render_context.last_error_message = error_message
 
             return (
