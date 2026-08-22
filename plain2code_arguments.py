@@ -424,8 +424,8 @@ def create_parser():
         "--headless",
         action="store_true",
         default=False,
-        help="Run in headless mode: no TUI, no terminal output except a single render-started message. "
-        "All logs are written to the log file.",
+        help="Run in headless mode: no TUI. Progress is written to the log file and streamed "
+        "to stdout as it happens; the specification text itself stays in the log file only.",
     )
 
     parser.add_argument(

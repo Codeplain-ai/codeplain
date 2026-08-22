@@ -118,9 +118,9 @@ options:
                         If set, render the state machine graph.
   --logging-config-path LOGGING_CONFIG_PATH
                         Path to the logging configuration file.
-  --headless            Run in headless mode: no TUI, no terminal output
-                        except a single render-started message. All logs are
-                        written to the log file.
+  --headless            Run in headless mode: no TUI. Progress is written to
+                        the log file and streamed to stdout as it happens; the
+                        specification text itself stays in the log file only.
   --status              Display account status including user information, API
                         key label, and rendering credits. Does not render any
                         code.
