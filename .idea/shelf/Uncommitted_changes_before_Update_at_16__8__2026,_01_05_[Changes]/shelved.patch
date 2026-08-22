@@ -1,0 +1,41 @@
+Index: .gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>__pycache__\n.DS_Store\n\n\nexamples/**/build*/\nexamples/**/conformance_tests/\nexamples/**/conformance_tests.backup/\nexamples/**/node_build/\nexamples/**/node_conformance_tests/\nexamples/**/package-lock.json\nexamples/**/node_modules/\nexamples/**/node_harness_tests/\nexamples/**/plain_modules/\n\nexamples/**/go_build/\nexamples/**/python_build/\n\nexamples/**/go_plain_modules/\nexamples/**/python_plain_modules/\nexamples/**/node_plain_modules/\n\n\n*.log\n\n.venv\ndist\n*.egg-info\n\n.env\n\n.coverage\nlogging_config.yaml\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore	(revision 367bd0d9001e1a92d0bd0dd537a4c6128e3e0c76)
++++ b/.gitignore	(date 1786822599514)
+@@ -1,6 +1,13 @@
+ __pycache__
+ .DS_Store
+-
++/.idea/
++.venv
++dist
++*.log
++*.egg-info
++.env
++.coverage
++logging_config.yaml
+ 
+ examples/**/build*/
+ examples/**/conformance_tests/
+@@ -18,15 +25,3 @@
+ examples/**/go_plain_modules/
+ examples/**/python_plain_modules/
+ examples/**/node_plain_modules/
+-
+-
+-*.log
+-
+-.venv
+-dist
+-*.egg-info
+-
+-.env
+-
+-.coverage
+-logging_config.yaml

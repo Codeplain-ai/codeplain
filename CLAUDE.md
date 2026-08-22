@@ -248,7 +248,7 @@ git push origin subtree/standard-template-library
 ```
 
 ### Windows Support
-Windows users must use WSL (Windows Subsystem for Linux). The codebase has some platform-specific script handling (`.ps1` for Windows, `.sh` for Unix).
+Native Windows is supported and tested in CI. The codebase has platform-specific script handling (`.ps1` for Windows, `.sh` for Unix), and scripts run on a ConPTY-backed terminal with a Job Object containing their process tree (`render_machine/_conpty.py`), which needs Windows 10 build 17763 (1809) or newer. WSL works too, and is then an ordinary Linux host.
 
 ### CRITICAL: No User-Specific Paths in Version Control
 **Never commit files containing user-specific absolute paths** (e.g., `/Users/username/...`, `/home/username/...`, `C:\Users\...`) to version-controlled files like:
