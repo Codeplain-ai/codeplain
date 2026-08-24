@@ -9,3 +9,20 @@ updates:
       prefix: "dependabot"
     labels:
       - "dependencies"
+
+  # Keeps the SHA-pinned actions in publish-to-pypi.yml patched.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
