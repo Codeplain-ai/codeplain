@@ -99,6 +99,28 @@ jobs:
       - name: Type check with mypy
         run: mypy . --check-untyped-defs --platform ${{ matrix.platform }}
 
+  conpty-lifecycle:
+    # windows-latest is Windows Server 2025 (build 26100), the build that made
+    # ClosePseudoConsole() non-blocking, so the teardown-ordering assertions pass there
+    # whether or not the ordering is correct. Windows Server 2022 is build 20348, inside the
+    # affected range, which is the only place those assertions prove anything.
+    name: ConPTY Lifecycle (windows-2022)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Run the ConPTY lifecycle tests
+        run: python -m pytest tests/test_conpty.py -v
+
   tests:
     name: Run Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
