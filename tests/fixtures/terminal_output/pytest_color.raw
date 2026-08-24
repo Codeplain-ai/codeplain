@@ -1,0 +1,19 @@
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[31mF[0m[31m                                                                                                            [100%][0m
+======================================================= FAILURES =======================================================
+[31m[1m________________________________________________ test_reports_a_failure ________________________________________________[0m
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mtest_reports_a_failure[39;49;00m():[90m[39;49;00m
+        expected = {[33m"[39;49;00m[33mname[39;49;00m[33m"[39;49;00m: [33m"[39;49;00m[33mwidget[39;49;00m[33m"[39;49;00m, [33m"[39;49;00m[33mcount[39;49;00m[33m"[39;49;00m: [94m3[39;49;00m}[90m[39;49;00m
+        actual = {[33m"[39;49;00m[33mname[39;49;00m[33m"[39;49;00m: [33m"[39;49;00m[33mwidget[39;49;00m[33m"[39;49;00m, [33m"[39;49;00m[33mcount[39;49;00m[33m"[39;49;00m: [94m4[39;49;00m}[90m[39;49;00m
+>       [94massert[39;49;00m actual == expected[90m[39;49;00m
+[1m[31mE       AssertionError: assert {'name': 'widget', 'count': 4} == {'name': 'widget', 'count': 3}[0m
+[1m[31mE         [0m
+[1m[31mE         Omitting 1 identical items, use -vv to show[0m
+[1m[31mE         Differing items:[0m
+[1m[31mE         [0m{[33m'[39;49;00m[33mcount[39;49;00m[33m'[39;49;00m: [94m4[39;49;00m}[90m[39;49;00m != [0m{[33m'[39;49;00m[33mcount[39;49;00m[33m'[39;49;00m: [94m3[39;49;00m}[90m[39;49;00m[0m
+[1m[31mE         Use -v to get more diff[0m
+
+[1m[31mtest_sample.py[0m:16: AssertionError
+[36m[1m=============================================== short test summary info ================================================[0m
+[31mFAILED[0m test_sample.py::[1mtest_reports_a_failure[0m - AssertionError: assert {'name': 'widget', 'count': 4} == {'name': 'widget', 'count': 3}
+[31m[31m[1m1 failed[0m, [32m4 passed[0m[31m in 0.02s[0m[0m
