@@ -90,10 +90,6 @@ class ConformanceTestsRunningContext:
         self.regenerating_conformance_tests: bool = False
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
-        self.previous_conformance_tests_issue_old: Optional[str] = None
-        self.previous_conformance_tests_issue_frid: Optional[str] = None
-        self.previous_conformance_tests_issue_module: Optional[str] = None
-        self.code_diff_files: Optional[dict[str, str]] = None
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]

@@ -44,6 +44,7 @@ class States(Enum):
 
     # Postprocessing conformance tests states
     POSTPROCESSING_CONFORMANCE_TESTS = "postprocessingConformanceTests"
+    CONFORMANCE_TESTS_READY_FOR_MEMORY_DISTILLATION = "conformanceTestsReadyForMemoryDistillation"
     CONFORMANCE_TESTS_READY_FOR_SUMMARY = "conformanceTestsReadyForSummary"
     CONFORMANCE_TESTS_READY_FOR_COMMIT = "conformanceTestsReadyForCommit"
     CONFORMANCE_TESTS_READY_FOR_AMBIGUITY_ANALYSIS = "conformanceTestsReadyForAmbiguityAnalysis"

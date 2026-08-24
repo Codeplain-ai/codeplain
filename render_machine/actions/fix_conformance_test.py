@@ -54,14 +54,15 @@ class FixConformanceTest(BaseAction):
             )
         previous_conformance_tests_issue = previous_action_payload["previous_conformance_tests_issue"]
 
-        render_context.conformance_tests_running_context.previous_conformance_tests_issue_old = (
-            previous_conformance_tests_issue
+        journal = render_context.memory_manager.journal
+        journal.record_result(
+            ctx.current_testing_module_name, ctx.current_testing_frid, previous_conformance_tests_issue, passed=False
         )
-        render_context.conformance_tests_running_context.previous_conformance_tests_issue_frid = (
-            render_context.conformance_tests_running_context.current_testing_frid
-        )
-        render_context.conformance_tests_running_context.previous_conformance_tests_issue_module = (
-            render_context.conformance_tests_running_context.current_testing_module_name
+        journal.open_attempt(
+            ctx.current_testing_module_name,
+            ctx.current_testing_frid,
+            ctx.fix_attempts,
+            previous_conformance_tests_issue,
         )
 
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
@@ -114,25 +115,28 @@ class FixConformanceTest(BaseAction):
             style=console.INPUT_STYLE,
         )
 
-        [issue_reason_code, response_files] = render_context.codeplain_api.fix_conformance_tests_issue(
-            render_context.frid_context.frid,
-            render_context.conformance_tests_running_context.current_testing_frid,
-            render_context.plain_source_tree,
-            render_context.frid_context.linked_resources,
-            existing_files_content,
-            memory_files_content,
-            render_context.module_name,
-            render_context.conformance_tests_running_context.current_testing_module_name,
-            render_context.get_required_modules_functionalities(),
-            previous_frid_code_diff,
-            existing_conformance_test_files_content,
-            render_context.conformance_tests_running_context.get_current_acceptance_tests(),
-            previous_conformance_tests_issue,
-            render_context.conformance_tests_running_context.fix_attempts,
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
-            render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
-            render_context.conformance_tests_running_context.conflicting_requirement_count,
-            run_state=render_context.run_state,
+        [issue_reason_code, response_files, fix_attempt_summary] = (
+            render_context.codeplain_api.fix_conformance_tests_issue(
+                render_context.frid_context.frid,
+                render_context.conformance_tests_running_context.current_testing_frid,
+                render_context.plain_source_tree,
+                render_context.frid_context.linked_resources,
+                existing_files_content,
+                memory_files_content,
+                render_context.module_name,
+                render_context.conformance_tests_running_context.current_testing_module_name,
+                render_context.get_required_modules_functionalities(),
+                previous_frid_code_diff,
+                existing_conformance_test_files_content,
+                render_context.conformance_tests_running_context.get_current_acceptance_tests(),
+                previous_conformance_tests_issue,
+                render_context.conformance_tests_running_context.fix_attempts,
+                render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
+                render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan,
+                render_context.conformance_tests_running_context.conflicting_requirement_count,
+                journal.build_digest(ctx.current_testing_module_name, ctx.current_testing_frid),
+                run_state=render_context.run_state,
+            )
         )
         code_diff_files_content = {}
 
@@ -159,14 +163,20 @@ class FixConformanceTest(BaseAction):
                 existing_conformance_test_files,
             )
             code_diff_files_content = diff_utils.get_code_diff(response_files, existing_conformance_test_files_content)
-            render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
+            journal.record_fix(
+                ctx.current_testing_module_name,
+                ctx.current_testing_frid,
+                fix_attempt_summary,
+                list(response_files),
+                "CONFORMANCE_TESTS",
+                code_diff_files_content,
+            )
 
             return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
         else:
             if len(response_files) > 0:
                 file_utils.store_response_files(render_context.build_folder, response_files, existing_files)
                 code_diff_files_content = diff_utils.get_code_diff(response_files, existing_files_content)
-                render_context.conformance_tests_running_context.code_diff_files = code_diff_files_content
                 console.print_files(
                     "Files fixed:",
                     render_context.build_folder,
@@ -180,6 +190,24 @@ class FixConformanceTest(BaseAction):
                 ctx.test_that_triggered_code_change = (ctx.current_testing_module_name, ctx.current_testing_frid)
                 ctx.execution_phase = TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
 
+                journal.record_fix(
+                    ctx.current_testing_module_name,
+                    ctx.current_testing_frid,
+                    fix_attempt_summary,
+                    list(response_files),
+                    "IMPLEMENTATION_CODE",
+                    code_diff_files_content,
+                )
+
                 return self.IMPLEMENTATION_CODE_UPDATED, None
             else:
+                journal.record_fix(
+                    ctx.current_testing_module_name,
+                    ctx.current_testing_frid,
+                    fix_attempt_summary,
+                    [],
+                    "IMPLEMENTATION_CODE",
+                    None,
+                )
+
                 return self.IMPLEMENTATION_CODE_NOT_UPDATED, None

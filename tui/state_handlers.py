@@ -241,7 +241,13 @@ class ConformanceTestsHandler(StateHandler):
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(fixing_text)]
                 )
         else:
-            if segments[3] == States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value:
+            if segments[3] == States.CONFORMANCE_TESTS_READY_FOR_MEMORY_DISTILLATION.value:
+                update_progress_item_substates(
+                    self.tui,
+                    TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
+                    [Substate("Distilling conformance test fix learnings")],
+                )
+            elif segments[3] == States.CONFORMANCE_TESTS_READY_FOR_SUMMARY.value:
                 update_progress_item_substates(
                     self.tui,
                     TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
