@@ -12,11 +12,11 @@ jobs:
     if: github.event.pull_request.merged == true
     steps:
       - name: Send notification to Slack
-        uses: slackapi/slack-github-action@v1.24.0
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
             {
               "text": ${{ toJSON(format('[Codeplain Client] PR <{0}|#{1}: {2}> was merged to main by `{3}`.', github.event.pull_request.html_url, github.event.pull_request.number, github.event.pull_request.title, github.actor)) }}
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
