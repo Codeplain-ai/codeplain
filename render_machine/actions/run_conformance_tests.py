@@ -58,7 +58,6 @@ class RunConformanceTests(BaseAction):
             render_context.memory_manager.journal.record_result(
                 render_context.conformance_tests_running_context.current_testing_module_name,
                 render_context.conformance_tests_running_context.current_testing_frid,
-                None,
                 passed=True,
             )
             return self.SUCCESSFUL_OUTCOME, None

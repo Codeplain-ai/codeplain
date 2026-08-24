@@ -60,8 +60,9 @@ def seed_journal(memory_manager, module="mod", frid="1"):
         ["src/app.py"],
         "IMPLEMENTATION_CODE",
         {"src/app.py": "diff"},
+        "the issue as the fixer saw it",
     )
-    journal.record_result(module, frid, None, passed=True)
+    journal.record_result(module, frid, passed=True)
 
 
 def test_no_journals_means_no_api_call(memory_folder, build_folder):

@@ -55,9 +55,7 @@ class FixConformanceTest(BaseAction):
         previous_conformance_tests_issue = previous_action_payload["previous_conformance_tests_issue"]
 
         journal = render_context.memory_manager.journal
-        journal.record_result(
-            ctx.current_testing_module_name, ctx.current_testing_frid, previous_conformance_tests_issue, passed=False
-        )
+        journal.record_result(ctx.current_testing_module_name, ctx.current_testing_frid, passed=False)
         journal.open_attempt(
             ctx.current_testing_module_name,
             ctx.current_testing_frid,
@@ -115,7 +113,7 @@ class FixConformanceTest(BaseAction):
             style=console.INPUT_STYLE,
         )
 
-        [issue_reason_code, response_files, fix_attempt_summary] = (
+        [issue_reason_code, response_files, fix_attempt_summary, prepared_conformance_tests_issue] = (
             render_context.codeplain_api.fix_conformance_tests_issue(
                 render_context.frid_context.frid,
                 render_context.conformance_tests_running_context.current_testing_frid,
@@ -170,6 +168,7 @@ class FixConformanceTest(BaseAction):
                 list(response_files),
                 "CONFORMANCE_TESTS",
                 code_diff_files_content,
+                prepared_conformance_tests_issue,
             )
 
             return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
@@ -197,6 +196,7 @@ class FixConformanceTest(BaseAction):
                     list(response_files),
                     "IMPLEMENTATION_CODE",
                     code_diff_files_content,
+                    prepared_conformance_tests_issue,
                 )
 
                 return self.IMPLEMENTATION_CODE_UPDATED, None
@@ -208,6 +208,7 @@ class FixConformanceTest(BaseAction):
                     [],
                     "IMPLEMENTATION_CODE",
                     None,
+                    prepared_conformance_tests_issue,
                 )
 
                 return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
