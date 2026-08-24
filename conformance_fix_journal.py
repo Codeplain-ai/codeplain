@@ -26,14 +26,11 @@ from plain2code_console import console
 
 CONFORMANCE_TEST_JOURNAL_SUBFOLDER = "conformance_test_journal"
 
-# Cap for the per-attempt issue included in the fix digest. Server-prepared issues are usually LLM
-# summaries well under this; the cap guards against the truncation-fallback form (~10k chars) being
-# repeated for every attempt in the fix prompt.
-MAX_DIGEST_ISSUE_CHARS = 2000
-
-# Cap for the initial issue included in the distillation payload when only the raw form is
-# available (the prepared form is used as-is).
-MAX_PAYLOAD_ISSUE_CHARS = 8000
+# Cap for the issue excerpts included in payloads (the per-attempt issue in the fix digest, and the
+# initial issue in the distillation payload). The server-prepared issue is already bounded (LLM
+# summary or ~10k-char truncation), so this only trims the rare oversized case - it must not
+# routinely cut into summaries the server already sized for a prompt.
+MAX_ISSUE_EXCERPT_CHARS = 8000
 
 # The keys of a journal entry that make up the digest sent to the fixer and the distiller.
 DIGEST_KEYS = ["attempt", "hypothesis", "approach", "target", "files_changed", "duplicate_of", "result"]
@@ -77,7 +74,7 @@ class FixAttemptJournal:
             return []
 
         entries = []
-        with open(journal_path, "r") as journal_file:
+        with open(journal_path, "r", encoding="utf-8") as journal_file:
             for line in journal_file:
                 line = line.strip()
                 if not line:
@@ -91,7 +88,7 @@ class FixAttemptJournal:
 
     def _write_entries(self, module_name: str, frid: str, entries: list[dict]):
         os.makedirs(self.journal_folder, exist_ok=True)
-        with open(self._journal_path(module_name, frid), "w") as journal_file:
+        with open(self._journal_path(module_name, frid), "w", encoding="utf-8") as journal_file:
             for entry in entries:
                 journal_file.write(json.dumps(entry) + "\n")
 
@@ -163,17 +160,19 @@ class FixAttemptJournal:
     def build_digest(self, module_name: str, frid: str) -> list[dict]:
         """Builds the compact attempt history sent with a fix request.
 
-        Each attempt carries the prepared issue it addressed (capped), so the fixer can see how the
-        issue evolved across attempts. Raw outputs never travel - the current issue is sent with the
-        request separately.
+        Only attempts whose fix has been recorded are included - the entry just opened for the
+        attempt being made (and any dangling entry an interrupted render left behind) carries no
+        information for the fixer. Each included attempt carries the prepared issue it addressed,
+        so the fixer can see how the issue evolved across attempts. Raw outputs never travel - the
+        current issue is sent with the request separately.
         """
-        return [self._digest_entry(entry) for entry in self._read_entries(module_name, frid)]
+        return [self._digest_entry(entry) for entry in self._read_entries(module_name, frid) if "target" in entry]
 
     @staticmethod
     def _digest_entry(entry: dict) -> dict:
         digest_entry = {key: entry[key] for key in DIGEST_KEYS if key in entry}
         if entry.get("issue_before"):
-            digest_entry["issue"] = _trim_issue(entry["issue_before"], MAX_DIGEST_ISSUE_CHARS)
+            digest_entry["issue"] = _trim_issue(entry["issue_before"], MAX_ISSUE_EXCERPT_CHARS)
         return digest_entry
 
     def collect_all(self) -> list[dict]:
@@ -186,11 +185,11 @@ class FixAttemptJournal:
             if not file_name.endswith(".jsonl") or "__" not in file_name:
                 continue
             module_name, _, frid = file_name[: -len(".jsonl")].rpartition("__")
-            entries = self._read_entries(module_name, frid)
+            entries = [entry for entry in self._read_entries(module_name, frid) if "target" in entry]
             if not entries:
                 continue
             initial_issue = entries[0].get("issue_before") or _trim_issue(
-                entries[0].get("issue_before_raw"), MAX_PAYLOAD_ISSUE_CHARS
+                entries[0].get("issue_before_raw"), MAX_ISSUE_EXCERPT_CHARS
             )
             journal = {
                 "module": module_name,

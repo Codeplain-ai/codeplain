@@ -6,12 +6,7 @@ import tempfile
 
 import pytest
 
-from conformance_fix_journal import (
-    MAX_DIGEST_ISSUE_CHARS,
-    MAX_PAYLOAD_ISSUE_CHARS,
-    FixAttemptJournal,
-    normalized_diff_hash,
-)
+from conformance_fix_journal import MAX_ISSUE_EXCERPT_CHARS, FixAttemptJournal, normalized_diff_hash
 
 
 @pytest.fixture
@@ -91,7 +86,7 @@ class TestJournalEntries:
         assert entry["result"] == "conformance tests still failed"
 
     def test_raw_issue_is_stored_untruncated(self, journal):
-        long_issue = "x" * (MAX_PAYLOAD_ISSUE_CHARS * 3) + "THE END"
+        long_issue = "x" * (MAX_ISSUE_EXCERPT_CHARS * 3) + "THE END"
         journal.open_attempt("mod", "1", 1, long_issue)
 
         [entry] = journal._read_entries("mod", "1")
@@ -175,7 +170,7 @@ class TestDigest:
             assert "diff_hash" not in entry
 
     def test_digest_issue_is_capped(self, journal):
-        long_prepared = "x" * (MAX_DIGEST_ISSUE_CHARS + 100) + "THE END"
+        long_prepared = "x" * (MAX_ISSUE_EXCERPT_CHARS + 100) + "THE END"
         record_full_attempt(journal, prepared_issue=long_prepared)
 
         [entry] = journal.build_digest("mod", "1")
@@ -187,6 +182,24 @@ class TestDigest:
 
         [entry] = journal.build_digest("mod", "1")
         assert "issue" not in entry
+
+    def test_the_open_attempt_is_excluded_from_the_digest(self, journal):
+        """The entry opened for the attempt about to be made carries nothing yet - the fixer must
+        not see an empty attempt in its history."""
+        record_full_attempt(journal, attempt=1)
+        journal.record_result("mod", "1", passed=False)
+        journal.open_attempt("mod", "1", 2, "current failure output")
+
+        digest = journal.build_digest("mod", "1")
+
+        assert [entry["attempt"] for entry in digest] == [1]
+
+    def test_a_dangling_attempt_without_a_fix_is_excluded_from_the_digest(self, journal):
+        """An interrupted render can leave an opened entry that later gets a result but never a fix."""
+        journal.open_attempt("mod", "1", 1, "failure output")
+        journal.record_result("mod", "1", passed=False)
+
+        assert journal.build_digest("mod", "1") == []
 
     def test_digest_of_an_unknown_frid_is_empty(self, journal):
         assert journal.build_digest("mod", "99") == []
@@ -204,7 +217,7 @@ class TestCollectAndClear:
         assert journals[0]["attempts"][0]["hypothesis"] == "hypothesis 1"
 
     def test_initial_issue_falls_back_to_the_trimmed_raw_output(self, journal):
-        long_raw = "x" * (MAX_PAYLOAD_ISSUE_CHARS + 100) + "THE END"
+        long_raw = "x" * (MAX_ISSUE_EXCERPT_CHARS + 100) + "THE END"
         journal.open_attempt("mod", "1", 1, long_raw)
         journal.record_fix("mod", "1", None, [], "IMPLEMENTATION_CODE", None, None)
 
@@ -220,6 +233,11 @@ class TestCollectAndClear:
         assert collected["frid"] == "3"
 
     def test_collect_all_without_journals_is_empty(self, journal):
+        assert journal.collect_all() == []
+
+    def test_collect_all_skips_a_journal_holding_only_an_open_attempt(self, journal):
+        journal.open_attempt("mod", "1", 1, "failure output")
+
         assert journal.collect_all() == []
 
     def test_clear_all_removes_every_journal(self, journal):
