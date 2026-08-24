@@ -30,3 +30,7 @@ class MemoryManager:
         memory_path = os.path.join(self.memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
         memory_files, _ = MemoryManager.fetch_memory_files(self.memory_folder)
         file_utils.store_response_files(memory_path, response_files, memory_files)
+
+    def wipe(self):
+        """Deletes the whole memory store - distilled memories and fix attempt journals."""
+        file_utils.delete_folder(self.memory_folder)

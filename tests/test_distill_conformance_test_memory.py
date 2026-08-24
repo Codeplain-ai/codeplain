@@ -111,6 +111,26 @@ def test_a_delete_response_removes_an_existing_memory(memory_folder, build_folde
     assert not os.path.exists(os.path.join(memory_path, "stale.json"))
 
 
+def test_wipe_removes_memories_and_journals(build_folder):
+    memory_folder = os.path.join(build_folder, ".memory")
+    memory_manager = MemoryManager(FakeCodeplainAPI(), memory_folder)
+    seed_journal(memory_manager)
+    memory_manager.store_memory_files({"learning.json": json.dumps({"memory_id": "learning"})})
+
+    memory_manager.wipe()
+
+    assert not os.path.exists(memory_folder)
+    assert memory_manager.journal.collect_all() == []
+    assert MemoryManager.fetch_memory_files(memory_folder) == ([], {})
+
+
+def test_wipe_of_a_missing_store_is_a_no_op(build_folder):
+    missing_folder = os.path.join(build_folder, "does_not_exist", ".memory")
+    MemoryManager(FakeCodeplainAPI(), missing_folder).wipe()
+
+    assert not os.path.exists(missing_folder)
+
+
 def test_an_api_failure_keeps_the_journals_and_does_not_raise(memory_folder, build_folder):
     api = FakeCodeplainAPI(error=RuntimeError("api down"))
     render_context = make_render_context(api, memory_folder, build_folder)
