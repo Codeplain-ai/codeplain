@@ -74,6 +74,7 @@ class RenderContext:
         self.enter_pause_event = enter_pause_event
         self.is_rerender = is_rerender
         self.old_frid_spec: str | None = None
+        self.code_functional_requirements: list[str] | None = None
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
