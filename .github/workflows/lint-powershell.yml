@@ -16,7 +16,7 @@ jobs:
     name: Parse under Windows PowerShell 5.1
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The install scripts are fetched over HTTP and executed on stock Windows,
       # where powershell.exe (5.1) is the default shell. 5.1 reads BOM-less files
@@ -96,7 +96,7 @@ jobs:
     name: Parse under PowerShell 7
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Parse each script with 7
         shell: pwsh
