@@ -43,6 +43,7 @@ def solo_module(get_test_data_path, tmp_build_folder):
 def _make_render_context(module: PlainModule, render_conformance_tests: bool) -> SimpleNamespace:
     return SimpleNamespace(
         render_range=None,
+        is_rerender=False,
         plain_module=module,
         required_modules=module.required_modules,
         build_folder=module.module_build_folder,
