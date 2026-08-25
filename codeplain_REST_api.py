@@ -186,6 +186,7 @@ class CodeplainAPI:
         run_state: RunState,
         is_reimplementation: bool = False,
         old_functional_requirement_text: Optional[str] = None,
+        code_functional_requirements: Optional[list] = None,
     ) -> dict[str, str]:
         """
         Renders the content of a functionality based on the provided ID,
@@ -230,6 +231,9 @@ class CodeplainAPI:
 
         if old_functional_requirement_text is not None:
             payload["old_functional_requirement_text"] = old_functional_requirement_text
+
+        if code_functional_requirements is not None:
+            payload["code_functional_requirements"] = code_functional_requirements
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 

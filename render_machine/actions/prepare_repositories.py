@@ -109,6 +109,10 @@ class PrepareRepositories(BaseAction):
             return "error", None
 
         render_context.old_frid_spec = module_metadata["functionalities"][int(frid) - 1]
+        # The specs the code on disk currently implements (code-truth). Sent to the API so the
+        # reimplementation prompt shows the old spec for any changed-but-not-yet-rerendered FR,
+        # keeping specs and code in sync.
+        render_context.code_functional_requirements = module_metadata["functionalities"]
 
         if render_context.render_conformance_tests:
             conformance_tests_json = render_context.conformance_tests.get_conformance_tests_json(
