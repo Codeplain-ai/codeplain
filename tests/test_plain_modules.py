@@ -354,18 +354,6 @@ def test_module_folder_layout(solo_module, tmp_build_folder):
     assert solo_module.module_conformance_tests_folder == os.path.join(module_folder, "tests")
     assert solo_module.get_codeplain_folder() == os.path.join(module_folder, ".codeplain")
     assert solo_module.module_memory_folder == os.path.join(module_folder, ".memory")
-    assert solo_module.project_memory_folder == os.path.join(tmp_build_folder, ".memory")
-
-
-def test_renders_from_scratch_mirrors_prepare_repositories(solo_module):
-    import plain_spec
-    from module_renderer import ModuleRenderer
-
-    first_frid = plain_spec.get_first_frid(solo_module.plain_source)
-
-    assert ModuleRenderer._renders_from_scratch(solo_module, None) is True
-    assert ModuleRenderer._renders_from_scratch(solo_module, [first_frid]) is True
-    assert ModuleRenderer._renders_from_scratch(solo_module, ["99"]) is False
 
 
 def test_wipe_module_removes_whole_module_folder(solo_module):

@@ -8,6 +8,11 @@ CONFORMANCE_TEST_MEMORY_SUBFOLDER = "conformance_test_memory"
 
 
 class MemoryManager:
+    """Manages a module's memory store at <build>/<module>/.memory.
+
+    The distilled memories are inherited by the next module in the chain (copied over when its
+    render starts, like the code repo), so learnings travel across modules.
+    """
 
     @staticmethod
     def fetch_memory_files(memory_folder: str) -> tuple[list[str], dict[str, str]]:
@@ -31,6 +36,17 @@ class MemoryManager:
         memory_files, _ = MemoryManager.fetch_memory_files(self.memory_folder)
         file_utils.store_response_files(memory_path, response_files, memory_files)
 
-    def wipe(self):
-        """Deletes the whole memory store - distilled memories and fix attempt journals."""
-        file_utils.delete_folder(self.memory_folder)
+    @staticmethod
+    def inherit_memories(source_memory_folder: str, destination_memory_folder: str):
+        """Copies the distilled memories of a previously rendered module into this module's store.
+
+        Only the distilled memories travel - fix attempt journals are transient state of one
+        module's render. A previous module without memories (e.g. shipped as an archive that
+        carries only code) is a no-op.
+        """
+        source_path = os.path.join(source_memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
+        if not os.path.isdir(source_path):
+            return
+        file_utils.copy_folder_content(
+            source_path, os.path.join(destination_memory_folder, CONFORMANCE_TEST_MEMORY_SUBFOLDER)
+        )

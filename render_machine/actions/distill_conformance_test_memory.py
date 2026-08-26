@@ -13,6 +13,9 @@ class DistillConformanceTestMemory(BaseAction):
     attempts were needed there is nothing to distill and no API call is made. Distillation is best
     effort - a failure must never fail the render, so the journals are kept for the next
     distillation instead.
+
+    The memories land in the module's own memory store and are inherited by the next module in the
+    chain when its render starts.
     """
 
     SUCCESSFUL_OUTCOME = "conformance_test_memory_distilled"

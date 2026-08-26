@@ -201,11 +201,6 @@ class PlainModule:
     def module_memory_folder(self):
         return os.path.join(self.module_folder, CODEPLAIN_MEMORY_SUBFOLDER)
 
-    @property
-    def project_memory_folder(self):
-        """The memory store shared by every module of the project."""
-        return os.path.join(self.build_folder, CODEPLAIN_MEMORY_SUBFOLDER)
-
     def get_codeplain_folder(self):
         return os.path.join(self.module_folder, CODEPLAIN_METADATA_FOLDER)
 

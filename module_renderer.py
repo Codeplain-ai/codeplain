@@ -1,7 +1,6 @@
 import argparse
 import threading
 
-import plain_spec
 from event_bus import EventBus
 from memory_management import MemoryManager
 from partial_rendering import RenderChoice
@@ -37,13 +36,6 @@ class ModuleRenderer:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
-        self.memory_lifecycle_decided = False
-
-    @staticmethod
-    def _renders_from_scratch(plain_module: PlainModule, render_range: list[str] | None) -> bool:
-        """Mirrors PrepareRepositories: a render starts from scratch when it is not resumed from a
-        functionality past the first one."""
-        return render_range is None or render_range[0] == plain_spec.get_first_frid(plain_module.plain_source)
 
     def _build_render_context_for_module(
         self,
@@ -125,19 +117,10 @@ class ModuleRenderer:
         # and memory folder are touched.
         plain_module.ensure_module_unpacked()
 
-        # The memory store is shared by every module of the project, so learnings distilled while
-        # rendering one module reach all the modules rendered after it.
         memory_manager = MemoryManager(
             self.codeplainAPI,
-            plain_module.project_memory_folder,
+            plain_module.module_memory_folder,
         )
-        # Its lifecycle is decided once per invocation, at the first module render: a render that
-        # starts from scratch wipes the store, a resumed render keeps it (including the fix attempt
-        # journals of the interrupted run).
-        if not self.memory_lifecycle_decided:
-            self.memory_lifecycle_decided = True
-            if self._renders_from_scratch(plain_module, render_range):
-                memory_manager.wipe()
         render_context = self._build_render_context_for_module(
             plain_module,
             memory_manager,

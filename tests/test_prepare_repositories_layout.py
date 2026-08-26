@@ -18,7 +18,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from conformance_fix_journal import CONFORMANCE_TEST_JOURNAL_SUBFOLDER
 from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
+from memory_management import CONFORMANCE_TEST_MEMORY_SUBFOLDER
 from partial_rendering import archive_missing_conformance_tests, get_plain_module_render_state, get_render_choices
 from plain_modules import PlainModule
 from render_machine.actions.prepare_repositories import PrepareRepositories
@@ -113,6 +115,42 @@ def test_fresh_render_without_conformance_tests_does_not_create_tests_folder(sol
 
     assert os.path.isdir(os.path.join(solo_module.module_build_folder, ".git"))
     assert not os.path.exists(solo_module.module_conformance_tests_folder)
+
+
+def test_fresh_render_inherits_memories_from_the_previous_module(root_module):
+    """The previous module's distilled memories are copied into the new module's memory store
+    (replacing any stale store), while its fix attempt journals stay behind."""
+    previous = root_module.required_modules[-1]
+    _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
+    memory_path = Path(previous.module_memory_folder) / CONFORMANCE_TEST_MEMORY_SUBFOLDER
+    memory_path.mkdir(parents=True)
+    (memory_path / "learning.json").write_text('{"memory_id": "learning"}')
+    journal_path = Path(previous.module_memory_folder) / CONFORMANCE_TEST_JOURNAL_SUBFOLDER
+    journal_path.mkdir(parents=True)
+    (journal_path / "pr_middle__1.jsonl").write_text('{"attempt": 1}\n')
+
+    stale_memory = Path(root_module.module_memory_folder) / CONFORMANCE_TEST_MEMORY_SUBFOLDER / "stale.json"
+    stale_memory.parent.mkdir(parents=True)
+    stale_memory.write_text('{"memory_id": "stale"}')
+
+    render_context = _make_render_context(root_module, render_conformance_tests=False)
+    PrepareRepositories().execute(render_context, None)
+
+    inherited_memory_folder = Path(root_module.module_memory_folder) / CONFORMANCE_TEST_MEMORY_SUBFOLDER
+    assert sorted(os.listdir(inherited_memory_folder)) == ["learning.json"]
+    assert not stale_memory.exists()
+    assert not (Path(root_module.module_memory_folder) / CONFORMANCE_TEST_JOURNAL_SUBFOLDER).exists()
+
+
+def test_fresh_render_with_a_memoryless_previous_module_starts_with_an_empty_store(root_module):
+    previous = root_module.required_modules[-1]
+    _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
+
+    render_context = _make_render_context(root_module, render_conformance_tests=False)
+    PrepareRepositories().execute(render_context, None)
+
+    assert os.path.isdir(os.path.join(root_module.module_build_folder, ".git"))
+    assert not os.path.exists(root_module.module_memory_folder)
 
 
 # --------------------------------------------------------------------------

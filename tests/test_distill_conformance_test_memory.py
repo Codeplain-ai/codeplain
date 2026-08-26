@@ -111,24 +111,27 @@ def test_a_delete_response_removes_an_existing_memory(memory_folder, build_folde
     assert not os.path.exists(os.path.join(memory_path, "stale.json"))
 
 
-def test_wipe_removes_memories_and_journals(build_folder):
-    memory_folder = os.path.join(build_folder, ".memory")
-    memory_manager = MemoryManager(FakeCodeplainAPI(), memory_folder)
-    seed_journal(memory_manager)
-    memory_manager.store_memory_files({"learning.json": json.dumps({"memory_id": "learning"})})
+def test_inherit_memories_copies_distilled_memories_but_not_journals(build_folder):
+    source_folder = os.path.join(build_folder, "previous_module", ".memory")
+    destination_folder = os.path.join(build_folder, "next_module", ".memory")
+    source_manager = MemoryManager(FakeCodeplainAPI(), source_folder)
+    seed_journal(source_manager)
+    source_manager.store_memory_files({"learning.json": json.dumps({"memory_id": "learning"})})
 
-    memory_manager.wipe()
+    MemoryManager.inherit_memories(source_folder, destination_folder)
 
-    assert not os.path.exists(memory_folder)
-    assert memory_manager.journal.collect_all() == []
-    assert MemoryManager.fetch_memory_files(memory_folder) == ([], {})
+    memory_files, _ = MemoryManager.fetch_memory_files(destination_folder)
+    assert memory_files == ["learning.json"]
+    assert MemoryManager(FakeCodeplainAPI(), destination_folder).journal.collect_all() == []
 
 
-def test_wipe_of_a_missing_store_is_a_no_op(build_folder):
-    missing_folder = os.path.join(build_folder, "does_not_exist", ".memory")
-    MemoryManager(FakeCodeplainAPI(), missing_folder).wipe()
+def test_inherit_memories_from_a_module_without_memories_is_a_no_op(build_folder):
+    missing_source = os.path.join(build_folder, "does_not_exist", ".memory")
+    destination_folder = os.path.join(build_folder, "next_module", ".memory")
 
-    assert not os.path.exists(missing_folder)
+    MemoryManager.inherit_memories(missing_source, destination_folder)
+
+    assert not os.path.exists(destination_folder)
 
 
 def test_an_api_failure_keeps_the_journals_and_does_not_raise(memory_folder, build_folder):
