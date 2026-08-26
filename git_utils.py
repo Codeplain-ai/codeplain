@@ -432,22 +432,12 @@ def get_last_rendered_functionality(repo_path: Union[str, os.PathLike]) -> tuple
 
     repo = Repo(repo_path)
 
-    implemented_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
-    implemented_pattern = implemented_pattern.replace("[", "\\[").replace("]", "\\]")
-    implemented_sha = repo.git.rev_list(repo.active_branch.name, "--grep", implemented_pattern, "-n", "1")
-
-    reimplemented_pattern = FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE.format(".*")
-    reimplemented_pattern = reimplemented_pattern.replace("[", "\\[").replace("]", "\\]")
-    reimplemented_sha = repo.git.rev_list(repo.active_branch.name, "--grep", reimplemented_pattern, "-n", "1")
-
-    # Pick the more recent of the two (rev-list outputs most-recent first)
-    if implemented_sha and reimplemented_sha:
-        all_shas = repo.git.rev_list(repo.active_branch.name).splitlines()
-        implemented_idx = all_shas.index(implemented_sha)
-        reimplemented_idx = all_shas.index(reimplemented_sha)
-        commit_sha = implemented_sha if implemented_idx < reimplemented_idx else reimplemented_sha
-    else:
-        commit_sha = implemented_sha or reimplemented_sha
+    # Only a "fully implemented" commit marks how far the module is rendered. A "fully reimplemented"
+    # commit sits on top of that frontier, because a single functionality was rendered again in place.
+    # Treating it as the frontier would report the rerendered frid as the last rendered one.
+    grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
+    grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
+    commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")
 
     if not commit_sha:
         # Repo was interrupted during the first functionality, fallback to initial commit and provide only module name
@@ -474,7 +464,7 @@ def get_last_rendered_functionality(repo_path: Union[str, os.PathLike]) -> tuple
     if isinstance(commit_message, bytes):
         commit_message = commit_message.decode("utf-8")
 
-    match = re.search(r"FRID\):(\S+) fully (?:re)?implemented", commit_message)
+    match = re.search(r"FRID\):(\S+) fully implemented", commit_message)
     if not match:
         raise InvalidGitRepositoryError(
             "Git repository is in an invalid state. Could not find frid in finished commit."
