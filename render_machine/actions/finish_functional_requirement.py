@@ -9,10 +9,7 @@ class FinishFunctionalRequirement(BaseAction):
     SUCCESSFUL_OUTCOME = "functional_requirement_finished"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
-        render_context.plain_module.update_frid_in_module_metadata(
-            render_context.frid_context.frid,
-            update_source_hash=render_context.is_rerender,
-        )
+        render_context.plain_module.update_frid_in_module_metadata(render_context.frid_context.frid)
 
         commit_message = (
             git_utils.FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE
