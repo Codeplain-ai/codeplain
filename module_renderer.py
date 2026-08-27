@@ -44,6 +44,7 @@ class ModuleRenderer:
         plain_module: PlainModule,
         memory_manager: MemoryManager,
         render_range: list[str] | None,
+        is_rerender: bool,
     ) -> RenderContext:
         return RenderContext(
             self.codeplainAPI,
@@ -65,7 +66,7 @@ class ModuleRenderer:
             test_script_timeout=self.args.test_script_timeout,
             stop_event=self.stop_event,
             enter_pause_event=self.enter_pause_event,
-            is_rerender=self.is_rerender,
+            is_rerender=is_rerender,
         )
 
     def _render_module(
@@ -124,10 +125,15 @@ class ModuleRenderer:
             self.codeplainAPI,
             plain_module.module_memory_folder,
         )
+        # Only the module that owns the target functionality is being rerendered. Required modules
+        # are rendered in full, so they must not take the rerender path.
+        is_rerender = self.is_rerender and render_range is not None
+
         render_context = self._build_render_context_for_module(
             plain_module,
             memory_manager,
             render_range,
+            is_rerender,
         )
 
         code_renderer = CodeRenderer(render_context)
@@ -144,7 +150,11 @@ class ModuleRenderer:
             code_renderer.render_context.event_bus.publish(RenderFailed(error_message=error_message))
             return False, True
 
-        plain_module.save_module_metadata()
+        # save_module_metadata records "the whole module matches the current spec". After a
+        # rerender only one functionality was rendered, and FinishFunctionalRequirement already
+        # updated its metadata entry, so writing the whole baseline would claim too much.
+        if not is_rerender:
+            plain_module.save_module_metadata()
 
         self.loaded_modules.append(plain_module)
 
