@@ -30,6 +30,7 @@ jobs:
       contents: read
     outputs:
       should-publish: ${{ steps.version.outputs.should-publish }}
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +80,7 @@ jobs:
           echo "Derived version: $RAW -> $VERSION"
           echo "SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION" >> $GITHUB_ENV
           echo "should-publish=true" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build package
         if: steps.version.outputs.should-publish == 'true'
@@ -125,8 +127,18 @@ jobs:
           # version should be a no-op, not a red build.
           skip-existing: true
 
-      # Success is deliberately quiet: this runs on every merge to main, which
-      # is already announced elsewhere. Only failures ping.
+      - name: Notify Slack (success)
+        if: ${{ success() && env.SLACK_WEBHOOK_URL != '' }}
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # Spell out the --pre install: a plain "pip install codeplain" will
+          # NOT pick this up, which otherwise reads as a broken publish.
+          TEXT="*Codeplain Client*: dev build \`$VERSION\` published to PyPI :test_tube:. Normal installs are unaffected — try it with \`pip install --pre codeplain==$VERSION\`. Pre-release builds talk to \`api.test.codeplain.ai\` by default."
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "$(jq -n --arg t "$TEXT" '{text:$t}')"
+
       - name: Notify Slack (failure)
         if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
         run: |
