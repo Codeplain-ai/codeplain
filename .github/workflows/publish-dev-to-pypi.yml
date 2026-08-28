@@ -92,7 +92,7 @@ jobs:
 
       - name: Store the distribution packages
         if: steps.version.outputs.should-publish == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dev-package-distributions
           path: dist/
