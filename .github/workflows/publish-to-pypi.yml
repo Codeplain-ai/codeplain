@@ -91,10 +91,23 @@ jobs:
 
       - name: Notify Slack (success)
         if: ${{ success() && env.SLACK_WEBHOOK_URL != '' }}
+        env:
+          # GitHub marks the release itself as a pre-release; the tag
+          # (v0.4.0rc1) carries the same intent for PEP 440.
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          TAG: ${{ github.ref_name }}
         run: |
+          VERSION="${TAG#v}"
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            # pip and uv skip pre-releases by default, so "--upgrade" would
+            # NOT pick this up. Tell people the command that actually works.
+            TEXT="*Codeplain Client*: pre-release \`$TAG\` published to PyPI :test_tube:. Normal installs are unaffected — try it with \`pip install --pre codeplain==$VERSION\`."
+          else
+            TEXT="*Codeplain Client*: \`$TAG\` published to PyPI :white_check_mark:. Install with \`pip install --upgrade codeplain\`."
+          fi
           curl -s -X POST "$SLACK_WEBHOOK_URL" \
             -H 'Content-type: application/json' \
-            --data "{\"text\":\"*Codeplain Client*: \`${{ github.ref_name }}\` published to PyPI :white_check_mark:. Install with \`pip install --upgrade codeplain\`.\"}"
+            --data "$(jq -n --arg t "$TEXT" '{text:$t}')"
 
       - name: Notify Slack (failure)
         if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}

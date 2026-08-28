@@ -1,5 +1,6 @@
 import importlib.resources
 import os
+import re
 import sys
 
 import yaml
@@ -9,6 +10,15 @@ from plain2code_console import console
 ENVIRONMENT_VAR = "CODEPLAIN_ENV"
 PRODUCTION_ENV = "production"
 DEVELOPMENT_ENV = "development"
+
+PRODUCTION_API_URL = "https://api.codeplain.ai"
+TEST_API_URL = "https://api.test.codeplain.ai"
+
+# PEP 440 pre-release markers, matched against the end of the release segment:
+# alpha/beta/release-candidate (0.4.0a1, 0.4.0b2, 0.4.0rc1) or a dev release
+# (0.3.10.dev7, published on every merge to main). ".postN" alone is NOT a
+# pre-release and must not match.
+_PRERELEASE_RE = re.compile(r"(?:a|b|rc)\d+$|\.dev\d+$", re.IGNORECASE)
 
 
 def _resolve_version() -> str:
@@ -79,9 +89,33 @@ def _resolve_environment(installed: bool) -> str:
     return PRODUCTION_ENV if installed else DEVELOPMENT_ENV
 
 
+def _is_prerelease(version: str) -> bool:
+    """Return True if ``version`` is a PEP 440 pre-release (alpha, beta, rc or dev).
+
+    Deliberately dependency-free rather than using ``packaging``: that library
+    is not a runtime dependency (it only reaches this checkout via dev tools),
+    so it is absent from a real user install. The only versions that reach here
+    are the ones our own build pipeline produces.
+    """
+    # Drop any local version segment ("+gb710c298") before inspecting.
+    return _PRERELEASE_RE.search(version.split("+", 1)[0]) is not None
+
+
+def _resolve_default_api_url(version: str) -> str:
+    """Resolve the API this client talks to when ``--api`` is not given.
+
+    Pre-release builds — the dev build published on every merge to main, and
+    any alpha/beta/rc release — default to the test API, so an unreleased
+    client is exercised against the unreleased backend. Stable releases default
+    to production. ``--api`` always wins over this.
+    """
+    return TEST_API_URL if _is_prerelease(version) else PRODUCTION_API_URL
+
+
 __version__ = _resolve_version()
 __installed__ = _resolve_installed()
 __environment__ = _resolve_environment(__installed__)
+__default_api_url__ = _resolve_default_api_url(__version__)
 
 
 class SystemConfig:
@@ -95,6 +129,7 @@ class SystemConfig:
         self.client_version = __version__
         self.installed = __installed__
         self.environment = __environment__
+        self.default_api_url = __default_api_url__
         self.error_messages = self.config["error_messages"]
 
     def _load_config(self):

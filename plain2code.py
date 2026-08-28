@@ -358,7 +358,7 @@ def main():  # noqa: C901
             sys.exit(1)
 
         if not args.api:
-            args.api = "https://api.codeplain.ai"
+            args.api = system_config.default_api_url
 
         try:
             print_status(args.api_key, args.api, system_config.client_version)
@@ -402,7 +402,7 @@ def main():  # noqa: C901
     event_bus = EventBus()
 
     if not args.api:
-        args.api = "https://api.codeplain.ai"
+        args.api = system_config.default_api_url
 
     run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
 

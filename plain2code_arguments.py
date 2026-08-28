@@ -6,6 +6,7 @@ from path_resolution import resolve_path
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
 from plain2code_read_config import get_args_from_config
+from system_config import system_config
 
 # Attribute on the parsed Namespace mapping each argument dest to its source:
 # "cli" (explicit on the command line), "config" (from config.yaml), or
@@ -329,8 +330,10 @@ def create_parser():
         "--api",
         type=str,
         nargs="?",
-        const="https://api.codeplain.ai",
-        help="Alternative base URL for the API. Default: `https://api.codeplain.ai`",
+        # Pre-release builds default to the test API; see
+        # system_config._resolve_default_api_url.
+        const=system_config.default_api_url,
+        help=f"Alternative base URL for the API. Default: `{system_config.default_api_url}`",
     )
     _add_arg(
         parser,

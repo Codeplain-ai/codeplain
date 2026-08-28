@@ -1,0 +1,135 @@
+name: Publish dev build to PyPI
+
+# Every merge to main publishes a PEP 440 dev release (e.g. 0.3.10.dev7) to
+# PyPI, so the latest main is always installable from the real index with real
+# dependency resolution. Dev releases are pre-releases: pip and uv skip them
+# unless asked, so ordinary installs keep getting the latest stable.
+#
+# Tagged releases (including rc/beta/alpha) are handled by publish-to-pypi.yml.
+on:
+  push:
+    branches: [main]
+  # Ad-hoc runs, e.g. re-publishing after a PyPI outage.
+  workflow_dispatch:
+
+# Least privilege by default: jobs get no GITHUB_TOKEN scopes unless they
+# opt in below.
+permissions: {}
+
+# Serialize publishes so versions land in merge order. Queued runs are not
+# cancelled — each merge should still get its own dev build.
+concurrency:
+  group: publish-dev-to-pypi
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build dev distribution
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should-publish: ${{ steps.version.outputs.should-publish }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # hatch-vcs derives the version from git tags, so we need full history.
+          fetch-depth: 0
+
+      - name: Install uv
+        # uv provisions its own Python (honoring requires-python), so no
+        # separate actions/setup-python step is needed.
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Compute dev version
+        id: version
+        # Between releases hatch-vcs produces something like
+        # "0.3.10.dev16+gb710c2982". The "+g..." local version segment is valid
+        # PEP 440 but is rejected by PyPI on upload, so it has to go. We keep
+        # setuptools-scm's own next-version guess (0.3.10 — the patch bump
+        # after the latest tag) rather than re-deriving it here, and use the
+        # run number as the dev counter: it is strictly increasing, so each
+        # merge sorts after the last and re-runs never collide.
+        run: |
+          RAW=$(uvx --from setuptools-scm python -c \
+            "from setuptools_scm import get_version; print(get_version())")
+          echo "setuptools-scm reports: $RAW"
+
+          # On a commit that IS a release tag, setuptools-scm returns a clean
+          # version with no .dev component (e.g. "0.3.9" or "0.4.0rc1").
+          # Appending ".dev<run>" to that yields 0.3.9.dev42, which sorts BELOW
+          # the released 0.3.9 — newer code would look older. A tagged commit
+          # is a real release and is published by publish-to-pypi.yml, so there
+          # is no dev build to make here.
+          case "$RAW" in
+            *.dev*) ;;
+            *)
+              echo "::notice::$RAW is a tagged release; skipping dev build."
+              echo "should-publish=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+
+          BASE=${RAW%%+*}
+          BASE=${BASE%%.dev*}
+          VERSION="${BASE}.dev${GITHUB_RUN_NUMBER}"
+          echo "Derived version: $RAW -> $VERSION"
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "should-publish=true" >> $GITHUB_OUTPUT
+
+      - name: Build package
+        if: steps.version.outputs.should-publish == 'true'
+        # hatch-vcs reads SETUPTOOLS_SCM_PRETEND_VERSION in place of the tag.
+        run: |
+          uv build
+          echo "Built distributions:"
+          ls -l dist/
+
+      - name: Store the distribution packages
+        if: steps.version.outputs.should-publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-package-distributions
+          path: dist/
+
+  publish-dev:
+    name: Publish dev build to PyPI
+    needs: build
+    if: needs.build.outputs.should-publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/codeplain
+    permissions:
+      # Mint a short-lived OIDC token so PyPI Trusted Publishing can
+      # authenticate this run — no long-lived API token needed.
+      id-token: write
+
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    steps:
+      - name: Download distribution packages
+        uses: actions/download-artifact@v4
+        with:
+          name: dev-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # PyPI uploads are immutable, so a re-run of an already-published
+          # version should be a no-op, not a red build.
+          skip-existing: true
+
+      # Success is deliberately quiet: this runs on every merge to main, which
+      # is already announced elsewhere. Only failures ping.
+      - name: Notify Slack (failure)
+        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*Codeplain Client*: Publishing dev build to PyPI FAILED :x: (commit \`${{ github.sha }}\`). See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.\"}"
