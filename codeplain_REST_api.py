@@ -320,6 +320,7 @@ class CodeplainAPI:
         conformance_tests_folder_name,
         conformance_tests_json,
         all_acceptance_tests,
+        existing_conformance_tests_files,
         run_state: RunState,
     ):
         endpoint_url = f"{self.api_url}/render_conformance_tests"
@@ -337,6 +338,7 @@ class CodeplainAPI:
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "conformance_tests_json": conformance_tests_json,
             "all_acceptance_tests": all_acceptance_tests,
+            "existing_conformance_tests_files": existing_conformance_tests_files,
         }
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
