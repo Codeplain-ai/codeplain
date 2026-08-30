@@ -48,6 +48,7 @@ class RenderContext:
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
         enter_pause_event: Optional[threading.Event] = None,
+        is_rerender: bool = False,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -71,6 +72,9 @@ class RenderContext:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
+        self.is_rerender = is_rerender
+        self.old_frid_spec: str | None = None
+        self.code_functional_requirements: list[str] | None = None
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
@@ -369,11 +373,16 @@ class RenderContext:
     def _has_reached_implementation_frid(self) -> bool:
         """Check if regression has reached the FRID being implemented."""
         ctx = self.conformance_tests_running_context
-        return (
+        if not (
             ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
             and ctx.current_testing_module_name == self.module_name
-            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
+        ):
+            return False
+
+        terminal_frid = (
+            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_rerender else ctx.frid_being_implemented
         )
+        return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
@@ -493,6 +502,14 @@ class RenderContext:
         self._setup_test_specifications()
 
         if ctx.current_conformance_tests_exist():
+            if self.is_rerender and ctx.current_testing_frid == ctx.frid_being_implemented:
+                # already tested in the initial phase — skip and advance to next
+                self.conformance_tests_running_context = self._get_next_test_to_run()
+                ctx = self.conformance_tests_running_context
+                self._setup_test_specifications()
+                if not ctx.current_conformance_tests_exist():
+                    return
+
             # Check if this is the implementation FRID (last test to run)
             if self._has_reached_implementation_frid():
                 # Reached implementation FRID - only re-run it if code changed during regression
@@ -508,6 +525,7 @@ class RenderContext:
 
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
+    # TODO why is this in the context and not part of the state machine (in an action)
     # ========== Main Conformance Test Orchestration ==========
 
     def start_conformance_tests_for_frid(self):

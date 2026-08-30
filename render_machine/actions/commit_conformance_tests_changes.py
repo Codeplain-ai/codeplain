@@ -10,9 +10,8 @@ class CommitConformanceTestsChanges(BaseAction):
     SUCCESSFUL_OUTCOME_IMPLEMENTATION_NOT_UPDATED = "conformance_tests_changes_committed_implementation_not_updated"
     SUCCESSFUL_OUTCOME_IMPLEMENTATION_UPDATED = "conformance_tests_changes_committed_implementation_updated"
 
-    def __init__(self, implementation_code_commit_message: str, conformance_tests_commit_message: str):
+    def __init__(self, implementation_code_commit_message: str):
         self.implementation_code_commit_message = implementation_code_commit_message
-        self.conformance_tests_commit_message = conformance_tests_commit_message
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         implementation_updated = False
@@ -26,8 +25,13 @@ class CommitConformanceTestsChanges(BaseAction):
             )
             implementation_updated = True
 
+        conformance_tests_commit_message = (
+            git_utils.FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE
+            if render_context.is_rerender
+            else git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
+        )
         functional_requirement_text = render_context.frid_context.specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]
-        templated_functional_requirement_finished_commit_msg = self.conformance_tests_commit_message.format(
+        templated_functional_requirement_finished_commit_msg = conformance_tests_commit_message.format(
             render_context.frid_context.frid
         )
         formatted_conformance_commit_msg = (
