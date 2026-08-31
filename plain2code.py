@@ -203,6 +203,15 @@ def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> N
     )
 
 
+def validate_linked_resources(plain_module) -> None:
+    """Load every linked resource exactly the way rendering does, so dry-run
+    surfaces the same errors (binary file, missing file, oversized base64 blob)."""
+    for module in plain_module.all_required_modules + [plain_module]:
+        resources_list: list[dict] = []
+        plain_spec.collect_linked_resources(module.plain_source, resources_list, None, True)
+        file_utils.load_linked_resources(module.template_dirs, resources_list, module.module_name)
+
+
 def render(  # noqa: C901
     plain_module: plain_modules.PlainModule,
     args,
@@ -393,6 +402,12 @@ def main():  # noqa: C901
         return
 
     if args.dry_run:
+        try:
+            validate_linked_resources(plain_module)
+        except Exception as e:
+            console.error(f"Error: {str(e)}")
+            return
+
         console.info("Printing dry run output...\n")
         render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
         print_dry_run_output(plain_module.plain_source, render_range)
