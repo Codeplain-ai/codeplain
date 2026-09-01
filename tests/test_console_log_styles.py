@@ -72,20 +72,46 @@ class TestConsoleColorParam:
 
 
 class TestTerminalTextRendersVerbatim:
-    """Message text must reach the terminal unchanged, and must not pick its own styling."""
+    """
+    Message text must reach the terminal unchanged, and must not influence its own
+    styling. Colors are still applied but they are chosen by the call, never parsed
+    out of the text:
+     - Rich markup tags must not be interpreted
+     - the repr highlighter must not restyle brackets and numbers
+     - emoji shortcodes must not be substituted by glyphs
+    """
 
-    def test_bracketed_error_text_prints_verbatim(self):
-        console, handler = make_console_with_capture()
-        console.quiet = False
+    def test_markup_closing_tag_prints_verbatim(self):
+        console = Plain2CodeConsole()
         with console.capture() as capture:
-            console.info("Error: [Errno 8] failed [/closing] tag", color=RETRY_COLOR)
-        assert "[Errno 8]" in capture.get()
+            console.error("Error: [/closing] tag")
+        # markup=True raises MarkupError on an unmatched closing tag
         assert "[/closing]" in capture.get()
+
+    def test_markup_style_tag_prints_verbatim(self):
+        console = Plain2CodeConsole()
+        with console.capture() as capture:
+            console.error("Error: [bold]important text")
+        # markup=True silently consumes the tag and styles the rest
+        assert "[bold]" in capture.get()
+
+    def test_bracketed_number_prints_verbatim(self, monkeypatch):
+        # Rich emits no ANSI unless it believes it is writing to a colored terminal
+        # (FORCE_COLOR alone is not enough: TERM=dumb still resolves to no colors)
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("TERM", "xterm-256color")
+        console = Plain2CodeConsole()
+        assert console.color_system is not None  # should fail test immediately if no colors
+
+        with console.capture() as capture:
+            console.error("Error: [Errno 8] failed")
+        # highlight=True breaks this up with colour codes
+        assert "[Errno 8]" in capture.get()
 
     def test_concept_name_matching_emoji_prints_verbatim(self):
         console = Plain2CodeConsole()
         with console.capture() as capture:
-            console.info("Syntax error: Invalid concept: :Package:")
+            console.error("Syntax error: Invalid concept: :Package:")
         assert ":Package:" in capture.get()
         assert "📦" not in capture.get()
 
