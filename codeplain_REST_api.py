@@ -254,7 +254,7 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def create_conformance_test_memory(
+    def distill_conformance_test_memory(
         self,
         frid,
         plain_source_tree,
@@ -263,15 +263,10 @@ class CodeplainAPI:
         memory_files_content,
         module_name,
         required_modules,
-        code_diff,
-        conformance_tests_files,
-        acceptance_tests,
-        conformance_tests_issue,
-        conformance_tests_folder_name,
-        previous_conformance_tests_issue_old,
+        fix_journals,
         run_state: RunState,
     ):
-        endpoint_url = f"{self.api_url}/create_conformance_test_memory"
+        endpoint_url = f"{self.api_url}/distill_conformance_test_memory"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
 
         payload = {
@@ -282,12 +277,7 @@ class CodeplainAPI:
             "memory_files_content": memory_files_content,
             "module_name": module_name,
             "required_modules": required_modules,
-            "code_diff": code_diff,
-            "conformance_tests_files": conformance_tests_files,
-            "acceptance_tests": acceptance_tests,
-            "conformance_tests_issue": conformance_tests_issue,
-            "conformance_tests_folder_name": conformance_tests_folder_name,
-            "previous_conformance_tests_issue": previous_conformance_tests_issue_old,
+            "fix_journals": fix_journals,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
@@ -381,6 +371,7 @@ class CodeplainAPI:
         conformance_tests_folder_name,
         current_testing_frid_high_level_implementation_plan: Optional[str],
         conflicting_requirements_count: int,
+        fix_attempts_journal: list,
         run_state: RunState,
     ):
         endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
@@ -403,6 +394,7 @@ class CodeplainAPI:
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "current_testing_frid_high_level_implementation_plan": current_testing_frid_high_level_implementation_plan,
             "conflicting_requirements_count": conflicting_requirements_count,
+            "fix_attempts_journal": fix_attempts_journal,
         }
 
         if acceptance_tests is not None:

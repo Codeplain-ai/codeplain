@@ -3,6 +3,7 @@ from typing import Any
 import file_utils
 import git_utils
 import plain_spec
+from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
@@ -49,6 +50,13 @@ class PrepareRepositories(BaseAction):
                     render_context.build_folder,
                     render_context.module_name,
                     render_context.run_state.render_id,
+                )
+
+                # Like the code repo, the distilled conformance test memories carry over from the
+                # previous module so its learnings are available while rendering this one.
+                MemoryManager.inherit_memories(
+                    previous_module.module_memory_folder,
+                    render_context.plain_module.module_memory_folder,
                 )
             else:
                 console.debug("Initializing git repositories for the render folders.")
