@@ -27,7 +27,9 @@ class Plain2CodeConsole(Console):
     DEBUG_STYLE = Style(color="purple")
 
     def __init__(self):
-        super().__init__()
+        # Emoji shortcodes must never be substituted. Set on the console because the
+        # emoji flag of Console.print does not reach text inside renderables like Tree.
+        super().__init__(emoji=False)
         try:
             import tiktoken
 
@@ -66,13 +68,12 @@ class Plain2CodeConsole(Console):
         """
         logger.log(level, " ".join(map(str, args)), extra={"log_color": color})
         style = base_style + Style(color=color) if color else base_style
-        # Log messages must render exactly as logged: don't interpret square brackets
-        # in interpolated content (error texts, file names) as Rich markup, and don't
-        # let the repr highlighter restyle brackets and numbers inside them.
-        # Don't let Rich substitute emoji shortcodes with glyphs. Literal emojis unaffected.
+        # Messages must render exactly as logged and not pick its own styling:
+        # -- no Rich markup (via square brackets) in interpolated content (error texts, file names)
+        # -- no repr highlighter restyling brackets and numbers inside them.
+        # -- emoji are off console-wide via __init__
         kwargs.setdefault("markup", False)
         kwargs.setdefault("highlight", False)
-        kwargs.setdefault("emoji", False)
         super().print(*args, **kwargs, style=style)
 
     def print_list(self, items, style=None):

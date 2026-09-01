@@ -116,6 +116,25 @@ class TestTerminalTextRendersVerbatim:
         assert "📦" not in capture.get()
 
 
+class TestPrintHelpersDoNotSubstituteEmoji:
+    """
+    Same rule as TestTerminalTextRendersVerbatim, for the two helpers that bypass _log_and_print.
+    Only emoji is covered here, markup and highlighting still apply to them.
+    """
+
+    def test_print_list_does_not_substitute_emoji(self):
+        console = Plain2CodeConsole()
+        with console.capture() as capture:
+            console.print_list(["The :Package: is a concept"])
+        assert ":Package:" in capture.get()
+
+    def test_print_files_does_not_substitute_emoji_in_tree_labels(self):
+        console = Plain2CodeConsole()
+        with console.capture() as capture:
+            console.print_files("Files added:", "build", {":Package:.py": "x"})
+        assert ":Package:" in capture.get()
+
+
 class TestLoggingHandlerForwardsColor:
     """LoggingHandler must forward the log_color record attribute into LogMessageEmitted."""
 
