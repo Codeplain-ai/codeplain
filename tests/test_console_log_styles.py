@@ -70,6 +70,10 @@ class TestConsoleColorParam:
 
         assert handler.records[0].log_color is None
 
+
+class TestTerminalTextRendersVerbatim:
+    """Message text must reach the terminal unchanged, and must not pick its own styling."""
+
     def test_bracketed_error_text_prints_verbatim(self):
         console, handler = make_console_with_capture()
         console.quiet = False
@@ -77,10 +81,6 @@ class TestConsoleColorParam:
             console.info("Error: [Errno 8] failed [/closing] tag", color=RETRY_COLOR)
         assert "[Errno 8]" in capture.get()
         assert "[/closing]" in capture.get()
-
-
-class TestTerminalTextRendersVerbatim:
-    """Message text must reach the terminal unchanged, and must not pick its own styling."""
 
     def test_concept_name_matching_emoji_prints_verbatim(self):
         console = Plain2CodeConsole()
