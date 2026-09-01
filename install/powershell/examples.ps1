@@ -19,6 +19,39 @@ $CROSS = [char]0x2717
 $EXAMPLES_FOLDER_NAME = "plainlang-examples"
 $EXAMPLES_DOWNLOAD_URL = "https://codeplain.ai/examples/windows"
 
+# Make the user acknowledge that the examples were not installed. The
+# installation continues either way, but the failure must not scroll past
+# unseen - the installer clears the screen in its next step.
+function Confirm-ContinueAfterFailure {
+    Write-Host ""
+    Write-Host "  ${YELLOW}The examples were not installed.${NC} ${GRAY}The installation will continue.${NC}"
+    Write-Host ""
+    Read-Host "  Continue? Press ${WHITE}[Enter]${NC} to acknowledge"
+    Write-Host ""
+}
+
+# Expand-Archive lives in the Microsoft.PowerShell.Archive module, shipped with
+# PowerShell 5.0 and later. Checked before anything is downloaded, so a machine
+# without it is told what to do instead of just seeing an extraction failure.
+function Show-MissingArchiveCmdletMessage {
+    Write-Host "  ${RED}${CROSS} Cannot extract the examples: Expand-Archive is not available.${NC}"
+    Write-Host ""
+    Write-Host "  ${GRAY}Expand-Archive requires PowerShell 5.0 or later. Install a newer${NC}"
+    Write-Host "  ${GRAY}PowerShell and re-run the installer to get the examples:${NC}"
+    Write-Host ""
+    Write-Host "  ${WHITE}${BOLD}https://aka.ms/powershell${NC}"
+    Write-Host ""
+    Write-Host "  ${GRAY}The examples are also available at:${NC}"
+    Write-Host "  ${WHITE}https://github.com/Codeplain-ai/plainlang-examples${NC}"
+    Write-Host ""
+}
+
+if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) {
+    Show-MissingArchiveCmdletMessage
+    Confirm-ContinueAfterFailure
+    exit 0
+}
+
 # Show current directory and ask for extraction path
 $CURRENT_DIR = Get-Location
 Write-Host "  Current folder: ${WHITE}${CURRENT_DIR}${NC}"
@@ -47,10 +80,12 @@ if (-not (Test-Path $EXTRACT_PATH -PathType Container)) {
         New-Item -ItemType Directory -Path $EXTRACT_PATH -Force | Out-Null
     } catch {
         Write-Host "  ${RED}${CROSS} Failed to create directory: ${EXTRACT_PATH}${NC}"
-        Write-Host "  ${GRAY}Skipping example download.${NC}"
+        Confirm-ContinueAfterFailure
         $SKIP_DOWNLOAD = $true
     }
 }
+
+$EXAMPLES_INSTALLED = $false
 
 if (-not $SKIP_DOWNLOAD) {
     Write-Host "  ${GRAY}Downloading examples...${NC}"
@@ -60,7 +95,26 @@ if (-not $SKIP_DOWNLOAD) {
     try {
         Invoke-WebRequest -Uri $EXAMPLES_DOWNLOAD_URL -OutFile $TEMP_ZIP -UseBasicParsing
 
+        # Check for the zip magic bytes rather than handing Expand-Archive a
+        # server error page. Read via a stream: 'Get-Content -Encoding Byte' is
+        # Windows PowerShell 5.1 only, '-AsByteStream' is PowerShell 6+ only.
+        $IS_ZIP = $false
         if (Test-Path $TEMP_ZIP) {
+            $HEADER = New-Object byte[] 2
+            $STREAM = [System.IO.File]::OpenRead($TEMP_ZIP)
+            try {
+                $BYTES_READ = $STREAM.Read($HEADER, 0, 2)
+            } finally {
+                $STREAM.Close()
+            }
+            $IS_ZIP = ($BYTES_READ -eq 2 -and $HEADER[0] -eq 0x50 -and $HEADER[1] -eq 0x4B)
+        }
+
+        if (-not $IS_ZIP -and (Test-Path $TEMP_ZIP)) {
+            Write-Host "  ${RED}${CROSS} Failed to download examples.${NC}"
+            Write-Host "  ${GRAY}The downloaded file is not a zip archive.${NC}"
+            Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
+        } elseif ($IS_ZIP) {
             Write-Host "  ${GRAY}Extracting to ${EXTRACT_PATH}...${NC}"
 
             try {
@@ -91,8 +145,12 @@ if (-not $SKIP_DOWNLOAD) {
                 Write-Host ""
                 Write-Host "  ${GRAY}See hello-world/python/README.md for details.${NC}"
                 Write-Host ""
+                $EXAMPLES_INSTALLED = $true
             } catch {
+                # Keep the cmdlet's own message: it is the only clue about why
+                # extraction failed (corrupt download, no space, no permissions).
                 Write-Host "  ${RED}${CROSS} Failed to extract examples.${NC}"
+                Write-Host "  ${GRAY}$($_.Exception.Message)${NC}"
             }
 
             Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
@@ -104,6 +162,10 @@ if (-not $SKIP_DOWNLOAD) {
         Remove-Item -Path $TEMP_ZIP -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Host ""
-    Read-Host "  Press ${WHITE}[Enter]${NC} to continue..."
+    if ($EXAMPLES_INSTALLED) {
+        Write-Host ""
+        Read-Host "  Press ${WHITE}[Enter]${NC} to continue..."
+    } else {
+        Confirm-ContinueAfterFailure
+    }
 }
