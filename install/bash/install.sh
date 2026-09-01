@@ -425,9 +425,11 @@ else
     echo ""
 fi
 
-# Run examples download if user agrees
+# Run examples download if user agrees. The examples are a nice-to-have, so a
+# failure there must never abort the installation (set -e would otherwise take
+# the whole installer down without printing anything).
 if [[ ! "${DOWNLOAD_EXAMPLES:-}" =~ ^[Nn]$ ]]; then
-    run_script "examples.sh"
+    run_script "examples.sh" || echo -e "${GRAY}Example download did not complete. Continuing with the installation.${NC}"
 fi
 
 # Final verification: make sure the installed codeplain can actually run and

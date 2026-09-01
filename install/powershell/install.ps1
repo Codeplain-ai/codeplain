@@ -526,9 +526,16 @@ if ($nonInteractive) {
     Write-Host ""
 }
 
-# Run examples download if user agrees
+# Run examples download if user agrees. The examples are a nice-to-have, so a
+# failure there must never abort the installation: examples.ps1 runs in this
+# runspace via the call operator, so a terminating error inside it would
+# otherwise propagate here and take the whole installer down.
 if ($downloadExamples -notmatch '^[Nn]$') {
-    Invoke-SubScript "examples.ps1"
+    try {
+        Invoke-SubScript "examples.ps1"
+    } catch {
+        Write-Host "${GRAY}Example download did not complete. Continuing with the installation.${NC}"
+    }
 }
 
 # Final verification: make sure the installed codeplain can actually run and
