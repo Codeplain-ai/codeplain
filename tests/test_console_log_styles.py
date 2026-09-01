@@ -79,6 +79,17 @@ class TestConsoleColorParam:
         assert "[/closing]" in capture.get()
 
 
+class TestTerminalTextRendersVerbatim:
+    """Message text must reach the terminal unchanged, and must not pick its own styling."""
+
+    def test_concept_name_matching_emoji_prints_verbatim(self):
+        console = Plain2CodeConsole()
+        with console.capture() as capture:
+            console.info("Syntax error: Invalid concept: :Package:")
+        assert ":Package:" in capture.get()
+        assert "📦" not in capture.get()
+
+
 class TestLoggingHandlerForwardsColor:
     """LoggingHandler must forward the log_color record attribute into LogMessageEmitted."""
 

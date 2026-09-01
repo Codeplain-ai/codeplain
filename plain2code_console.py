@@ -69,8 +69,10 @@ class Plain2CodeConsole(Console):
         # Log messages must render exactly as logged: don't interpret square brackets
         # in interpolated content (error texts, file names) as Rich markup, and don't
         # let the repr highlighter restyle brackets and numbers inside them.
+        # Don't let Rich substitute emoji shortcodes with glyphs. Literal emojis unaffected.
         kwargs.setdefault("markup", False)
         kwargs.setdefault("highlight", False)
+        kwargs.setdefault("emoji", False)
         super().print(*args, **kwargs, style=style)
 
     def print_list(self, items, style=None):
