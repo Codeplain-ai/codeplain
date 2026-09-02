@@ -27,8 +27,6 @@ class Plain2CodeConsole(Console):
     DEBUG_STYLE = Style(color="purple")
 
     def __init__(self):
-        # Emoji shortcodes must never be substituted. Set on the console because the
-        # emoji flag of Console.print does not reach text inside renderables like Tree.
         super().__init__(emoji=False)
         try:
             import tiktoken
@@ -71,7 +69,7 @@ class Plain2CodeConsole(Console):
         # Messages must render exactly as logged and not pick its own styling:
         # -- no Rich markup (via square brackets) in interpolated content (error texts, file names)
         # -- no repr highlighter restyling brackets and numbers inside them.
-        # -- emoji are off console-wide via __init__
+        # -- no emoji substitution, but it's set False in __init__, otherwise it won't reach renderables like Trees
         kwargs.setdefault("markup", False)
         kwargs.setdefault("highlight", False)
         super().print(*args, **kwargs, style=style)
