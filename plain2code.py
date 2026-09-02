@@ -61,6 +61,11 @@ from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 DEFAULT_TEMPLATE_DIRS = "standard_template_library"
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 
+# The terminal states a render can reach, as the API names them.
+RENDER_OUTCOME_COMPLETED = "completed"
+RENDER_OUTCOME_FAILED = "failed"
+RENDER_OUTCOME_CANCELLED = "cancelled"
+
 # Exceptions that represent expected, user-facing error conditions. They are
 # reported to the user directly and must never be sent to Sentry as crashes.
 EXPECTED_EXCEPTIONS = (
@@ -177,6 +182,46 @@ def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI) -> Optional[str]
     return response.get("user_email")
 
 
+def _render_outcome(run_state: RunState) -> str:
+    """Name the terminal state a render reached.
+
+    Cancellation is tested first. A cancelled render leaves render_succeeded
+    False, so asking about success first would report it as a failure.
+    """
+    if run_state.render_cancelled:
+        return RENDER_OUTCOME_CANCELLED
+    if run_state.render_succeeded:
+        return RENDER_OUTCOME_COMPLETED
+    return RENDER_OUTCOME_FAILED
+
+
+def report_render_finished(codeplainAPI: codeplain_api.CodeplainAPI, run_state: RunState) -> None:
+    """Tell the API which terminal state this render reached.
+
+    The API cannot work it out for itself - the state machine lives here - and
+    main()'s finally is the one place that sees every ending: success, failure,
+    cancellation, an unexpected crash and a keyboard interrupt alike. The state
+    machine's own completed and failed hooks see only two of the five.
+
+    Reported only once the connection check has set a user email, which is
+    exactly the condition "the API knows who we are". A missing key, an invalid
+    key and an outdated client all leave it unset, and none of them got as far
+    as a render.
+
+    Never raises. A report must not change the exit code, and must not mask the
+    error that ended the render.
+    """
+    if not run_state.user_email:
+        return
+
+    try:
+        codeplainAPI.render_finished(_render_outcome(run_state), run_state)
+    except Exception:
+        # Deliberately silent: logging has stopped by now, and a failed report
+        # is not the user's problem.
+        pass
+
+
 def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> None:
     """Warn when any loaded module (including required modules) defines acceptance tests
     but no conformance tests script is configured.
@@ -214,6 +259,7 @@ def validate_linked_resources(plain_module) -> None:
 
 def render(  # noqa: C901
     plain_module: plain_modules.PlainModule,
+    codeplainAPI: codeplain_api.CodeplainAPI,
     args,
     run_state: RunState,
     event_bus: EventBus,
@@ -223,10 +269,6 @@ def render(  # noqa: C901
     render_range = None
     if args.render_range or args.render_from:
         render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
-
-    codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
-    assert args.api is not None and args.api != "", "API URL is required"
-    codeplainAPI.api_url = args.api
 
     run_state.user_email = _check_connection(codeplainAPI)
 
@@ -419,6 +461,10 @@ def main():  # noqa: C901
     if not args.api:
         args.api = system_config.default_api_url
 
+    assert args.api is not None and args.api != "", "API URL is required"
+    codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
+    codeplainAPI.api_url = args.api
+
     run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
 
     if args.headless:
@@ -438,7 +484,7 @@ def main():  # noqa: C901
             raise MissingAPIKey(
                 "Your API key is required. Please set the CODEPLAIN_API_KEY environment variable or provide it with the --api-key argument.\n"
             )
-        render(plain_module, args, run_state, event_bus, default_log_level)
+        render(plain_module, codeplainAPI, args, run_state, event_bus, default_log_level)
     except BaseException as e:
         if isinstance(e, KeyboardInterrupt):
             error_message = "Keyboard interrupt"
@@ -460,6 +506,8 @@ def main():  # noqa: C901
         # Remove any scratch extractions created for archive-only ("<module>.module") modules.
         for module in plain_module.all_required_modules + [plain_module]:
             module.cleanup_scratch()
+        # Last, so nothing the user is waiting for sits behind a network call.
+        report_render_finished(codeplainAPI, run_state)
 
     if args.headless and (exc_info is not None or not run_state.render_succeeded):
         sys.exit(1)
