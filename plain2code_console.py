@@ -27,7 +27,7 @@ class Plain2CodeConsole(Console):
     DEBUG_STYLE = Style(color="purple")
 
     def __init__(self):
-        super().__init__()
+        super().__init__(emoji=False)
         try:
             import tiktoken
 
@@ -66,9 +66,10 @@ class Plain2CodeConsole(Console):
         """
         logger.log(level, " ".join(map(str, args)), extra={"log_color": color})
         style = base_style + Style(color=color) if color else base_style
-        # Log messages must render exactly as logged: don't interpret square brackets
-        # in interpolated content (error texts, file names) as Rich markup, and don't
-        # let the repr highlighter restyle brackets and numbers inside them.
+        # Messages must render exactly as logged and not pick its own styling:
+        # -- no Rich markup (via square brackets) in interpolated content (error texts, file names)
+        # -- no repr highlighter restyling brackets and numbers inside them.
+        # -- no emoji substitution, but it's set False in __init__, otherwise it won't reach renderables like Trees
         kwargs.setdefault("markup", False)
         kwargs.setdefault("highlight", False)
         super().print(*args, **kwargs, style=style)
