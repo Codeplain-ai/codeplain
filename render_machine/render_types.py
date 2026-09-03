@@ -91,6 +91,11 @@ class ConformanceTestsRunningContext:
 
         self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
 
+        # Implementation code changes made by the conformance tests fixer during this conformance phase, in
+        # order. Each entry is {"hypothesis": str | None, "approach": str | None, "code_diff": {file: diff}}.
+        # Handed to the unit tests fixer so it adjusts the unit tests instead of reverting these changes.
+        self.implementation_code_fixes: list[dict] = []
+
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]
 

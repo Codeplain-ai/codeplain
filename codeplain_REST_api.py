@@ -237,6 +237,7 @@ class CodeplainAPI:
         required_modules,
         unittests_issue,
         run_state: RunState,
+        conformance_tests_fixes: list[dict] | None = None,
     ):
         endpoint_url = f"{self.api_url}/fix_unittests_issue"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -251,6 +252,10 @@ class CodeplainAPI:
             "unittests_issue": unittests_issue,
             "unittest_batch_id": run_state.unittest_batch_id,
         }
+        # Implementation code changes made by the conformance tests fixer right before this unit tests run;
+        # only sent when unit tests are processed inside the conformance tests phase.
+        if conformance_tests_fixes is not None:
+            payload["conformance_tests_fixes"] = conformance_tests_fixes
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
