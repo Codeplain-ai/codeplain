@@ -189,6 +189,17 @@ class FixConformanceTest(BaseAction):
                 ctx.test_that_triggered_code_change = (ctx.current_testing_module_name, ctx.current_testing_frid)
                 ctx.execution_phase = TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
 
+                # Remember the change so that the unit tests fixer (which runs next) preserves it instead of
+                # reverting it - see FixUnitTests.
+                summary = fix_attempt_summary if isinstance(fix_attempt_summary, dict) else {}
+                ctx.implementation_code_fixes.append(
+                    {
+                        "hypothesis": summary.get("hypothesis"),
+                        "approach": summary.get("approach"),
+                        "code_diff": code_diff_files_content,
+                    }
+                )
+
                 journal.record_fix(
                     ctx.current_testing_module_name,
                     ctx.current_testing_frid,
