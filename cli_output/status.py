@@ -6,6 +6,8 @@ from typing import Optional
 import codeplain_REST_api as codeplain_api
 from plain2code_console import console
 
+PLANS_URL = "https://platform.codeplain.ai/plans"
+
 
 def _create_progress_bar(remaining: int, total: int, width: int = 30) -> str:
     """Create a Unicode progress bar."""
@@ -42,12 +44,12 @@ def _display_credit_line(plan_credits: dict) -> None:
     bar = _create_progress_bar(remaining, total, width=30)
 
     # Format plan type label
-    plan_label = "Free trial" if plan_type == "free" else plan_type.upper() + " plan"
+    plan_label = "Free credits" if plan_type == "free" else plan_type.upper() + " plan"
 
     if is_expired:
-        console.print(f"    {plan_label:10} {bar}   expired {formatted_date}")
+        console.print(f"    {plan_label:12} {bar}   expired {formatted_date}")
     else:
-        console.print(f"    {plan_label:10} {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
+        console.print(f"    {plan_label:12} {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
 
 
 def _display_bucket_credit_line(bucket: dict, label: str) -> None:
@@ -71,9 +73,9 @@ def _display_bucket_credit_line(bucket: dict, label: str) -> None:
     bar = _create_progress_bar(remaining, total, width=30)
 
     if is_expired:
-        console.print(f"    {label:10} {bar}   expired {formatted_date}")
+        console.print(f"    {label:12} {bar}   expired {formatted_date}")
     else:
-        console.print(f"    {label:10} {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
+        console.print(f"    {label:12} {bar}   {remaining:2} of {total} remaining    expires {formatted_date}")
 
 
 def _display_status_message(plan_credits: Optional[dict], purchased_credits: list, promo_credits: list) -> None:
@@ -107,7 +109,11 @@ def _display_status_message(plan_credits: Optional[dict], purchased_credits: lis
             break
 
     if not has_remaining:
-        console.print("\nNo rendering credits remaining. Upgrade to continue rendering.")
+        console.print(
+            f"\nNo rendering credits remaining. Upgrade to the PRO plan at {PLANS_URL} to continue rendering."
+        )
+    else:
+        console.print(f"\nTo manage your plan navigate to {PLANS_URL}")
 
 
 def print_status(api_key: str, api_url: str, client_version: str) -> None:
@@ -148,7 +154,7 @@ def print_status(api_key: str, api_url: str, client_version: str) -> None:
     # Display rendering credits section
     console.print("Rendering credits:")
 
-    # Display plan credits (free trial or subscription)
+    # Display plan credits (free credits or subscription)
     if plan_credits:
         _display_credit_line(plan_credits)
 
@@ -162,4 +168,3 @@ def print_status(api_key: str, api_url: str, client_version: str) -> None:
 
     # Display status messages and management link
     _display_status_message(plan_credits, purchased_credits, promo_credits)
-    console.print("\nTo manage your plan navigate to https://platform.codeplain.ai/plans")
