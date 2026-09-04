@@ -67,7 +67,7 @@ class TestDisplayCreditLine:
 
     @patch("cli_output.status.console")
     def test_display_active_free_trial(self, mock_console):
-        """Test displaying active free trial credits."""
+        """Test displaying active free credits."""
         plan_credits = {
             "type": "free",
             "total": 50,
@@ -78,7 +78,7 @@ class TestDisplayCreditLine:
 
         mock_console.print.assert_called_once()
         call_args = mock_console.print.call_args[0][0]
-        assert "Free trial" in call_args
+        assert "Free credits" in call_args
         assert "4 of 50 remaining" in call_args
         assert "expires Dec 1, 2028" in call_args
 
@@ -259,6 +259,7 @@ class TestDisplayStatusMessage:
         mock_console.print.assert_called_once()
         call_args = mock_console.print.call_args[0][0]
         assert "No rendering credits remaining" in call_args
+        assert "https://platform.codeplain.ai/plans" in call_args
 
     @patch("cli_output.status.console")
     def test_expired_plan_credits(self, mock_console):
