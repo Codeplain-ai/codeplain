@@ -90,7 +90,7 @@ def remove_quotes(token):
     token.children = tuple(new_children)
 
 
-def check_section_for_linked_resources(section):
+def check_section_for_linked_resources(section, template_dirs):
     linked_resources = []
     for link in traverse(section, klass=Link):
         parsed_url = urlparse(link.node.target)
@@ -99,10 +99,11 @@ def check_section_for_linked_resources(section):
                 f"Plain syntax error: Only relative links are allowed (text: {link.node.children[0].content}, target: {link.node.target})."
             )
 
-        if not os.path.exists(link.node.target):
+        resolved_target = file_utils.resolve_linked_resource(template_dirs, link.node.target)
+        if resolved_target is None:
             raise PlainSyntaxError(f"Plain syntax error: Link {link.node.target} does not exist.")
 
-        if not os.path.isfile(link.node.target):
+        if not os.path.isfile(resolved_target):
             raise PlainSyntaxError(f"Plain syntax error: Link {link.node.target} must be a file.")
 
         if len(link.node.children) != 1:
@@ -122,15 +123,15 @@ def check_section_for_linked_resources(section):
         section.linked_resources = linked_resources
 
 
-def check_for_linked_resources(plain_source):
+def check_for_linked_resources(plain_source, template_dirs):
     for specification_heading in plain_spec.ALLOWED_SPECIFICATION_HEADINGS:
         if specification_heading in plain_source and hasattr(plain_source[specification_heading], "children"):
             for requirement in plain_source[specification_heading].children:
-                check_section_for_linked_resources(requirement)
+                check_section_for_linked_resources(requirement, template_dirs)
 
                 if hasattr(requirement, plain_spec.ACCEPTANCE_TESTS):
                     for acceptance_test in requirement.acceptance_tests:
-                        check_section_for_linked_resources(acceptance_test)
+                        check_section_for_linked_resources(acceptance_test, template_dirs)
 
 
 def process_section_code_variables(section, code_variables):
@@ -820,7 +821,7 @@ def plain_file_parser(  # noqa: C901
 
     process_acceptance_tests(plain_file_parse_result.plain_source)
 
-    check_for_linked_resources(plain_file_parse_result.plain_source)
+    check_for_linked_resources(plain_file_parse_result.plain_source, template_dirs)
 
     marshalled_plain_source = marshall_plain_source(plain_file_parse_result.plain_source)
 
