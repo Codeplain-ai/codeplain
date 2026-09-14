@@ -227,38 +227,6 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def fix_unittests_issue(
-        self,
-        frid,
-        plain_source_tree,
-        linked_resources,
-        existing_files_content,
-        module_name: str,
-        required_modules,
-        unittests_issue,
-        run_state: RunState,
-        conformance_tests_fixes: list[dict] | None = None,
-    ):
-        endpoint_url = f"{self.api_url}/fix_unittests_issue"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "module_name": module_name,
-            "required_modules": required_modules,
-            "unittests_issue": unittests_issue,
-            "unittest_batch_id": run_state.unittest_batch_id,
-        }
-        # Implementation code changes made by the conformance tests fixer right before this unit tests run;
-        # only sent when unit tests are processed inside the conformance tests phase.
-        if conformance_tests_fixes is not None:
-            payload["conformance_tests_fixes"] = conformance_tests_fixes
-
-        return self.post_request(endpoint_url, headers, payload, run_state)
-
     def distill_conformance_test_memory(
         self,
         frid,
@@ -531,4 +499,30 @@ class CodeplainAPI:
             "required_modules": required_modules,
         }
 
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def agent_start(self, task_type: str, task_params: dict, frid: str, module_name: str, run_state: RunState):
+        """Start a server-side agent session; returns the first turn (tool calls or completion)."""
+        endpoint_url = f"{self.api_url}/agent/start"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "task_type": task_type,
+            "task_params": task_params,
+            "frid": frid,
+            "module_name": module_name,
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def agent_continue(
+        self, session_id: str, tool_results: list[dict], frid: str, module_name: str, run_state: RunState
+    ):
+        """Feed tool results into an agent session and run its next turn."""
+        endpoint_url = f"{self.api_url}/agent/continue"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "session_id": session_id,
+            "tool_results": tool_results,
+            "frid": frid,
+            "module_name": module_name,
+        }
         return self.post_request(endpoint_url, headers, payload, run_state)
