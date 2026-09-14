@@ -6,9 +6,6 @@ import tempfile
 import zipfile
 from functools import cached_property
 
-# GitPython probes for the git executable when it is first imported and reports a
-# missing or broken one by raising from module scope, which would crash the CLI
-# with a traceback before main() could explain it. Diagnose git ourselves first.
 from git_preflight import require_git
 from plain2code_exceptions import (
     InvalidModuleArchiveError,
@@ -16,6 +13,7 @@ from plain2code_exceptions import (
     ModuleDoesNotExistError,
 )
 
+# Must run before GitPython is imported, which raises on a missing or broken git.
 require_git()
 
 from git import Repo
