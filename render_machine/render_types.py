@@ -52,6 +52,14 @@ class FridContext:
 class UnitTestsRunningContext:
     fix_attempts: int
     changed_files: set[str] = field(default_factory=set)
+    # Server-side agent session fixing this FRID's unit tests. It spans every fix attempt of
+    # one unit-test loop (the context is recreated when the loop starts), so each new failure
+    # is fed back into the same conversation instead of a fresh, stateless call.
+    agent_session_id: Optional[str] = None
+    # The submit_fix call the agent ended its last attempt with, answered with the next test
+    # run's outcome, plus results of any tool calls made in the same turn as submit_fix.
+    pending_submit_call_id: Optional[str] = None
+    pending_tool_results: list[dict] = field(default_factory=list)
 
 
 class ConformanceTestsRunningContext:
