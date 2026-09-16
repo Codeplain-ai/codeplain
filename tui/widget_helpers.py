@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from textual.content import Content
 from textual.css.query import NoMatches
 from textual.widgets import Static
 
@@ -89,9 +90,14 @@ def display_success_message(tui, rendered_code_path: str):
         rendered_code_path: The path to the rendered code
     """
 
-    message = (
-        f"[#79FC96]✓ rendering completed![/#79FC96] [#888888](press enter to exit)[/#888888]\n"
-        f"[#888888]generated code folder: {rendered_code_path}[/#888888] "
+    # rendered_code_path is user-controlled and may contain square brackets, so build the
+    # message as Content instead of interpolating it into a markup string.
+    message = Content.assemble(
+        ("✓ rendering completed!", "#79FC96"),
+        " ",
+        ("(press enter to exit)", "#888888"),
+        "\n",
+        (f"generated code folder: {rendered_code_path} ", "#888888"),
     )
 
     widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
@@ -120,7 +126,8 @@ def transition_frid_progress(tui, from_status: str | None, to_status: str):
 def display_error_message(tui, error_message: str):
     widget: Static = tui.query_one(f"#{TUIComponents.RENDER_STATUS_WIDGET.value}", Static)
     widget.add_class("error")
-    widget.update(error_message)
+    # Error text may contain square brackets (paths, tracebacks); keep it out of the markup parser.
+    widget.update(Content(error_message))
 
 
 def display_usage_summary(tui, functionalities: int, render_time_seconds: float) -> None:
