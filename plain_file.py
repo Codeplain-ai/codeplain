@@ -615,14 +615,44 @@ def parse_plain_source(  # noqa: C901
                 f"Plain syntax error: Syntax error at line {nested_acceptance_test_heading.line_number}: {plain_spec.ACCEPTANCE_TEST_HEADING} heading should be nested under specific functional spec."
             )
 
+    defined_concepts = set[str]()
     if plain_source[plain_spec.DEFINITIONS] is not None:
         with PlainRenderer() as renderer:
             for token in plain_source[plain_spec.DEFINITIONS].children:
                 rendered_token = renderer.render(token)
                 new_concepts, _ = concept_utils.extract_concepts_from_definition(rendered_token)
+                defined_concepts.update(new_concepts)
                 for concept in new_concepts:
                     if concept in required_concepts:
                         required_concepts.remove(concept)
+
+    if EXPORTED_CONCEPTS_DIRECTIVE in plain_source_obj.metadata:
+        module_name = modules_trace[-1] if modules_trace else None
+        subject = f"Module '{module_name}'" if module_name else "Module"
+
+        for entry in plain_source_obj.metadata[EXPORTED_CONCEPTS_DIRECTIVE]:
+            exported_concepts, errors = concept_utils.extract_concepts_from_definition(entry)
+            if errors:
+                raise PlainSyntaxError(
+                    f"Plain syntax error: {subject} exports an invalid concept (`{entry}`). "
+                    f"Expected a concept token, e.g. :ConceptName:."
+                )
+
+            for exported_concept in exported_concepts:
+                if exported_concept in concept_utils.DEFAULT_CONCEPTS:
+                    raise PlainSyntaxError(
+                        f"Plain syntax error: {subject} cannot export default concept {exported_concept}. "
+                        f"Only user-defined concepts can be exported."
+                    )
+
+                if exported_concept not in defined_concepts:
+                    message = f"Plain syntax error: {subject} exports undefined concept {exported_concept}."
+                    if REQUIRES_DIRECTIVE in plain_source_obj.metadata:
+                        message += (
+                            " An exported concept must be defined in this module's definitions or in an "
+                            "imported module; a concept inherited through requires cannot be re-exported."
+                        )
+                    raise PlainSyntaxError(message)
 
     required_modules = []
     if REQUIRES_DIRECTIVE in plain_source_obj.metadata:
@@ -710,15 +740,7 @@ def process_required_modules(
         if EXPORTED_CONCEPTS_DIRECTIVE in plain_file_parse_result.plain_source_obj.metadata:
             exported_concepts = list[str]()
             for concept in plain_file_parse_result.plain_source_obj.metadata[EXPORTED_CONCEPTS_DIRECTIVE]:
-                if concept in concept_utils.DEFAULT_CONCEPTS:
-                    raise PlainSyntaxError(
-                        f"Plain syntax error: Default concept cannot be exported: {concept}. Only user-defined concepts can be exported."
-                    )
-
-                if isinstance(concept, str):
-                    exported_concepts.extend(concept_utils.extract_concepts_from_definition(concept)[0])
-                else:
-                    raise PlainSyntaxError(f"Plain syntax error: Invalid exported concept: {concept}.")
+                exported_concepts.extend(concept_utils.extract_concepts_from_definition(concept)[0])
 
             with PlainRenderer() as renderer:
                 for exported_concept in exported_concepts:

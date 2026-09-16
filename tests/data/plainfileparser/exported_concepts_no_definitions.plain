@@ -1,0 +1,10 @@
+---
+exported_concepts:
+    - :Concept:
+---
+
+***implementation reqs***
+- :Implementation: is a simple wrapper.
+
+***functional specs***
+- :Implementation: has an entry point.

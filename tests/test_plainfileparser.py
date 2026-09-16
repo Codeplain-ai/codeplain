@@ -632,6 +632,11 @@ def test_concept_validation_acceptance_tests(get_test_data_path):
         )
 
 
+def test_concept_validation_cyclic_definitions(get_test_data_path):
+    with pytest.raises(PlainSyntaxError, match="cycles in the concept graph"):
+        plain_file.plain_file_parser("cyclic_definitions.plain", [get_test_data_path("data/plainfileparser")])
+
+
 def test_required_concepts(get_test_data_path):
     plain_file.plain_file_parser(
         "required_concepts_example.plain",
@@ -661,28 +666,36 @@ def test_required_concepts(get_test_data_path):
         )
 
 
-def test_exported_concepts(get_test_data_path):
-    plain_file.plain_file_parser(
+@pytest.mark.parametrize(
+    "fixture",
+    [
         "exported_concepts_example.plain",
-        [get_test_data_path("data/plainfileparser")],
-    )
-
-    plain_file.plain_file_parser(
+        "exported_concepts_imported_exported.plain",
+        "exported_concepts_multiple_per_bullet.plain",
         "exported_concepts_nested_example.plain",
-        [get_test_data_path("data/plainfileparser")],
-    )
+    ],
+)
+def test_exported_concepts_valid(get_test_data_path, fixture):
+    plain_file.plain_file_parser(fixture, [get_test_data_path("data/plainfileparser")])
 
-    with pytest.raises(PlainSyntaxError):
-        plain_file.plain_file_parser(
-            "exported_concepts_missing_example.plain",
-            [get_test_data_path("data/plainfileparser")],
-        )
 
-    with pytest.raises(PlainSyntaxError):
-        plain_file.plain_file_parser(
-            "exported_concepts_transitive_example.plain",
-            [get_test_data_path("data/plainfileparser")],
-        )
+@pytest.mark.parametrize(
+    ("fixture", "expected_word"),
+    [
+        ("exported_concepts_defaults_exported.plain", "cannot export default concept"),
+        ("exported_concepts_inherited_reexported.plain", "cannot be re-exported"),
+        ("exported_concepts_malformed.plain", "exports an invalid concept"),
+        ("exported_concepts_missing_definition_example.plain", "'exported_concepts_missing_definition' exports"),
+        ("exported_concepts_missing_definition.plain", "exports undefined concept"),
+        ("exported_concepts_multiple_per_bullet_undefined.plain", "exports undefined concept"),
+        ("exported_concepts_no_definitions.plain", "exports undefined concept"),
+        ("exported_concepts_not_declared_example.plain", "not defined"),
+        ("exported_concepts_transitive_example.plain", "not defined"),
+    ],
+)
+def test_exported_concepts_invalid(get_test_data_path, fixture, expected_word):
+    with pytest.raises(PlainSyntaxError, match=expected_word):
+        plain_file.plain_file_parser(fixture, [get_test_data_path("data/plainfileparser")])
 
 
 def test_topological_sort(get_test_data_path):
