@@ -3,6 +3,7 @@ from typing import Literal, Optional
 
 from rich.markup import escape
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.message import Message
 from textual.timer import Timer
 from textual.widgets import Button, Static
@@ -71,7 +72,7 @@ class CustomFooter(Horizontal):
         self._footer_text_widget = Static(footer_rendering_text, classes="custom-footer-text")
         yield self._footer_text_widget
         if self.render_id:
-            yield Static(f"render id: {self.render_id} ", classes="custom-footer-render-id")
+            yield Static(f"render id: {self.render_id} ", classes="custom-footer-render-id", markup=False)
 
     def update_footer_state(self, state: Literal["rendering", "pausing", "paused", "finished"]) -> None:
         self.remove_class("footer-state-default")
@@ -201,9 +202,12 @@ class SubstateLine(Horizontal):
     def _format_timer(self) -> str:
         return format_duration_hms(self._seconds_elapsed)
 
-    def _format_line(self) -> str:
+    def _format_line(self) -> Content:
+        # The substate text is arbitrary (acceptance-test text from the spec, module names, ...)
+        # and may contain square brackets, so it must never go through the markup parser.
+        # Build the line as Content and style only the timer part.
         timer = self._format_timer()
-        return f"{self.indent}  └ {self.text} [#888888]({timer})[/#888888]"
+        return Content.assemble(f"{self.indent}  └ {self.text} ", (f"({timer})", "#888888"))
 
     def _refresh_timer(self) -> None:
         try:
@@ -232,7 +236,7 @@ class ProgressItem(Vertical):
         # Main row with status and description
         with Horizontal(id=f"{self.id}-main-row", classes="progress-main-row"):
             yield Static(self._get_status_text(self.PENDING), classes=f"status {self.PENDING}")
-            yield Static(self.initial_text, classes="description")
+            yield Static(self.initial_text, classes="description", markup=False)
         # Substates container (full width, aligned to left)
         yield Vertical(id=f"{self.id}-substates", classes="substates-container")
 
@@ -367,8 +371,8 @@ class RenderingInfoBox(Vertical):
         self._refresh_content()
 
     def compose(self):
-        self.module_widget = Static(self.module_text, classes="rendering-info-row")
-        self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row")
+        self.module_widget = Static(self.module_text, classes="rendering-info-row", markup=False)
+        self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row", markup=False)
         yield Static("module status", classes="rendering-info-title")
         with Vertical(classes="rendering-info-box"):
             yield self.module_widget
@@ -430,9 +434,9 @@ class TestScriptsContainer(Vertical):
     def compose(self):
         yield Static("testing status", classes="test-scripts-title")
         with Vertical(classes="test-scripts-box"):
-            self.unit_widget = Static(self.unit_test_text, classes="test-script-row")
-            self.conformance_widget = Static(self.conformance_test_text, classes="test-script-row")
-            self.testing_widget = Static(self.testing_env_text, classes="test-script-row")
+            self.unit_widget = Static(self.unit_test_text, classes="test-script-row", markup=False)
+            self.conformance_widget = Static(self.conformance_test_text, classes="test-script-row", markup=False)
+            self.testing_widget = Static(self.testing_env_text, classes="test-script-row", markup=False)
             yield self.unit_widget
             yield self.conformance_widget
             yield self.testing_widget
