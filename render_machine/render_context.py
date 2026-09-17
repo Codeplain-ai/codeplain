@@ -502,13 +502,20 @@ class RenderContext:
         self._setup_test_specifications()
 
         if ctx.current_conformance_tests_exist():
-            if self.is_rerender and ctx.current_testing_frid == ctx.frid_being_implemented:
-                # already tested in the initial phase — skip and advance to next
+            if (
+                self.is_rerender
+                and ctx.current_testing_frid == ctx.frid_being_implemented
+                and not self._has_reached_implementation_frid()
+            ):
+                # The rerendered functionality was already tested in the initial phase, so move past
+                # it. Advancing is only safe while a later test exists, because getting the next test
+                # moves the frid of the running context and there is no frid after the last one.
                 self.conformance_tests_running_context = self._get_next_test_to_run()
                 ctx = self.conformance_tests_running_context
-                self._setup_test_specifications()
                 if not ctx.current_conformance_tests_exist():
                     return
+
+                self._setup_test_specifications()
 
             # Check if this is the implementation FRID (last test to run)
             if self._has_reached_implementation_frid():
