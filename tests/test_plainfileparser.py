@@ -685,6 +685,14 @@ def test_exported_concepts(get_test_data_path):
         )
 
 
+def test_requires_without_definitions(get_test_data_path):
+    _, plain_source, _ = plain_file.plain_file_parser(
+        "requires_without_definitions_example.plain",
+        [get_test_data_path("data/plainfileparser")],
+    )
+    assert plain_source[plain_spec.DEFINITIONS] == [{"markdown": "- :Concept: is a concept."}]
+
+
 def test_topological_sort(get_test_data_path):
     _, plain_source, _ = plain_file.plain_file_parser(
         "topological_sort.plain", [get_test_data_path("data/plainfileparser")]
