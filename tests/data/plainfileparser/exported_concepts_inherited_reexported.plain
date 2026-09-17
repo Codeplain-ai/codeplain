@@ -1,6 +1,8 @@
 ---
 requires:
-    - exported_concepts_missing
+    - exported_concepts
+exported_concepts:
+    - :Concept:
 ---
 
 ***definitions***

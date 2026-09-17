@@ -1,0 +1,13 @@
+---
+requires:
+    - exported_concepts_missing_definition
+---
+
+***definitions***
+- :AnotherConcept: is a new concept.
+
+***implementation reqs***
+- :AnotherConcept: must be implemented.
+
+***functional specs***
+- Implement a wrapper for the :AnotherConcept: concept.

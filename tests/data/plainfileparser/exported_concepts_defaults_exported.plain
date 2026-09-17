@@ -1,0 +1,13 @@
+---
+exported_concepts:
+    - :UnitTests:
+---
+
+***definitions***
+- :NewConcept: is a new concept.
+
+***implementation reqs***
+- The :NewConcept: must be implemented.
+
+***functional specs***
+- Implement a wrapper for the :NewConcept: concept.
