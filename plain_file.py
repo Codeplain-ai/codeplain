@@ -737,6 +737,9 @@ def process_exported_definitions(plain_source: dict, exported_definitions: list[
     if len(exported_definitions) == 0:
         return
 
+    if plain_source[plain_spec.DEFINITIONS] is None:
+        plain_source[plain_spec.DEFINITIONS] = mistletoe.Document("")
+
     with PlainRenderer() as renderer:
         for exported_definition in exported_definitions:
             add_defintion = True
