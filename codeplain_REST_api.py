@@ -11,6 +11,10 @@ from plain2code_state import RunState
 MAX_RETRIES = 4
 RETRY_DELAY = 3
 
+# A report the render does not consume must not be able to hold the process open
+# at exit, and requests waits indefinitely by default.
+REPORT_TIMEOUT_SECONDS = 5
+
 RETRY_ERROR_CODES = [
     "LLMInternalError",
 ]
@@ -125,6 +129,7 @@ class CodeplainAPI:
         run_state: Optional[RunState],
         num_retries: int = MAX_RETRIES,
         silent: bool = False,
+        timeout: Optional[int] = None,
     ):
         if run_state is not None:
             self._extend_payload_with_run_state(payload, run_state)
@@ -134,7 +139,7 @@ class CodeplainAPI:
 
         for attempt in range(num_retries + 1):
             try:
-                response = requests.post(endpoint_url, headers=headers, json=payload)
+                response = requests.post(endpoint_url, headers=headers, json=payload, timeout=timeout)
 
                 try:
                     response_json = response.json()
@@ -172,6 +177,27 @@ class CodeplainAPI:
             "api_key": self.api_key,
         }
         return self.post_request(endpoint_url, headers, payload, None, num_retries=0, silent=True)
+
+    def render_finished(self, outcome: str, run_state: RunState):
+        """Report the terminal state a render reached.
+
+        Called once per render, whatever the outcome. The render state machine
+        lives here, so the API cannot tell a finished render from one still
+        going; it has to be told.
+
+        No retries and no console output: a report has no result the render
+        needs, and must not add minutes to a render that has already ended nor
+        print retry noise over the exit summary.
+        """
+        endpoint_url = f"{self.api_url}/render_finished"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "outcome": outcome,
+        }
+
+        return self.post_request(
+            endpoint_url, headers, payload, run_state, num_retries=0, silent=True, timeout=REPORT_TIMEOUT_SECONDS
+        )
 
     def render_functional_requirement(
         self,
