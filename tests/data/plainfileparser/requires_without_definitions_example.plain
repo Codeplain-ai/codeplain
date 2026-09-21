@@ -1,0 +1,10 @@
+---
+requires:
+    - exported_concepts
+---
+
+***implementation reqs***
+- The :Concept: concept must be reused.
+
+***functional specs***
+- Implement a second wrapper for the :Concept: concept.
