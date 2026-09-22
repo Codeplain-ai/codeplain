@@ -3,14 +3,14 @@ import shutil
 import stat
 from pathlib import Path
 
-from liquid2 import Environment, FileSystemLoader, StrictUndefined
-from liquid2.exceptions import UndefinedError
+from plain_parser.loaders import (  # noqa: F401
+    TrackingFileSystemLoader,
+    get_loaded_templates,
+    load_linked_resources,
+    open_from,
+)
 
-import plain_spec
 from plain2code_console import console
-from plain2code_exceptions import UnsupportedBase64Content, UnsupportedResourceType
-from plain2code_nodes import Plain2CodeIncludeTag, Plain2CodeLoaderMixin
-from plain2code_utils import find_large_base64_blob
 from plain_modules import CODEPLAIN_MEMORY_SUBFOLDER, CODEPLAIN_METADATA_FOLDER
 
 BINARY_FILE_EXTENSIONS = [".pyc"]
@@ -165,92 +165,6 @@ def store_response_files(target_folder, response_files, existing_files):
             existing_files.append(file_name)
 
     return existing_files
-
-
-def open_from(dirs, file_name):
-    for dir in dirs:
-        full_file_name = os.path.join(dir, file_name)
-        if not os.path.isfile(full_file_name):
-            continue
-
-        with open(full_file_name, "rb") as f:
-            content = f.read()
-        return content.decode("utf-8")
-
-    return None
-
-
-def load_linked_resources(template_dirs: list[str], resources_list, module_name: str):
-    linked_resources = {}
-
-    for resource in resources_list:
-        file_name = resource["target"]
-        if file_name in linked_resources:
-            continue
-
-        try:
-            content = open_from(template_dirs, file_name)
-        except UnicodeDecodeError:
-            raise UnsupportedResourceType(
-                f"Referenced resource '{file_name}' in module '{module_name}' is a binary file. "
-                f"Only text files (e.g. .md, .txt, .json, .yaml) can be referenced from a .plain file."
-            )
-
-        if content is None:
-            raise FileNotFoundError(f"""
-                Resource file {file_name} not found. Resource files are searched in the following order (highest to lowest precedence):
-
-                1. The directory containing your .plain file
-                2. The directory specified by --template-dir (if provided)
-                3. The built-in 'standard_template_library' directory
-
-                Please ensure that the resource exists in one of these locations, or specify the correct --template-dir if using custom templates.
-                """)
-
-        blob = find_large_base64_blob(content)
-        if blob is not None:
-            raise UnsupportedBase64Content(
-                f"Referenced resource '{file_name}' in module '{module_name}' contains a large "
-                f"base64-encoded blob ({len(blob)} characters), such as an embedded image. Inline "
-                "base64 data is not supported. Remove the data from the resource. "
-                "If the data should be used by the end software, "
-                "save the data to a separate file and include the file path in the specification without it being a reference file."
-            )
-
-        linked_resources[file_name] = content
-
-    return linked_resources
-
-
-class TrackingFileSystemLoader(Plain2CodeLoaderMixin, FileSystemLoader):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.loaded_templates = {}
-
-    def get_source(self, environment, template_name, **kwargs):
-        source = super().get_source(environment, template_name, **kwargs)
-        self.loaded_templates[template_name] = source.source
-        return source
-
-
-def get_loaded_templates(source_path, plain_source):
-    # Render the plain source with Liquid templating engine
-    # to identify the templates that are being loaded
-
-    liquid_loader = TrackingFileSystemLoader(source_path)
-    liquid_env = Environment(loader=liquid_loader, undefined=StrictUndefined)
-    liquid_env.tags["include"] = Plain2CodeIncludeTag(liquid_env)
-
-    liquid_env.filters["code_variable"] = plain_spec.code_variable_liquid_filter
-    liquid_env.filters["prohibited_chars"] = plain_spec.prohibited_chars_liquid_filter
-
-    plain_source_template = liquid_env.from_string(plain_source)
-    try:
-        plain_source = plain_source_template.render()
-    except UndefinedError as e:
-        raise Exception(f"Undefined liquid variable: {str(e)}")
-
-    return plain_source, liquid_loader.loaded_templates
 
 
 def update_build_folder_with_rendered_files(build_folder, existing_files, response_files):

@@ -1,4 +1,0 @@
-{% include "header.plain", variable_name_1: "nice_1", variable_name_2: "nice_2" %}
-
-***functional specs***
-- Implement {% include "implement_2.plain", variable_name_1: "nice" %}

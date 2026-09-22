@@ -1,3 +1,15 @@
+from plain_parser.exceptions import (  # noqa: F401
+    ImportedModuleWithFunctionalitiesError,
+    InvalidFridArgument,
+    InvalidLiquidVariableName,
+    MissingFunctionalitiesError,
+    ModuleDoesNotExistError,
+    PlainSyntaxError,
+    UnsupportedBase64Content,
+    UnsupportedResourceType,
+)
+
+
 class FunctionalRequirementTooComplex(Exception):
     def __init__(self, message, proposed_breakdown=None):
         self.message = message
@@ -21,19 +33,6 @@ class MissingResource(Exception):
     pass
 
 
-class UnsupportedResourceType(Exception):
-    pass
-
-
-class PlainSyntaxError(Exception):
-    pass
-
-
-class UnsupportedBase64Content(Exception):
-
-    pass
-
-
 class InternalClientError(Exception):
     pass
 
@@ -50,21 +49,9 @@ class OutdatedClientVersion(Exception):
     pass
 
 
-class InvalidFridArgument(Exception):
-    pass
-
-
 class InvalidGitRepositoryError(Exception):
     """Raised when the git repository is in an invalid state."""
 
-    pass
-
-
-class InvalidLiquidVariableName(Exception):
-    pass
-
-
-class ModuleDoesNotExistError(Exception):
     pass
 
 
@@ -74,23 +61,6 @@ class InternalServerError(Exception):
 
 class MissingPreviousFunctionalitiesError(Exception):
     """Raised when trying to render from a FRID but previous FRID commits are missing."""
-
-    pass
-
-
-class MissingFunctionalitiesError(Exception):
-    """Raised when a module to be rendered has no functionalities specified at all."""
-
-    pass
-
-
-class ImportedModuleWithFunctionalitiesError(Exception):
-    """Raised when a module brought in via ``import`` contains functional specs.
-
-    This is a usage error, not a syntax error: the module is syntactically valid
-    and would be fine as a render target, but functionalities are not allowed in
-    the import role.
-    """
 
     pass
 
