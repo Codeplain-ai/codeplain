@@ -1,7 +1,0 @@
----
-required_concepts:
-    - :Concept: is a required concept and needs to be defined in the module that imports this one.
----
-
-***definitions***
-- :DependantConcept: is a concept that depends on the :Concept: concept.
