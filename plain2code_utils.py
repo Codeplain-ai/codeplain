@@ -1,19 +1,4 @@
-import re
-from typing import Optional
-
-#
-MAX_BASE64_BLOB_LENGTH = 8192
-
-# Matches a long contiguous base64 / base64url run, optionally preceded by a data: URI header.
-_BASE64_BLOB_PATTERN = re.compile(
-    r"(?:data:[\w.+-]+/[\w.+-]+;base64,)?[A-Za-z0-9+/_-]{%d,}={0,2}" % MAX_BASE64_BLOB_LENGTH
-)
-
-
-def find_large_base64_blob(text: str) -> Optional[str]:
-    """Return the first contiguous base64 blob at or above the threshold, or None."""
-    match = _BASE64_BLOB_PATTERN.search(text)
-    return match.group(0) if match else None
+from plain_parser.loaders import MAX_BASE64_BLOB_LENGTH, find_large_base64_blob  # noqa: F401
 
 
 def format_duration_hms(total_seconds: float) -> str:

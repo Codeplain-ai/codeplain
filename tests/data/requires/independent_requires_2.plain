@@ -1,7 +1,0 @@
-***definitions***
-
-- :User: is the end-user of the application.
-
-***functional specs***
-
-- :User: should be able to log in using their email and password.

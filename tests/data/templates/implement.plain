@@ -1,3 +1,0 @@
-something nice and useful
-    - the nice thing should be really {{ variable_name | code_variable }}
-    - the useful thing should be really useful

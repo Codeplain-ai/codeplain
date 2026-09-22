@@ -1,5 +1,0 @@
----
-required_concepts:
-    - :Concept1: needs to be defined in the module that imports this one.
-    - :Concept2: needs to be defined in the module that imports this one.
----

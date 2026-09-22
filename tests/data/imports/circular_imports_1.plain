@@ -1,8 +1,0 @@
----
-import:
-  - circular_imports_2
----
-
-***definitions***
-
-- :App: is a console application.

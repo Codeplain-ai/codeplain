@@ -59,6 +59,39 @@ from tui.plain2code_tui import Plain2CodeTUI
 from tui.plain_module_render_choice_tui import PlainModuleRenderChoiceTUI
 
 DEFAULT_TEMPLATE_DIRS = "standard_template_library"
+
+# Search-order guidance appended to lookup failures raised by the parser, which only
+# reports the missing file. The wording is the CLI's: it knows what the template
+# directories are and how the user changes them.
+TEMPLATE_NOT_FOUND_HINT = f"""
+The required template could not be found. Templates are searched in the following order (highest to lowest precedence):
+
+    1. The directory containing your .plain file
+    2. The directory specified by --template-dir (if provided)
+    3. The built-in '{DEFAULT_TEMPLATE_DIRS}' directory
+
+Please ensure that the missing template exists in one of these locations, or specify the correct --template-dir if using custom templates.
+"""
+
+RESOURCE_NOT_FOUND_HINT = f""" Resource files are searched in the following order (highest to lowest precedence):
+
+1. The directory containing your .plain file
+2. The directory specified by --template-dir (if provided)
+3. The built-in '{DEFAULT_TEMPLATE_DIRS}' directory
+
+Please ensure that the resource exists in one of these locations, or specify the correct --template-dir if using custom templates."""
+
+
+def user_error_message(e: BaseException) -> str:
+    """Format an exception for the user, appending search-order guidance to lookup failures."""
+    message = str(e) if str(e) else repr(e)
+    if isinstance(e, TemplateNotFoundError):
+        return message + TEMPLATE_NOT_FOUND_HINT
+    if isinstance(e, FileNotFoundError):
+        return message + RESOURCE_NOT_FOUND_HINT
+    return message
+
+
 RENDER_THREAD_SHUTDOWN_TIMEOUT = 0.7
 
 # The terminal states a render can reach, as the API names them.
@@ -360,7 +393,7 @@ def render(  # noqa: C901
         except Exception as e:
             run_state.set_render_succeeded(False)
             render_error.append(e)
-            event_bus.publish(RenderFailed(error_message=str(e)))
+            event_bus.publish(RenderFailed(error_message=user_error_message(e)))
 
     if args.headless:
         console.info(f"Render started. Render ID: {run_state.render_id}")
@@ -435,7 +468,7 @@ def main():  # noqa: C901
             console.info("Full plain text:\n")
             console.info(full_plain_source)
         except Exception as e:
-            console.error(f"Error: {str(e)}")
+            console.error(f"Error: {user_error_message(e)}")
         return
 
     # Parse the plain file (and its required modules) once; reused by dry-run and rendering.
@@ -446,14 +479,14 @@ def main():  # noqa: C901
             template_dirs,
         )
     except Exception as e:
-        console.error(f"Error: {str(e)}")
+        console.error(f"Error: {user_error_message(e)}")
         return
 
     if args.dry_run:
         try:
             validate_linked_resources(plain_module)
         except Exception as e:
-            console.error(f"Error: {str(e)}")
+            console.error(f"Error: {user_error_message(e)}")
             return
 
         console.info("Printing dry run output...\n")
@@ -497,7 +530,7 @@ def main():  # noqa: C901
             error_message = "Keyboard interrupt"
             interrupted = True
         else:
-            error_message = str(e) if str(e) else repr(e)
+            error_message = user_error_message(e)
 
             if not isinstance(e, EXPECTED_EXCEPTIONS):
                 exc_info = sys.exc_info()
