@@ -1,4 +1,4 @@
--e ../plain-parser
+plain-parser @ git+https://github.com/Codeplain-ai/plain-parser@15bc50707c52fb5c5f0bfda4e1cabe186a33dd77
 requests==2.34.2
 rich==15.0.0
 tiktoken==0.14.0
