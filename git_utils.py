@@ -17,6 +17,7 @@ CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE = (
 # Following messages are used as checkpoints in the git history
 # Changing them will break backwards compatibility so change them with care
 FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE = "[Codeplain] functionality ID (FRID):{} fully implemented"
+FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE = "[Codeplain] functionality ID (FRID):{} fully reimplemented"
 INITIAL_COMMIT_MESSAGE = "[Codeplain] Initial module commit"
 BASE_FOLDER_COMMIT_MESSAGE = "[Codeplain] Initialize build with Base Folder content"
 
@@ -430,6 +431,10 @@ def get_last_rendered_functionality(repo_path: Union[str, os.PathLike]) -> tuple
         return None, None
 
     repo = Repo(repo_path)
+
+    # Only a "fully implemented" commit marks how far the module is rendered. A "fully reimplemented"
+    # commit sits on top of that frontier, because a single functionality was rendered again in place.
+    # Treating it as the frontier would report the rerendered frid as the last rendered one.
     grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
     grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
     commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")

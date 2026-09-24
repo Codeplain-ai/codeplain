@@ -322,7 +322,19 @@ class PlainModule:
             functionalities.append(frid_text)
         metadata[MODULE_FUNCTIONALITIES] = functionalities
 
+        # source_hash claims the code implements the whole spec, so only stamp it when that is
+        # true. Rerendering one functionality leaves the other functionalities as they were.
+        if self._metadata_matches_spec(metadata):
+            metadata["source_hash"] = self.get_module_source_hash()
+
         metadata_utils.write_metadata(self.module_metadata_path(), metadata)
+
+    def _metadata_matches_spec(self, metadata: dict) -> bool:
+        """Whether the given metadata already describes the module's current spec."""
+        if metadata.get(MODULE_FUNCTIONALITIES) != self._get_module_functional_requirements():
+            return False
+
+        return metadata.get("non_functional_source_hash") == self.get_module_non_functional_source_hash()
 
     def get_module_source_hash(self) -> str:
         return plain_spec.get_hash_value([self.plain_source] + self.resources_list)
