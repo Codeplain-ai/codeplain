@@ -16,5 +16,5 @@ sentry-sdk==2.68.1
 # Development dependencies
 flake8==7.3.0
 black==26.5.1
-isort==8.0.1
+isort==9.0.1
 mypy==2.3.0
