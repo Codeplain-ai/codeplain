@@ -216,8 +216,10 @@ class TestDisplayStatusMessage:
         }
         _display_status_message(plan_credits, [], [])
 
-        # Should not print warning message
-        mock_console.print.assert_not_called()
+        mock_console.print.assert_called_once()
+        call_args = mock_console.print.call_args[0][0]
+        assert "To manage your plan" in call_args
+        assert "No rendering credits remaining" not in call_args
 
     @patch("cli_output.status.console")
     def test_has_active_purchased_credits(self, mock_console):
@@ -230,8 +232,10 @@ class TestDisplayStatusMessage:
         ]
         _display_status_message(None, purchased_credits, [])
 
-        # Should not print warning message
-        mock_console.print.assert_not_called()
+        mock_console.print.assert_called_once()
+        call_args = mock_console.print.call_args[0][0]
+        assert "To manage your plan" in call_args
+        assert "No rendering credits remaining" not in call_args
 
     @patch("cli_output.status.console")
     def test_has_active_promo_credits(self, mock_console):
@@ -244,8 +248,10 @@ class TestDisplayStatusMessage:
         ]
         _display_status_message(None, [], promo_credits)
 
-        # Should not print warning message
-        mock_console.print.assert_not_called()
+        mock_console.print.assert_called_once()
+        call_args = mock_console.print.call_args[0][0]
+        assert "To manage your plan" in call_args
+        assert "No rendering credits remaining" not in call_args
 
     @patch("cli_output.status.console")
     def test_no_credits_remaining(self, mock_console):
