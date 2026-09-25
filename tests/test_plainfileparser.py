@@ -146,14 +146,30 @@ def test_invalid_absolute_link(get_test_data_path):
         )
 
 
+def test_missing_link_error_lists_searched_directories(get_test_data_path):
+    """The error tells the user which directories were searched for the linked resource."""
+    plain_file_dir = get_test_data_path("data/plainfile")
+
+    with pytest.raises(PlainSyntaxError) as exception_info:
+        plain_file.plain_file_parser(
+            "plain_source_with_missing_link.plain",
+            [plain_file_dir],
+        )
+
+    message = str(exception_info.value)
+    assert "resources/missing_resource.yaml does not exist" in message
+    assert "highest to lowest precedence" in message
+    assert plain_file_dir in message
+
+
 def test_reference_link_parsing(get_test_data_path):
     _, plain_sections, _ = plain_file.plain_file_parser(
         "task_manager_with_reference_links.plain",
         [get_test_data_path("data/plainfile")],
     )
     asserted_resources = [
-        "tests/data/plainfile/task_list_ui_specification.yaml",
-        "tests/data/plainfile/add_new_task_modal_specification.yaml",
+        "task_list_ui_specification.yaml",
+        "add_new_task_modal_specification.yaml",
     ]
     for functional_requirement in plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS]:
         if "linked_resources" not in functional_requirement:
@@ -180,13 +196,36 @@ def test_reference_link_parsing(get_test_data_path):
     assert plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS][1]["linked_resources"] == [
         {
             "text": "task_list_ui_specification.yaml",
-            "target": "tests/data/plainfile/task_list_ui_specification.yaml",
+            "target": "task_list_ui_specification.yaml",
         }
     ]
     assert plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS][2]["linked_resources"] == [
         {
             "text": "add_new_task_modal_specification.yaml",
-            "target": "tests/data/plainfile/add_new_task_modal_specification.yaml",
+            "target": "add_new_task_modal_specification.yaml",
+        }
+    ]
+
+
+def test_reference_link_parsing_independent_of_working_directory(get_test_data_path, monkeypatch, tmp_path):
+    """Linked resources resolve against the plain file's directory, not the invocation cwd."""
+    monkeypatch.chdir(tmp_path)
+
+    _, plain_sections, _ = plain_file.plain_file_parser(
+        "task_manager_with_reference_links.plain",
+        [get_test_data_path("data/plainfile")],
+    )
+
+    assert plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS][1]["linked_resources"] == [
+        {
+            "text": "task_list_ui_specification.yaml",
+            "target": "task_list_ui_specification.yaml",
+        }
+    ]
+    assert plain_sections[plain_spec.FUNCTIONAL_REQUIREMENTS][2]["linked_resources"] == [
+        {
+            "text": "add_new_task_modal_specification.yaml",
+            "target": "add_new_task_modal_specification.yaml",
         }
     ]
 
