@@ -180,6 +180,20 @@ def open_from(dirs, file_name):
     return None
 
 
+def resolve_linked_resource(dirs, file_name):
+    """Return the first existing path for file_name across dirs, or None if not found.
+
+    Mirrors the search order used by open_from so that validating a linked resource and
+    loading it can never disagree.
+    """
+    for dir in dirs:
+        full_file_name = os.path.join(dir, file_name)
+        if os.path.exists(full_file_name):
+            return full_file_name
+
+    return None
+
+
 def load_linked_resources(template_dirs: list[str], resources_list, module_name: str):
     linked_resources = {}
 
