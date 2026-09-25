@@ -1,0 +1,9 @@
+***definitions***
+
+***implementation reqs***
+
+- Implementation should be written in Python.
+
+***functional specs***
+
+- Links must point at an existing file [missing resource](resources/missing_resource.yaml).
