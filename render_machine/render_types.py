@@ -60,6 +60,18 @@ class UnitTestsRunningContext:
     # run's outcome, plus results of any tool calls made in the same turn as submit_fix.
     pending_submit_call_id: Optional[str] = None
     pending_tool_results: list[dict] = field(default_factory=list)
+    # Session abandoned without a submission (turn budget used up, LLM failure); the next session
+    # starts with a digest of what it tried.
+    previous_session_id: Optional[str] = None
+    # Set when the agent's own run_unit_tests passed and no file changed since, so the harness
+    # can accept the fix without running the suite again.
+    verified_passing: bool = False
+    verified_passing_log_path: Optional[str] = None
+    # Full test logs the agent was pointed to; readable by read_file/grep although outside the
+    # build folder.
+    readable_log_paths: set[str] = field(default_factory=set)
+    # Results of read-only tool calls, keyed by call; cleared whenever a file changes.
+    tool_result_cache: dict[str, str] = field(default_factory=dict)
 
 
 class ConformanceTestsRunningContext:

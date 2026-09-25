@@ -5,8 +5,9 @@ from types import SimpleNamespace
 import pytest
 
 import plain_spec
-from render_machine.actions.fix_unit_tests import MAX_AGENT_TURNS_PER_ATTEMPT, FixUnitTests
-from render_machine.render_types import UnitTestsRunningContext
+from render_machine.actions.fix_unit_tests import MAX_AGENT_TURNS_PER_ATTEMPT, MAX_RELEVANT_FILES_CHARS, FixUnitTests
+from render_machine.actions.run_unit_tests import RunUnitTests
+from render_machine.render_types import ScriptExecutionHistory, UnitTestsRunningContext
 
 
 class FakeAPI:
@@ -49,8 +50,9 @@ def render_context(tmp_path, monkeypatch):
         unittests_script=None,
         test_script_timeout=None,
         stop_event=None,
-        frid_context=SimpleNamespace(frid="2", linked_resources={"schema.json": "{}"}),
+        frid_context=SimpleNamespace(frid="2", linked_resources={"schema.json": "{}"}, changed_files={"a.py"}),
         unit_tests_running_context=UnitTestsRunningContext(fix_attempts=1),
+        script_execution_history=ScriptExecutionHistory(),
         get_required_modules_functionalities=lambda: {"base": ["- Base feature."]},
     )
 
@@ -109,7 +111,8 @@ def test_second_attempt_continues_session_answering_submit_fix(render_context):
     kind, session_id, tool_results, frid, module_name = api.calls[0]
     assert (kind, session_id, frid, module_name) == ("continue", "s1", "2", "m")
     assert tool_results[0] == {"call_id": "c2", "output": "Edited"}
-    assert tool_results[1]["call_id"] == "c3" and "FAILED test_b" in tool_results[1]["output"]
+    assert tool_results[1]["call_id"] == "c3" and "still fail" in tool_results[1]["output"]
+    assert tool_results[1]["test_output"] == "FAILED test_b"
     assert context.agent_session_id == "s1" and context.pending_submit_call_id == "c4"
     assert context.pending_tool_results == []
 
@@ -142,3 +145,53 @@ def test_missing_issue_is_an_internal_error(render_context):
 
     with pytest.raises(InternalClientError):
         FixUnitTests().execute(render_context, {})
+
+
+def test_first_turn_is_seeded_with_file_tree_relevant_files_and_log_path(render_context, tmp_path):
+    (tmp_path / "build" / "tests").mkdir()
+    (tmp_path / "build" / "tests" / "test_a.py").write_text("assert True\n")
+    log = tmp_path / "unit.log"
+    log.write_text("full log\nCaused by: boom\n")
+    render_context.script_execution_history.latest_unit_test_output_path = str(log)
+    api = FakeAPI([{"session_id": "s1", "status": "completed", "result": "done"}])
+    render_context.codeplain_api = api
+
+    FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
+
+    task_params = api.calls[0][2]
+    assert task_params["file_tree"].split("\n") == ["a.py", "tests/test_a.py"]
+    assert task_params["relevant_files"] == {"a.py": "x = 1\n"}
+    assert task_params["unittests_log_path"] == str(log)
+    assert "previous_session_id" not in task_params
+    # the agent may grep the full log although it is outside the build folder and project root
+    assert str(log) in render_context.unit_tests_running_context.readable_log_paths
+
+
+def test_relevant_files_stay_within_budget(tmp_path):
+    (tmp_path / "small.py").write_text("s")
+    (tmp_path / "big.py").write_text("b" * MAX_RELEVANT_FILES_CHARS)
+    assert FixUnitTests._relevant_files(str(tmp_path), {"small.py", "big.py", "deleted.py"}) == {"small.py": "s"}
+
+
+def test_new_session_after_abandoned_one_references_it(render_context):
+    call = {"id": "c", "name": "ls_files", "args": {}}
+    render_context.codeplain_api = FakeAPI([_tool_calls(call)] * (MAX_AGENT_TURNS_PER_ATTEMPT + 1))
+    FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
+    assert render_context.unit_tests_running_context.previous_session_id == "s1"
+
+    api = FakeAPI([{"session_id": "s2", "status": "completed", "result": "done"}])
+    render_context.codeplain_api = api
+    FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED again"})
+    assert api.calls[0][0] == "start" and api.calls[0][2]["previous_session_id"] == "s1"
+
+
+def test_run_unit_tests_action_skips_the_suite_after_a_verified_agent_run(render_context, monkeypatch):
+    import render_machine.render_utils as render_utils
+
+    context = render_context.unit_tests_running_context
+    context.verified_passing, context.verified_passing_log_path = True, "/logs/pass.log"
+    monkeypatch.setattr(render_utils, "execute_script", lambda *a, **k: pytest.fail("suite must not run"))
+
+    assert RunUnitTests().execute(render_context, None) == (RunUnitTests.SUCCESSFUL_OUTCOME, None)
+    assert context.verified_passing is False
+    assert render_context.script_execution_history.latest_unit_test_output_path == "/logs/pass.log"

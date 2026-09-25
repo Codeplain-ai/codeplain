@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import file_utils
@@ -12,6 +13,9 @@ TASK_TYPE = "fix_unit_tests"
 SUBMIT_FIX_TOOL = "submit_fix"
 # Upper bound on LLM turns spent on one fix attempt; the server bounds the whole session.
 MAX_AGENT_TURNS_PER_ATTEMPT = 40
+# Seeding the first turn: the build folder's file list and the files changed for the FRID.
+MAX_FILE_TREE_ENTRIES = 500
+MAX_RELEVANT_FILES_CHARS = 60_000
 
 
 class FixUnitTests(BaseAction):
@@ -35,9 +39,14 @@ class FixUnitTests(BaseAction):
         api = render_context.codeplain_api
         frid, module_name = render_context.frid_context.frid, render_context.module_name
         changed_files_before = set(context.changed_files)
+        log_path = render_context.script_execution_history.latest_unit_test_output_path
+        if log_path:
+            agent_tools.register_log_path(log_path, render_context)
 
         if context.agent_session_id is None:
             console.info("Starting an agent session to fix the unit tests.")
+            # Cached read results point at earlier turns, which a new session does not have.
+            context.tool_result_cache.clear()
             response = api.agent_start(
                 TASK_TYPE,
                 self._build_task_params(render_context, unittests_issue),
@@ -51,7 +60,9 @@ class FixUnitTests(BaseAction):
             tool_results = context.pending_tool_results + [
                 {
                     "call_id": context.pending_submit_call_id,
-                    "output": f"The fix was applied, but the unit tests still fail:\n{unittests_issue}",
+                    "output": "The fix was applied, but the unit tests still fail."
+                    + agent_tools.full_log_pointer(log_path),
+                    "test_output": unittests_issue,
                 }
             ]
             context.pending_tool_results, context.pending_submit_call_id = [], None
@@ -86,6 +97,7 @@ class FixUnitTests(BaseAction):
                 console.warning(f"Agent session failed: {response.get('error', 'unknown error')}")
             elif status == "tool_calls":
                 console.warning(f"Agent used {MAX_AGENT_TURNS_PER_ATTEMPT} turns without submitting a fix.")
+            context.previous_session_id = context.agent_session_id
             context.agent_session_id, context.pending_submit_call_id, context.pending_tool_results = None, None, []
 
         console.print_files(
@@ -100,7 +112,8 @@ class FixUnitTests(BaseAction):
     def _build_task_params(render_context: RenderContext, unittests_issue: str) -> dict:
         frid = render_context.frid_context.frid
         specifications, _ = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, frid)
-        return {
+        context = render_context.unit_tests_running_context
+        task_params = {
             "definitions": "\n".join(specifications.get(plain_spec.DEFINITIONS, [])),
             "non_functional_requirements": "\n".join(specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS, [])),
             "functional_requirements": FixUnitTests._functional_requirements_section(render_context, specifications),
@@ -109,7 +122,42 @@ class FixUnitTests(BaseAction):
             "module_name": render_context.module_name,
             "unittests_script_content": FixUnitTests._read_script(render_context.unittests_script),
             "unittests_issue": unittests_issue,
+            "unittests_log_path": render_context.script_execution_history.latest_unit_test_output_path,
+            "file_tree": FixUnitTests._file_tree(render_context.build_folder),
+            "relevant_files": FixUnitTests._relevant_files(
+                render_context.build_folder, render_context.frid_context.changed_files | context.changed_files
+            ),
         }
+        if context.previous_session_id:
+            task_params["previous_session_id"] = context.previous_session_id
+        return task_params
+
+    @staticmethod
+    def _file_tree(build_folder: str) -> str:
+        paths = []
+        for root, dirs, files in os.walk(build_folder):
+            dirs[:] = sorted(d for d in dirs if d not in agent_tools.GREP_EXCLUDED_DIRS and not d.startswith("."))
+            paths.extend(os.path.relpath(os.path.join(root, name), build_folder) for name in sorted(files))
+            if len(paths) > MAX_FILE_TREE_ENTRIES:
+                return "\n".join(paths[:MAX_FILE_TREE_ENTRIES]) + "\n... [more files not listed]"
+        return "\n".join(paths)
+
+    @staticmethod
+    def _relevant_files(build_folder: str, file_names: set[str]) -> dict[str, str]:
+        """Contents of the given build-relative files, smallest first, within MAX_RELEVANT_FILES_CHARS."""
+        contents = {}
+        for name in file_names:
+            full_path = os.path.join(build_folder, name)
+            if os.path.isfile(full_path):
+                with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                    contents[name] = f.read()
+        relevant, total = {}, 0
+        for name in sorted(contents, key=lambda n: (len(contents[n]), n)):
+            if total + len(contents[name]) > MAX_RELEVANT_FILES_CHARS:
+                break
+            relevant[name] = contents[name]
+            total += len(contents[name])
+        return dict(sorted(relevant.items()))
 
     @staticmethod
     def _functional_requirements_section(render_context: RenderContext, specifications: dict) -> str:
