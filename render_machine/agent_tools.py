@@ -46,13 +46,13 @@ def _readable(path: str, render_context: RenderContext) -> bool:
     return (
         _within(path, _build_folder(render_context))
         or _within(path, os.path.normpath(os.getcwd()))
-        or path in render_context.unit_tests_running_context.readable_log_paths
+        or path in render_context.unit_tests_agent_session.readable_log_paths
     )
 
 
 def register_log_path(log_path: str, render_context: RenderContext) -> None:
     """Allow read_file/grep on a full test log the agent is pointed to."""
-    render_context.unit_tests_running_context.readable_log_paths.add(os.path.normpath(os.path.abspath(log_path)))
+    render_context.unit_tests_agent_session.readable_log_paths.add(os.path.normpath(os.path.abspath(log_path)))
 
 
 def _writable(path: str, render_context: RenderContext) -> bool:

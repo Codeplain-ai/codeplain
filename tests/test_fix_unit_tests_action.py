@@ -7,7 +7,14 @@ import pytest
 import plain_spec
 from render_machine.actions.fix_unit_tests import MAX_AGENT_TURNS_PER_ATTEMPT, MAX_RELEVANT_FILES_CHARS, FixUnitTests
 from render_machine.actions.run_unit_tests import RunUnitTests
+from render_machine.render_context import RenderContext
 from render_machine.render_types import ScriptExecutionHistory, UnitTestsRunningContext
+
+
+class FakeRenderContext(SimpleNamespace):
+    """A render context with just the attributes FixUnitTests uses, and the real session lookup."""
+
+    unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
 
 class FakeAPI:
@@ -41,7 +48,7 @@ def render_context(tmp_path, monkeypatch):
         plain_spec.FUNCTIONAL_REQUIREMENTS: ["- Old feature.", "- New feature."],
     }
     monkeypatch.setattr(plain_spec, "get_specifications_for_frid", lambda tree, frid: (specifications, None))
-    return SimpleNamespace(
+    return FakeRenderContext(
         codeplain_api=None,
         build_folder=str(build),
         module_name="m",
@@ -52,6 +59,7 @@ def render_context(tmp_path, monkeypatch):
         stop_event=None,
         frid_context=SimpleNamespace(frid="2", linked_resources={"schema.json": "{}"}, changed_files={"a.py"}),
         unit_tests_running_context=UnitTestsRunningContext(fix_attempts=1),
+        conformance_tests_running_context=None,
         script_execution_history=ScriptExecutionHistory(),
         get_required_modules_functionalities=lambda: {"base": ["- Base feature."]},
     )
@@ -91,17 +99,21 @@ def test_first_attempt_starts_session_runs_tools_and_stops_at_submit_fix(render_
     assert open(render_context.build_folder + "/a.py").read() == "x = 2\n"
 
     context = render_context.unit_tests_running_context
-    assert context.agent_session_id == "s1"
-    assert context.pending_submit_call_id == "c3"
-    assert [r["call_id"] for r in context.pending_tool_results] == ["c2"]
+    session = context.agent_session
+    assert session.session_id == "s1"
+    assert session.pending_submit_call_id == "c3"
+    assert [r["call_id"] for r in session.pending_tool_results] == ["c2"]
     assert context.changed_files == {"a.py"}
+    assert "conformance_tests_fixes" not in task_params
 
 
 def test_second_attempt_continues_session_answering_submit_fix(render_context):
     context = render_context.unit_tests_running_context
-    context.agent_session_id = "s1"
-    context.pending_submit_call_id = "c3"
-    context.pending_tool_results = [{"call_id": "c2", "output": "Edited"}]
+    context.agent_used_in_this_loop = True
+    session = context.agent_session
+    session.session_id = "s1"
+    session.pending_submit_call_id = "c3"
+    session.pending_tool_results = [{"call_id": "c2", "output": "Edited"}]
     api = FakeAPI([_tool_calls({"id": "c4", "name": "submit_fix", "args": {"changes_made": "again"}})])
     render_context.codeplain_api = api
 
@@ -113,8 +125,9 @@ def test_second_attempt_continues_session_answering_submit_fix(render_context):
     assert tool_results[0] == {"call_id": "c2", "output": "Edited"}
     assert tool_results[1]["call_id"] == "c3" and "still fail" in tool_results[1]["output"]
     assert tool_results[1]["test_output"] == "FAILED test_b"
-    assert context.agent_session_id == "s1" and context.pending_submit_call_id == "c4"
-    assert context.pending_tool_results == []
+    assert "conformance_tests_fixes" not in tool_results[1]
+    assert session.session_id == "s1" and session.pending_submit_call_id == "c4"
+    assert session.pending_tool_results == []
 
 
 @pytest.mark.parametrize(
@@ -128,8 +141,8 @@ def test_session_ending_without_submission_resets_the_session(render_context, fi
     render_context.codeplain_api = FakeAPI([final_response])
     outcome, _ = FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
     assert outcome == FixUnitTests.SUCCESSFUL_OUTCOME
-    context = render_context.unit_tests_running_context
-    assert context.agent_session_id is None and context.pending_submit_call_id is None
+    session = render_context.unit_tests_running_context.agent_session
+    assert session.session_id is None and session.pending_submit_call_id is None
 
 
 def test_turn_cap_per_attempt_resets_the_session(render_context):
@@ -137,7 +150,7 @@ def test_turn_cap_per_attempt_resets_the_session(render_context):
     render_context.codeplain_api = FakeAPI([_tool_calls(call)] * (MAX_AGENT_TURNS_PER_ATTEMPT + 1))
     FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
     assert len(render_context.codeplain_api.calls) == MAX_AGENT_TURNS_PER_ATTEMPT + 1
-    assert render_context.unit_tests_running_context.agent_session_id is None
+    assert render_context.unit_tests_running_context.agent_session.session_id is None
 
 
 def test_missing_issue_is_an_internal_error(render_context):
@@ -164,7 +177,7 @@ def test_first_turn_is_seeded_with_file_tree_relevant_files_and_log_path(render_
     assert task_params["unittests_log_path"] == str(log)
     assert "previous_session_id" not in task_params
     # the agent may grep the full log although it is outside the build folder and project root
-    assert str(log) in render_context.unit_tests_running_context.readable_log_paths
+    assert str(log) in render_context.unit_tests_running_context.agent_session.readable_log_paths
 
 
 def test_relevant_files_stay_within_budget(tmp_path):
@@ -177,7 +190,7 @@ def test_new_session_after_abandoned_one_references_it(render_context):
     call = {"id": "c", "name": "ls_files", "args": {}}
     render_context.codeplain_api = FakeAPI([_tool_calls(call)] * (MAX_AGENT_TURNS_PER_ATTEMPT + 1))
     FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
-    assert render_context.unit_tests_running_context.previous_session_id == "s1"
+    assert render_context.unit_tests_running_context.agent_session.previous_session_id == "s1"
 
     api = FakeAPI([{"session_id": "s2", "status": "completed", "result": "done"}])
     render_context.codeplain_api = api

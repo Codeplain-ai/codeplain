@@ -6,7 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 from render_machine import agent_tools
+from render_machine.render_context import RenderContext
 from render_machine.render_types import UnitTestsRunningContext
+
+
+class FakeRenderContext(SimpleNamespace):
+    unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
 
 @pytest.fixture
@@ -16,9 +21,10 @@ def project(tmp_path, monkeypatch):
     (build / "app.py").write_text("def add(a, b):\n    return a - b\n\n\ndef sub(a, b):\n    return a - b\n")
     (tmp_path / "outside.txt").write_text("outside\n")
     monkeypatch.chdir(tmp_path)
-    render_context = SimpleNamespace(
+    render_context = FakeRenderContext(
         build_folder=str(build),
         unit_tests_running_context=UnitTestsRunningContext(fix_attempts=1),
+        conformance_tests_running_context=None,
         unittests_script=None,
         test_script_timeout=None,
         stop_event=None,

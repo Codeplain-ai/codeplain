@@ -49,13 +49,16 @@ class FridContext:
 
 
 @dataclass
-class UnitTestsRunningContext:
-    fix_attempts: int
-    changed_files: set[str] = field(default_factory=set)
-    # Server-side agent session fixing this FRID's unit tests. It spans every fix attempt of
-    # one unit-test loop (the context is recreated when the loop starts), so each new failure
-    # is fed back into the same conversation instead of a fresh, stateless call.
-    agent_session_id: Optional[str] = None
+class UnitTestsAgentSession:
+    """Server-side agent session fixing a FRID's unit tests, and what it still has to be told.
+
+    Owned by the unit-tests running context (one session per unit-test loop) in the implementation
+    and refactoring phases, and by the conformance tests running context during the conformance
+    phase, so there one session spans every unit-test loop - the agent then sees that the
+    conformance tests fixer keeps changing the code it adjusts (see RenderContext.unit_tests_agent_session).
+    """
+
+    session_id: Optional[str] = None
     # The submit_fix call the agent ended its last attempt with, answered with the next test
     # run's outcome, plus results of any tool calls made in the same turn as submit_fix.
     pending_submit_call_id: Optional[str] = None
@@ -63,13 +66,33 @@ class UnitTestsRunningContext:
     # Session abandoned without a submission (turn budget used up, LLM failure); the next session
     # starts with a digest of what it tried.
     previous_session_id: Optional[str] = None
+    # Full test logs the agent was pointed to; readable by read_file/grep although outside the
+    # build folder.
+    readable_log_paths: set[str] = field(default_factory=set)
+    # How many of the conformance tests fixes (ConformanceTestsRunningContext.implementation_code_fixes)
+    # the session has already been shown.
+    conformance_fixes_handed_off: int = 0
+
+    def reset(self) -> None:
+        """Drop the session (keeping its id as the previous one) so the next failure starts a new one."""
+        self.previous_session_id = self.session_id
+        self.session_id, self.pending_submit_call_id, self.pending_tool_results = None, None, []
+        self.conformance_fixes_handed_off = 0
+
+
+@dataclass
+class UnitTestsRunningContext:
+    fix_attempts: int
+    changed_files: set[str] = field(default_factory=set)
+    # The agent session of this loop; used only outside the conformance phase.
+    agent_session: UnitTestsAgentSession = field(default_factory=UnitTestsAgentSession)
+    # Whether the agent already made a fix attempt in this loop. A session that is still open when
+    # a loop starts had its last fix accepted, which is what the agent is told.
+    agent_used_in_this_loop: bool = False
     # Set when the agent's own run_unit_tests passed and no file changed since, so the harness
     # can accept the fix without running the suite again.
     verified_passing: bool = False
     verified_passing_log_path: Optional[str] = None
-    # Full test logs the agent was pointed to; readable by read_file/grep although outside the
-    # build folder.
-    readable_log_paths: set[str] = field(default_factory=set)
     # Results of read-only tool calls, keyed by call; cleared whenever a file changes.
     tool_result_cache: dict[str, str] = field(default_factory=dict)
 
@@ -115,6 +138,8 @@ class ConformanceTestsRunningContext:
         # order. Each entry is {"hypothesis": str | None, "approach": str | None, "code_diff": {file: diff}}.
         # Handed to the unit tests fixer so it adjusts the unit tests instead of reverting these changes.
         self.implementation_code_fixes: list[dict] = []
+        # The unit-test fixing agent session, shared by every unit-test loop of this conformance phase.
+        self.unit_tests_agent_session = UnitTestsAgentSession()
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]
