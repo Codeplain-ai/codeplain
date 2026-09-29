@@ -92,6 +92,9 @@ def clone_repo(
     render_id: Optional[str] = None,
 ) -> Repo:
     repo = Repo.clone_from(source_repo_path, new_repo_path)
+    # A clone carries no identity of its own, and the commit below needs one. Without this
+    # the clone fails on any machine that has no global git identity, such as a CI runner.
+    _ensure_git_config(repo)
 
     repo.git.commit(
         "--allow-empty", "-m", _get_full_commit_message(INITIAL_COMMIT_MESSAGE, module_name, None, render_id)
