@@ -11,6 +11,7 @@ from git_utils import (
     FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
     REFACTORED_CODE_COMMIT_MESSAGE,
     add_all_files_and_commit,
+    clone_repo,
     diff,
     get_last_rendered_functionality,
     init_git_repo,
@@ -508,3 +509,34 @@ def test_get_last_finished_frid_without_module_name(empty_repo):
 
     with pytest.raises(InvalidGitRepositoryError, match="Could not find module name in finished commit"):
         get_last_rendered_functionality(empty_repo)
+
+
+def test_clone_repo_without_a_usable_git_identity(empty_repo, monkeypatch):
+    """A module built on another is cloned from it, and the clone must still commit.
+
+    A fresh clone inherits no identity from its source, so the initial commit has to rely
+    on one the clone itself provides. On a machine where git cannot make up an identity
+    the commit used to fail with "empty ident name" — every fresh CI runner is such a
+    machine, because the account there has no full name to derive one from.
+
+    `user.useConfigOnly` reproduces that deterministically: it forbids git from guessing,
+    so the commit works only when the repository config carries a name and an email.
+    """
+    with tempfile.TemporaryDirectory() as isolated_git_home:
+        # Hide whatever identity the machine running the tests happens to provide. HOME is
+        # what has to move: git resolves the global config through it, and so does the
+        # library, which reads that file itself rather than asking git for it. Pointing
+        # only GIT_CONFIG_GLOBAL at a stand-in would move one of the two and not the other.
+        monkeypatch.setenv("HOME", isolated_git_home)
+        monkeypatch.setenv("XDG_CONFIG_HOME", os.path.join(isolated_git_home, "xdg"))
+        monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        Path(isolated_git_home, ".gitconfig").write_text("[user]\n\tuseConfigOnly = true\n")
+        for leaked in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            monkeypatch.delenv(leaked, raising=False)
+
+        clone_path = os.path.join(isolated_git_home, "clone")
+        clone_repo(empty_repo, clone_path, module_name="module_b", render_id="render-1")
+
+        clone = Repo(clone_path)
+        assert "[Codeplain] Initial module commit" in clone.head.commit.message
+        assert "module_b" in clone.head.commit.message
