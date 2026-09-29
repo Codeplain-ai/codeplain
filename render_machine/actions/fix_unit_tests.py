@@ -1,5 +1,8 @@
 import os
+from http import HTTPStatus
 from typing import Any
+
+import requests
 
 import file_utils
 import plain_spec
@@ -61,19 +64,8 @@ class FixUnitTests(BaseAction):
                 "change(s) made to fix the conformance tests."
             )
 
-        if session.session_id is None:
-            console.info("Starting an agent session to fix the unit tests.")
-            # Cached read results point at earlier turns, which a new session does not have.
-            context.tool_result_cache.clear()
-            response = api.agent_start(
-                TASK_TYPE,
-                self._build_task_params(render_context, unittests_issue, conformance_tests_fixes),
-                frid,
-                module_name,
-                render_context.run_state,
-            )
-            session.session_id = response["session_id"]
-        else:
+        response = None
+        if session.session_id is not None:
             if context.agent_used_in_this_loop:
                 console.info(f"Continuing agent session {session.session_id} with the new unit tests failure.")
                 output = "The fix was applied, but the unit tests still fail."
@@ -98,7 +90,20 @@ class FixUnitTests(BaseAction):
                 submit_result["conformance_tests_fixes"] = new_conformance_tests_fixes
             tool_results = session.pending_tool_results + [submit_result]
             session.pending_tool_results, session.pending_submit_call_id = [], None
-            response = api.agent_continue(session.session_id, tool_results, frid, module_name, render_context.run_state)
+            response = self._continue_session(render_context, session.session_id, tool_results)
+        if response is None:
+            console.info("Starting an agent session to fix the unit tests.")
+            # Cached read results point at earlier turns, which a new session does not have.
+            context.tool_result_cache.clear()
+            response = api.agent_start(
+                TASK_TYPE,
+                self._build_task_params(render_context, unittests_issue, conformance_tests_fixes),
+                frid,
+                module_name,
+                render_context.run_state,
+            )
+            session.session_id = response["session_id"]
+        assert session.session_id is not None
         session.conformance_fixes_handed_off = len(conformance_tests_fixes)
         context.agent_used_in_this_loop = True
 
@@ -145,6 +150,24 @@ class FixUnitTests(BaseAction):
         if conformance_tests_running_context is None:
             return []
         return list(getattr(conformance_tests_running_context, "implementation_code_fixes", None) or [])
+
+    @staticmethod
+    def _continue_session(render_context: RenderContext, session_id: str, tool_results: list[dict]) -> dict | None:
+        """Continue the session; None if the server no longer has it (expired), so a new one is started."""
+        try:
+            return render_context.codeplain_api.agent_continue(
+                session_id,
+                tool_results,
+                render_context.frid_context.frid,
+                render_context.module_name,
+                render_context.run_state,
+            )
+        except requests.exceptions.HTTPError as e:
+            if e.response is None or e.response.status_code != HTTPStatus.NOT_FOUND:
+                raise
+            console.warning(f"Agent session {session_id} has expired; starting a new one.")
+            render_context.unit_tests_agent_session.reset()
+            return None
 
     @staticmethod
     def _build_task_params(

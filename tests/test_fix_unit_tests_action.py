@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 import plain_spec
 from render_machine.actions.fix_unit_tests import MAX_AGENT_TURNS_PER_ATTEMPT, MAX_RELEVANT_FILES_CHARS, FixUnitTests
@@ -28,7 +29,10 @@ class FakeAPI:
 
     def agent_continue(self, session_id, tool_results, frid, module_name, run_state):
         self.calls.append(("continue", session_id, tool_results, frid, module_name))
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def _tool_calls(*calls):
@@ -208,3 +212,28 @@ def test_run_unit_tests_action_skips_the_suite_after_a_verified_agent_run(render
     assert RunUnitTests().execute(render_context, None) == (RunUnitTests.SUCCESSFUL_OUTCOME, None)
     assert context.verified_passing is False
     assert render_context.script_execution_history.latest_unit_test_output_path == "/logs/pass.log"
+
+
+def test_expired_session_is_replaced_by_a_new_one(render_context):
+    context = render_context.unit_tests_running_context
+    context.agent_used_in_this_loop = True
+    session = context.agent_session
+    session.session_id, session.pending_submit_call_id = "expired", "c3"
+    not_found = requests.exceptions.HTTPError(response=SimpleNamespace(status_code=404))
+    api = FakeAPI([not_found, {"session_id": "s2", "status": "completed", "result": "done"}])
+    render_context.codeplain_api = api
+
+    outcome, _ = FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED test_b"})
+
+    assert outcome == FixUnitTests.SUCCESSFUL_OUTCOME
+    assert [call[0] for call in api.calls] == ["continue", "start"]
+    assert api.calls[1][2]["unittests_issue"] == "FAILED test_b"
+
+
+def test_other_http_errors_on_continue_are_not_swallowed(render_context):
+    context = render_context.unit_tests_running_context
+    context.agent_used_in_this_loop = True
+    context.agent_session.session_id, context.agent_session.pending_submit_call_id = "s1", "c3"
+    render_context.codeplain_api = FakeAPI([requests.exceptions.HTTPError(response=SimpleNamespace(status_code=500))])
+    with pytest.raises(requests.exceptions.HTTPError):
+        FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
