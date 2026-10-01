@@ -343,6 +343,92 @@ def test_code_variable_frid_not_flagged_as_change(code_var_module):
 
 
 # --------------------------------------------------------------------------
+# update_frid_in_module_metadata — rerender of a single functionality
+# --------------------------------------------------------------------------
+
+
+def test_save_module_metadata_restates_every_functionality(solo_module):
+    """save_module_metadata records the whole module against the current spec. That is why the
+    rerender path must not call it: it would restate the functionalities that were not rendered."""
+    _write_metadata(solo_module, {"functionalities": ["old one", "old two", "old three"]})
+
+    solo_module.save_module_metadata()
+
+    metadata = solo_module.load_module_metadata()
+    assert metadata["functionalities"] == solo_module._get_module_functional_requirements()
+    assert metadata["source_hash"] == solo_module.get_module_source_hash()
+
+
+def test_update_frid_leaves_other_functionalities_untouched(solo_module):
+    """Rerendering one functionality must not restate the spec of the others. Their code was not
+    regenerated, so their metadata entries have to keep the spec the code implements."""
+    current = solo_module._get_module_functional_requirements()
+    _write_metadata(solo_module, {"functionalities": ["old one", "old two", "old three"]})
+
+    solo_module.update_frid_in_module_metadata("2")
+
+    metadata = solo_module.load_module_metadata()
+    assert metadata["functionalities"] == ["old one", current[1], "old three"]
+
+
+def test_update_frid_keeps_source_hash_while_another_frid_differs(solo_module):
+    """source_hash claims the code implements the whole spec, so it must stay stale while the other
+    functionalities still hold their old spec."""
+    _write_metadata(
+        solo_module,
+        {
+            "source_hash": "stale",
+            "non_functional_source_hash": solo_module.get_module_non_functional_source_hash(),
+            "functionalities": ["old one", "old two", "old three"],
+        },
+    )
+
+    solo_module.update_frid_in_module_metadata("2")
+
+    assert solo_module.load_module_metadata()["source_hash"] == "stale"
+
+
+def test_update_frid_refreshes_source_hash_when_module_matches_spec(solo_module):
+    """Once the last outstanding functionality is rerendered, the module matches the spec again and
+    source_hash is stamped, so no further change is reported."""
+    current = solo_module._get_module_functional_requirements()
+    _write_metadata(
+        solo_module,
+        {
+            "source_hash": "stale",
+            "non_functional_source_hash": solo_module.get_module_non_functional_source_hash(),
+            "functionalities": [current[0], "old two", current[2]],
+        },
+    )
+
+    solo_module.update_frid_in_module_metadata("2")
+
+    metadata = solo_module.load_module_metadata()
+    assert metadata["functionalities"] == current
+    assert metadata["source_hash"] == solo_module.get_module_source_hash()
+
+
+def test_update_frid_keeps_source_hash_when_non_functional_content_changed(solo_module):
+    """Every functionality matches, but a definition or requirement changed. The code of the other
+    functionalities was generated against the old text, so the module is not in sync."""
+    current = solo_module._get_module_functional_requirements()
+    _write_metadata(
+        solo_module,
+        {
+            "source_hash": "stale",
+            "non_functional_source_hash": "different",
+            "functionalities": [current[0], "old two", current[2]],
+        },
+    )
+
+    solo_module.update_frid_in_module_metadata("2")
+
+    metadata = solo_module.load_module_metadata()
+    assert metadata["functionalities"] == current
+    assert metadata["source_hash"] == "stale"
+
+
+# --------------------------------------------------------------------------
 # module folder layout
 # --------------------------------------------------------------------------
 
