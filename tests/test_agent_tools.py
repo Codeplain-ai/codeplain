@@ -38,8 +38,12 @@ def test_read_file_resolves_relative_to_build_folder_with_paging(project):
     assert "use offset=3 to continue" in out
 
 
-def test_read_allows_project_root_but_not_elsewhere(project):
-    assert "outside" in agent_tools.read_file({"file_path": str(project.root / "outside.txt")}, project.rc)
+def test_read_is_confined_to_build_folder(project):
+    outside = str(project.root / "outside.txt")
+    assert agent_tools.read_file({"file_path": outside}, project.rc).startswith("Error: read access denied")
+    assert agent_tools.read_file({"file_path": "../../outside.txt"}, project.rc).startswith("Error: read access denied")
+    assert agent_tools.grep({"pattern": "outside", "file_path": outside}, project.rc).startswith("Error: read access")
+    assert agent_tools.ls_files({"pattern": str(project.root)}, project.rc).startswith("Error: read access denied")
     assert agent_tools.read_file({"file_path": "/etc/hosts"}, project.rc).startswith("Error: read access denied")
     assert agent_tools.read_file({"file_path": "missing.py"}, project.rc).startswith("Error: file not found")
 
@@ -118,7 +122,7 @@ def test_run_unit_tests_reports_pass_and_failure(project, monkeypatch):
     assert failure["output"].startswith(f"Unit tests failed (exit code 1). Full log: {log}")
     # raw output goes to the server for condensing, not truncated here
     assert failure["test_output"] == "FAILED test_x"
-    # the full log is outside the build folder and project root but greppable
+    # the full log is outside the build folder but greppable
     assert agent_tools.grep({"pattern": "Caused by", "file_path": str(log)}, project.rc).endswith("Caused by: boom")
 
 

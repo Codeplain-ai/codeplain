@@ -2,8 +2,8 @@
 
 The server declares the tools to the LLM (codeplain-api: src/agent/tools.py) and forwards
 the model's calls; this module executes them against the local build folder and returns
-plain-text results. Relative paths resolve against the build folder. Reads are allowed in the
-build folder and the project root (the CWD); writes only inside the build folder.
+plain-text results. Relative paths resolve against the build folder. Reads are allowed only in the
+build folder and the full test logs the agent was pointed to; writes only inside the build folder.
 """
 
 import glob
@@ -45,7 +45,6 @@ def _within(path: str, folder: str) -> bool:
 def _readable(path: str, render_context: RenderContext) -> bool:
     return (
         _within(path, _build_folder(render_context))
-        or _within(path, os.path.normpath(os.getcwd()))
         or path in render_context.unit_tests_agent_session.readable_log_paths
     )
 
@@ -82,7 +81,7 @@ def _track_change(full_path: str, render_context: RenderContext) -> None:
 def read_file(args: dict, render_context: RenderContext) -> str:
     full_path = _resolve(args.get("file_path", ""), render_context)
     if not _readable(full_path, render_context):
-        return f"Error: read access denied for '{full_path}' (readable: build folder and project root)."
+        return f"Error: read access denied for '{full_path}' (readable: build folder and test logs)."
     if not os.path.isfile(full_path):
         return f"Error: file not found: '{full_path}'."
     with open(full_path, "r", encoding="utf-8", errors="replace") as f:
@@ -112,9 +111,8 @@ def grep(args: dict, render_context: RenderContext) -> str:
     if not os.path.exists(target):
         return f"Error: path not found: '{target}'."
     # Run from the build folder so matches inside it come back as build-relative paths, which
-    # is the form the other tools accept.
-    build_folder = _build_folder(render_context)
-    cwd = build_folder if _within(target, build_folder) else os.getcwd()
+    # is the form the other tools accept; a test log outside it is passed by absolute path.
+    cwd = _build_folder(render_context)
     options = [f"--exclude-dir={d}" for d in GREP_EXCLUDED_DIRS]
     context_lines = min(max(int(args.get("context_lines") or 0), 0), MAX_GREP_CONTEXT_LINES)
     if context_lines:
