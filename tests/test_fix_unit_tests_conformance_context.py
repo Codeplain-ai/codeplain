@@ -12,25 +12,44 @@ import pytest
 
 import plain_spec
 from memory_management import MemoryManager
-from render_machine.actions import fix_unit_tests as fix_unit_tests_module
 from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
-from render_machine.render_types import ConformanceTestsRunningContext, UnitTestsRunningContext
+from render_machine.render_context import RenderContext
+from render_machine.render_types import ConformanceTestsRunningContext, ScriptExecutionHistory, UnitTestsRunningContext
 
 
 class FakeCodeplainAPI:
-    def __init__(self, conformance_fix_response=None, unittests_fix_response=None):
+    """Conformance fixes return a scripted response; every agent session submits a fix on its first turn."""
+
+    def __init__(self, conformance_fix_response=None):
         self.conformance_fix_response = conformance_fix_response
-        self.unittests_fix_response = unittests_fix_response or {}
-        self.unittests_fix_calls = []
+        self.agent_calls = []
+        self.sessions_started = 0
 
     def fix_conformance_tests_issue(self, *args, **kwargs):
         return self.conformance_fix_response
 
-    def fix_unittests_issue(self, *args, **kwargs):
-        self.unittests_fix_calls.append(kwargs)
-        return self.unittests_fix_response
+    def agent_start(self, task_type, task_params, frid, module_name, run_state):
+        self.sessions_started += 1
+        self.agent_calls.append(("start", task_params))
+        return self._submit(f"s{self.sessions_started}")
+
+    def agent_continue(self, session_id, tool_results, frid, module_name, run_state):
+        self.agent_calls.append(("continue", session_id, tool_results))
+        return self._submit(session_id)
+
+    def _submit(self, session_id):
+        call_id = f"submit-{len(self.agent_calls)}"
+        return {
+            "session_id": session_id,
+            "status": "tool_calls",
+            "calls": [{"id": call_id, "name": "submit_fix", "args": {"changes_made": "fixed"}}],
+        }
+
+
+class FakeRenderContext(SimpleNamespace):
+    unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
 
 class FakeConformanceTests:
@@ -59,7 +78,11 @@ def memory_folder():
 def isolate_from_git_and_console(monkeypatch):
     monkeypatch.setattr(ImplementationCodeHelpers, "get_code_diff", staticmethod(lambda *args: {}))
     monkeypatch.setattr(plain_spec, "collect_linked_resources", lambda *args: None)
-    monkeypatch.setattr(fix_unit_tests_module.render_utils, "print_inputs", lambda *args: None)
+    monkeypatch.setattr(
+        plain_spec,
+        "get_specifications_for_frid",
+        lambda tree, frid: ({plain_spec.FUNCTIONAL_REQUIREMENTS: ["- Add numbers."]}, None),
+    )
 
 
 def make_conformance_context():
@@ -76,7 +99,7 @@ def make_conformance_context():
 
 
 def make_render_context(api, build_folder, memory_folder, conformance_tests_running_context):
-    return SimpleNamespace(
+    return FakeRenderContext(
         codeplain_api=api,
         build_folder=build_folder,
         memory_manager=MemoryManager(api, memory_folder),
@@ -86,9 +109,11 @@ def make_render_context(api, build_folder, memory_folder, conformance_tests_runn
         plain_source_tree={},
         module_name="mod",
         required_modules=None,
-        frid_context=SimpleNamespace(frid="1", linked_resources={}),
+        frid_context=SimpleNamespace(frid="1", linked_resources={}, changed_files=set()),
         get_required_modules_functionalities=lambda: {},
         run_state=SimpleNamespace(render_id="test-render-id", unittest_batch_id=1),
+        unittests_script=None,
+        script_execution_history=ScriptExecutionHistory(),
     )
 
 
@@ -191,34 +216,104 @@ def test_implementation_fix_with_no_files_is_not_remembered(build_folder, memory
     assert ctx.implementation_code_fixes == []
 
 
-def run_unit_tests_fix(render_context):
-    return FixUnitTests().execute(render_context, {"previous_unittests_issue": "1 failed"})
+def run_unit_tests_fix(render_context, issue="1 failed"):
+    return FixUnitTests().execute(render_context, {"previous_unittests_issue": issue})
 
 
-def test_unit_tests_fix_forwards_conformance_fixes(build_folder, memory_folder):
-    api = FakeCodeplainAPI(unittests_fix_response={"test_app.py": "def test_add(): pass\n"})
+def start_new_unit_test_loop(render_context):
+    """What RenderContext.start_unittests_processing does when the unit tests are run again."""
+    render_context.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
+
+
+def conformance_fix(number):
+    return {
+        "hypothesis": f"hypothesis {number}",
+        "approach": f"approach {number}",
+        "code_diff": {"app.py": f"+{number}"},
+    }
+
+
+def test_first_unit_test_loop_of_conformance_phase_seeds_the_session_with_the_fixes(build_folder, memory_folder):
+    api = FakeCodeplainAPI()
     ctx = make_conformance_context()
-    ctx.implementation_code_fixes.append(
-        {"hypothesis": "off by one", "approach": "add one", "code_diff": {"app.py": "+    return a + b + 1"}}
-    )
+    ctx.implementation_code_fixes.append(conformance_fix(1))
     render_context = make_render_context(api, build_folder, memory_folder, ctx)
 
     outcome, _ = run_unit_tests_fix(render_context)
 
     assert outcome == FixUnitTests.SUCCESSFUL_OUTCOME
-    assert len(api.unittests_fix_calls) == 1
-    assert api.unittests_fix_calls[0]["conformance_tests_fixes"] == ctx.implementation_code_fixes
+    kind, task_params = api.agent_calls[0]
+    assert kind == "start"
+    assert task_params["conformance_tests_fixes"] == ctx.implementation_code_fixes
     # The forwarded list is a copy, so later conformance fixes do not mutate what was sent.
-    assert api.unittests_fix_calls[0]["conformance_tests_fixes"] is not ctx.implementation_code_fixes
+    assert task_params["conformance_tests_fixes"] is not ctx.implementation_code_fixes
+    # The file the conformance fix changed is seeded although the FRID did not change it.
+    assert "app.py" in task_params["relevant_files"]
+    assert ctx.unit_tests_agent_session.session_id == "s1"
 
 
-def test_unit_tests_fix_outside_conformance_phase_sends_no_fixes(build_folder, memory_folder):
+def test_next_unit_test_loop_of_conformance_phase_continues_the_session_with_only_new_fixes(
+    build_folder, memory_folder
+):
     api = FakeCodeplainAPI()
-    render_context = make_render_context(api, build_folder, memory_folder, None)
-
+    ctx = make_conformance_context()
+    ctx.implementation_code_fixes.append(conformance_fix(1))
+    render_context = make_render_context(api, build_folder, memory_folder, ctx)
     run_unit_tests_fix(render_context)
 
-    assert api.unittests_fix_calls[0]["conformance_tests_fixes"] is None
+    # The fix was accepted; the conformance tests fixer changes the code again and the unit tests fail again.
+    ctx.implementation_code_fixes.append(conformance_fix(2))
+    start_new_unit_test_loop(render_context)
+    run_unit_tests_fix(render_context, issue="2 failed")
+
+    assert api.sessions_started == 1
+    kind, session_id, tool_results = api.agent_calls[1]
+    assert (kind, session_id) == ("continue", "s1")
+    submit_answer = tool_results[-1]
+    assert submit_answer["call_id"] == "submit-1"
+    assert submit_answer["output"].startswith("Your fix was accepted: the unit tests passed.")
+    assert "Conformance Tests Fix below" in submit_answer["output"]
+    assert submit_answer["conformance_tests_fixes"] == [conformance_fix(2)]
+    assert submit_answer["test_output"] == "2 failed"
+
+
+def test_retry_within_a_unit_test_loop_says_the_fix_did_not_work(build_folder, memory_folder):
+    api = FakeCodeplainAPI()
+    ctx = make_conformance_context()
+    ctx.implementation_code_fixes.append(conformance_fix(1))
+    render_context = make_render_context(api, build_folder, memory_folder, ctx)
+    run_unit_tests_fix(render_context)
+
+    run_unit_tests_fix(render_context, issue="still failing")
+
+    submit_answer = api.agent_calls[1][2][-1]
+    assert "still fail" in submit_answer["output"]
+    # Fix 1 was already shown to the session, so it is not sent again.
+    assert "conformance_tests_fixes" not in submit_answer
+
+
+def test_new_conformance_phase_starts_a_new_session(build_folder, memory_folder):
+    api = FakeCodeplainAPI()
+    render_context = make_render_context(api, build_folder, memory_folder, make_conformance_context())
+    run_unit_tests_fix(render_context)
+
+    # E.g. the functionality is re-rendered from scratch: the conformance tests running context is recreated.
+    render_context.conformance_tests_running_context = make_conformance_context()
+    start_new_unit_test_loop(render_context)
+    run_unit_tests_fix(render_context)
+
+    assert [call[0] for call in api.agent_calls] == ["start", "start"]
+
+
+def test_unit_tests_outside_conformance_phase_get_no_fixes_and_a_session_per_loop(build_folder, memory_folder):
+    api = FakeCodeplainAPI()
+    render_context = make_render_context(api, build_folder, memory_folder, None)
+    run_unit_tests_fix(render_context)
+    start_new_unit_test_loop(render_context)
+    run_unit_tests_fix(render_context)
+
+    assert [call[0] for call in api.agent_calls] == ["start", "start"]
+    assert all("conformance_tests_fixes" not in call[1] for call in api.agent_calls)
 
 
 def test_unit_tests_fix_in_conformance_phase_without_implementation_changes_sends_no_fixes(build_folder, memory_folder):
@@ -227,4 +322,4 @@ def test_unit_tests_fix_in_conformance_phase_without_implementation_changes_send
 
     run_unit_tests_fix(render_context)
 
-    assert api.unittests_fix_calls[0]["conformance_tests_fixes"] is None
+    assert "conformance_tests_fixes" not in api.agent_calls[0][1]

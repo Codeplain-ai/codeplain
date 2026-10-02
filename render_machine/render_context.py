@@ -19,6 +19,7 @@ from render_machine.render_types import (
     FridContext,
     ScriptExecutionHistory,
     TestExecutionPhase,
+    UnitTestsAgentSession,
     UnitTestsRunningContext,
 )
 
@@ -187,6 +188,14 @@ class RenderContext:
 
     def should_run_conformance_tests(self) -> bool:
         return self.conformance_tests_script is not None
+
+    @property
+    def unit_tests_agent_session(self) -> UnitTestsAgentSession:
+        """The agent session fixing the unit tests: per unit-test loop, except during the conformance
+        phase, where one session spans every loop (see UnitTestsAgentSession)."""
+        if self.conformance_tests_running_context is not None:
+            return self.conformance_tests_running_context.unit_tests_agent_session
+        return self.unit_tests_running_context.agent_session
 
     def start_unittests_processing(self):
         self.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
