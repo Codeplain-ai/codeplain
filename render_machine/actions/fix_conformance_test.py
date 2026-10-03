@@ -31,7 +31,20 @@ class FixConformanceTest(BaseAction):
         ctx.fix_attempts += 1
 
         if ctx.fix_attempts >= MAX_CONFORMANCE_TEST_FIX_ATTEMPTS:
-            if ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS:
+            # Regeneration only produces a coherent result for a test the module under
+            # render owns. RenderConformanceTests builds the replacement's folder under
+            # `render_context.module_name` and its specifications from
+            # `render_context.frid_context`, but records the entry against
+            # `current_testing_module_name` - so for a required module's test the files,
+            # the index entry and the specification all belong to different modules.
+            # Exhausting the fix attempts on one of those is a failed render, not a
+            # candidate for regeneration.
+            regeneration_would_apply_to_another_module = ctx.current_testing_module_name != render_context.module_name
+
+            if (
+                ctx.conformance_tests_render_attempts >= MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS
+                or regeneration_would_apply_to_another_module
+            ):
                 error_msg = f"The renderer was unable to produce an implementation that passes conformance tests for functionality '{render_context.frid_context.frid}' after many attempts. Please review and rewrite the specification. (Render ID: {render_context.run_state.render_id})"
                 render_context.last_error_message = error_msg
                 return (
