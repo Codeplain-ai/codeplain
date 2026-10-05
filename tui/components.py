@@ -339,10 +339,14 @@ class ProgressItem(Vertical):
 class RenderingInfoBox(Vertical):
     """Responsive container for module and functionality information."""
 
+    EXPAND_HINT = "(ctrl+o to expand)"
+    COLLAPSE_HINT = "(ctrl+o to collapse)"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.module_text = ""
         self.functionality_text = ""
+        self.functionality_expanded = False
         self.module_widget: Static | None = None
         self.functionality_widget: Static | None = None
 
@@ -356,12 +360,31 @@ class RenderingInfoBox(Vertical):
         self.functionality_text = text
         self._refresh_content()
 
+    def toggle_functionality(self) -> None:
+        """Expand or collapse the functionality text."""
+        self.functionality_expanded = not self.functionality_expanded
+        self._refresh_content()
+
+    def _format_functionality(self) -> Content:
+        """Build the functionality line, collapsed to its first line unless expanded.
+
+        The functionality text comes from the spec and may contain square brackets, so it
+        is assembled as Content and never goes through the markup parser.
+        """
+        text = self.functionality_text or ""
+        lines = text.splitlines()
+        if len(lines) <= 1:
+            return Content(text)
+        if self.functionality_expanded:
+            return Content.assemble(f"{text}\n", (self.COLLAPSE_HINT, "#888888"))
+        return Content.assemble(f"{lines[0]} \u2026 ", (self.EXPAND_HINT, "#888888"))
+
     def _refresh_content(self) -> None:
         """Refresh text inside the box."""
         if self.module_widget is not None:
             self.module_widget.update(self.module_text or "")
         if self.functionality_widget is not None:
-            self.functionality_widget.update(self.functionality_text or "")
+            self.functionality_widget.update(self._format_functionality())
 
     def on_mount(self) -> None:
         """Initialize default labels on mount."""
@@ -372,7 +395,7 @@ class RenderingInfoBox(Vertical):
 
     def compose(self):
         self.module_widget = Static(self.module_text, classes="rendering-info-row", markup=False)
-        self.functionality_widget = Static(self.functionality_text, classes="rendering-info-row", markup=False)
+        self.functionality_widget = Static(self._format_functionality(), classes="rendering-info-row", markup=False)
         yield Static("module status", classes="rendering-info-title")
         with Vertical(classes="rendering-info-box"):
             yield self.module_widget

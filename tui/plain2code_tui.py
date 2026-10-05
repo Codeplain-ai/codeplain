@@ -65,6 +65,7 @@ class Plain2CodeTUI(App):
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("enter", "enter_exit", "Exit", show=False),
         Binding("ctrl+p", "pause", "Pause", show=False, priority=True),
+        Binding("ctrl+o", "toggle_functionality", "Expand/Collapse", show=False),
         ("ctrl+l", "toggle_logs", "Toggle Logs"),
     ]
 
@@ -230,6 +231,14 @@ class Plain2CodeTUI(App):
             self.run_state.rendered_functionalities,
             self.run_state.render_time_accumulated,
         )
+
+    def action_toggle_functionality(self) -> None:
+        """Expand or collapse the functionality text in the rendering info box."""
+        try:
+            frid_progress = self.query_one(f"#{TUIComponents.FRID_PROGRESS.value}", FRIDProgress)
+            frid_progress.query_one(RenderingInfoBox).toggle_functionality()
+        except NoMatches:
+            pass
 
     def action_toggle_logs(self) -> None:
         """Toggle between dashboard and log view."""
