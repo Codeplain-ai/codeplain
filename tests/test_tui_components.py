@@ -6,7 +6,7 @@ from textual.widgets import Static
 
 from event_bus import EventBus
 from plain2code_state import RunState
-from tui.components import ProgressItem, SubstateLine, TUIComponents
+from tui.components import FRIDProgress, ProgressItem, RenderingInfoBox, SubstateLine, TUIComponents
 from tui.models import Substate
 from tui.plain2code_tui import Plain2CodeTUI
 from tui.widget_helpers import display_error_message, display_success_message, update_progress_item_substates
@@ -84,5 +84,64 @@ def test_status_messages_keep_brackets():
             display_error_message(app, "Error: [Errno 2] No such file: run_tests.sh [b")
             await pilot.pause()
             assert "[Errno 2] No such file: run_tests.sh [b" in str(status.content)
+
+    asyncio.run(scenario())
+
+
+# A functionality quote as the render TUI receives it: several lines, square brackets included.
+MULTILINE_FUNCTIONALITY_TEXT = (
+    "Functionality 3: :User: should be able to add a :Task: [optional]\n"
+    "  - The :Task: must have non-empty content.\n"
+    "  - The :Task: is appended to the end of the list."
+)
+
+
+def test_functionality_text_collapses_and_expands_with_ctrl_o():
+    async def scenario():
+        event_bus = EventBus()
+        run_state = RunState(spec_filename="x.plain")
+        app = _make_app(run_state, event_bus)
+        async with app.run_test() as pilot:
+            frid_progress = app.query_one(f"#{TUIComponents.FRID_PROGRESS.value}", FRIDProgress)
+            info_box = frid_progress.query_one(RenderingInfoBox)
+            info_box.update_functionality(MULTILINE_FUNCTIONALITY_TEXT)
+            await pilot.pause()
+
+            widget = info_box.functionality_widget
+            assert widget is not None
+
+            # Collapsed by default: first line only, with the expand hint.
+            collapsed = str(widget.content)
+            assert "Functionality 3: :User: should be able to add a :Task: [optional]" in collapsed
+            assert "non-empty content" not in collapsed
+            assert RenderingInfoBox.EXPAND_HINT in collapsed
+
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+            expanded = str(widget.content)
+            assert "non-empty content" in expanded
+            assert "appended to the end of the list" in expanded
+            assert RenderingInfoBox.COLLAPSE_HINT in expanded
+
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+            assert str(widget.content) == collapsed
+
+    asyncio.run(scenario())
+
+
+def test_single_line_functionality_text_has_no_hint():
+    async def scenario():
+        event_bus = EventBus()
+        run_state = RunState(spec_filename="x.plain")
+        app = _make_app(run_state, event_bus)
+        async with app.run_test() as pilot:
+            info_box = app.query_one(f"#{TUIComponents.FRID_PROGRESS.value}", FRIDProgress).query_one(RenderingInfoBox)
+            info_box.update_functionality("Functionality 1: :User: should be able to add a :Task:")
+            await pilot.pause()
+
+            widget = info_box.functionality_widget
+            assert widget is not None
+            assert str(widget.content) == "Functionality 1: :User: should be able to add a :Task:"
 
     asyncio.run(scenario())
