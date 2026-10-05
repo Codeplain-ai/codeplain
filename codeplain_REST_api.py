@@ -15,6 +15,18 @@ RETRY_DELAY = 3
 # at exit, and requests waits indefinitely by default.
 REPORT_TIMEOUT_SECONDS = 5
 
+# The same applies to every other call. Without a timeout, a reply that never arrives
+# stops the render for as long as whatever runs it allows, with no error and no retry,
+# because the client is simply still waiting. Renders have been lost that way, each one
+# going silent after a call that had already succeeded on the server.
+#
+# This bounds the wait for the reply, not the work behind it. The server answers a fix
+# or a rendering call only once the model has finished, so the limit has to clear the
+# slowest of those by a wide margin; the longest call seen to complete took about 12
+# minutes. A call that passes the limit raises Timeout, which _handle_retry_logic
+# already treats as a network error and retries with backoff.
+REQUEST_TIMEOUT_SECONDS = 1200
+
 RETRY_ERROR_CODES = [
     "LLMInternalError",
 ]
@@ -129,7 +141,7 @@ class CodeplainAPI:
         run_state: Optional[RunState],
         num_retries: int = MAX_RETRIES,
         silent: bool = False,
-        timeout: Optional[int] = None,
+        timeout: Optional[int] = REQUEST_TIMEOUT_SECONDS,
     ):
         if run_state is not None:
             self._extend_payload_with_run_state(payload, run_state)
