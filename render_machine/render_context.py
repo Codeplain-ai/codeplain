@@ -504,6 +504,7 @@ class RenderContext:
         if ctx.current_conformance_tests_exist():
             if (
                 self.is_regenerate
+                and ctx.current_testing_module_name == self.module_name
                 and ctx.current_testing_frid == ctx.frid_being_implemented
                 and not self._has_reached_implementation_frid()
             ):
