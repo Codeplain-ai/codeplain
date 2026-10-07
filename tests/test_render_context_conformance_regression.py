@@ -5,6 +5,7 @@ Getting the next test moves the frid of the running context in place, and there 
 last one, so the loop must not advance when the regenerated functionality is the last one.
 """
 
+import plain_spec
 from render_machine import triggers
 from render_machine.render_context import RenderContext
 from render_machine.render_types import ConformanceTestsRunningContext
@@ -94,3 +95,48 @@ def test_regenerated_functionality_number_of_a_required_module_still_runs():
     assert context.current_testing_module_name == "ledger"
     assert context.current_testing_frid == "2"
     assert render_context.machine.dispatched == [triggers.MARK_CONFORMANCE_TESTS_READY]
+
+
+def test_regression_run_ends_when_the_next_functionality_has_no_conformance_tests():
+    """A project that was rendered only in part has functionalities without conformance tests. The
+    regression run must end there, on the functionality being implemented, and report that all
+    conformance tests passed."""
+    # The spec file holds four functionalities, but only 1, 2 and 3 were ever given conformance
+    # tests. Functionality 2 is the regenerated one, and 3 has just been tested.
+    render_context = _render_context(current_frid="3", frid_being_implemented="2", frids_with_tests=["1", "3", "2"])
+
+    render_context._handle_regression_testing()
+
+    context = render_context.conformance_tests_running_context
+    assert render_context.machine.dispatched == [triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED]
+    assert context.execution_phase is ExecutionPhase.COMPLETED
+    # The postprocessing steps look the conformance test folder up by this frid, so it must be the
+    # functionality being implemented and not the one without conformance tests.
+    assert context.current_testing_frid == "2"
+    assert context.current_testing_frid_specifications is not None
+
+
+def test_regression_run_tests_the_implemented_functionality_again_when_code_changed():
+    """When the implementation code changed during the run, the functionality being implemented is
+    tested once more before the run ends."""
+    render_context = _render_context(current_frid="3", frid_being_implemented="2", frids_with_tests=["1", "3", "2"])
+    render_context.conformance_tests_running_context.code_changed_during_regression = True
+
+    render_context._handle_regression_testing()
+
+    context = render_context.conformance_tests_running_context
+    assert render_context.machine.dispatched == [triggers.MARK_CONFORMANCE_TESTS_READY]
+    assert context.execution_phase is ExecutionPhase.COMPLETED
+    assert context.current_testing_frid == "2"
+
+
+def test_acceptance_test_of_another_functionality_is_not_read_past_its_end():
+    """The completed count belongs to the functionality being implemented. Another functionality can
+    have fewer acceptance tests, so the count is not a valid position in its list."""
+    context = _render_context(
+        current_frid="1", frid_being_implemented="2", frids_with_tests=["1"]
+    ).conformance_tests_running_context
+    context.current_testing_frid_specifications = {plain_spec.ACCEPTANCE_TESTS: ["- the only acceptance test"]}
+    context.acceptance_tests_completed = 2
+
+    assert context.get_current_acceptance_test() is None
