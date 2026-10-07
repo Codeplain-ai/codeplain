@@ -210,7 +210,7 @@ class CodeplainAPI:
         required_modules: dict,
         include_unittests: bool,
         run_state: RunState,
-        is_reimplementation: bool = False,
+        is_regeneration: bool = False,
         old_functional_requirement_text: Optional[str] = None,
         code_functional_requirements: Optional[list] = None,
     ) -> dict[str, str]:
@@ -252,7 +252,7 @@ class CodeplainAPI:
             "module_name": module_name,
             "required_modules": required_modules,
             "include_unittests": include_unittests,
-            "is_reimplementation": is_reimplementation,
+            "is_regeneration": is_regeneration,
         }
 
         if old_functional_requirement_text is not None:
@@ -352,7 +352,7 @@ class CodeplainAPI:
         conformance_tests_json,
         all_acceptance_tests,
         run_state: RunState,
-        is_reimplementation: bool = False,
+        is_regeneration: bool = False,
     ):
         endpoint_url = f"{self.api_url}/render_conformance_tests"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -369,7 +369,7 @@ class CodeplainAPI:
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "conformance_tests_json": conformance_tests_json,
             "all_acceptance_tests": all_acceptance_tests,
-            "is_reimplementation": is_reimplementation,
+            "is_regeneration": is_regeneration,
         }
 
         response = self.post_request(endpoint_url, headers, payload, run_state)

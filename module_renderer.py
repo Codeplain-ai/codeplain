@@ -26,7 +26,7 @@ class ModuleRenderer:
         event_bus: EventBus,
         stop_event: threading.Event | None = None,
         enter_pause_event: threading.Event | None = None,
-        is_rerender: bool = False,
+        is_regenerate: bool = False,
     ):
         self.codeplainAPI = codeplainAPI
         self.plain_module = plain_module
@@ -37,14 +37,14 @@ class ModuleRenderer:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
-        self.is_rerender = is_rerender
+        self.is_regenerate = is_regenerate
 
     def _build_render_context_for_module(
         self,
         plain_module: PlainModule,
         memory_manager: MemoryManager,
         render_range: list[str] | None,
-        is_rerender: bool,
+        is_regenerate: bool,
     ) -> RenderContext:
         return RenderContext(
             self.codeplainAPI,
@@ -66,7 +66,7 @@ class ModuleRenderer:
             test_script_timeout=self.args.test_script_timeout,
             stop_event=self.stop_event,
             enter_pause_event=self.enter_pause_event,
-            is_rerender=is_rerender,
+            is_regenerate=is_regenerate,
         )
 
     def _render_module(
@@ -125,15 +125,15 @@ class ModuleRenderer:
             self.codeplainAPI,
             plain_module.module_memory_folder,
         )
-        # Only the module that owns the target functionality is being rerendered. Required modules
-        # are rendered in full, so they must not take the rerender path.
-        is_rerender = self.is_rerender and render_range is not None
+        # Only the module that owns the target functionality is being regenerated. Required modules
+        # are rendered in full, so they must not take the regenerate path.
+        is_regenerate = self.is_regenerate and render_range is not None
 
         render_context = self._build_render_context_for_module(
             plain_module,
             memory_manager,
             render_range,
-            is_rerender,
+            is_regenerate,
         )
 
         code_renderer = CodeRenderer(render_context)
@@ -151,9 +151,9 @@ class ModuleRenderer:
             return False, True
 
         # save_module_metadata records "the whole module matches the current spec". After a
-        # rerender only one functionality was rendered, and FinishFunctionalRequirement already
+        # regenerate only one functionality was rendered, and FinishFunctionalRequirement already
         # updated its metadata entry, so writing the whole baseline would claim too much.
-        if not is_rerender:
+        if not is_regenerate:
             plain_module.save_module_metadata()
 
         self.loaded_modules.append(plain_module)

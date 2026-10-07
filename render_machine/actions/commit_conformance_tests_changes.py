@@ -26,8 +26,8 @@ class CommitConformanceTestsChanges(BaseAction):
             implementation_updated = True
 
         conformance_tests_commit_message = (
-            git_utils.FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE
-            if render_context.is_rerender
+            git_utils.FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE
+            if render_context.is_regenerate
             else git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
         )
         functional_requirement_text = render_context.frid_context.specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]

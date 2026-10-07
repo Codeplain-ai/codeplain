@@ -1,8 +1,8 @@
-"""Regression testing loop of the conformance tests, for a rerendered functionality.
+"""Regression testing loop of the conformance tests, for a regenerated functionality.
 
-The rerendered functionality is tested in the initial phase, so the regression loop moves past it.
+The regenerated functionality is tested in the initial phase, so the regression loop moves past it.
 Getting the next test moves the frid of the running context in place, and there is no frid after the
-last one, so the loop must not advance when the rerendered functionality is the last one.
+last one, so the loop must not advance when the regenerated functionality is the last one.
 """
 
 from render_machine import triggers
@@ -40,7 +40,7 @@ def _render_context(current_frid, frid_being_implemented, frids_with_tests):
     context.execution_phase = ExecutionPhase.RUNNING_REGRESSION
 
     render_context = RenderContext.__new__(RenderContext)
-    render_context.is_rerender = True
+    render_context.is_regenerate = True
     render_context.module_name = "cli"
     render_context.required_modules = []
     render_context.plain_source_tree = PLAIN_SOURCE_TREE
@@ -49,8 +49,8 @@ def _render_context(current_frid, frid_being_implemented, frids_with_tests):
     return render_context
 
 
-def test_rerender_of_last_functionality_ends_the_regression_run():
-    """The regression loop reaches the rerendered last functionality. It must complete there and keep
+def test_regenerate_of_last_functionality_ends_the_regression_run():
+    """The regression loop reaches the regenerated last functionality. It must complete there and keep
     the frid, because the postprocessing steps look their folder up by it."""
     render_context = _render_context(current_frid="3", frid_being_implemented="4", frids_with_tests=["3", "4"])
 
@@ -64,8 +64,8 @@ def test_rerender_of_last_functionality_ends_the_regression_run():
     assert context.current_testing_frid == "4"
 
 
-def test_rerender_of_earlier_functionality_advances_past_it():
-    """When the rerendered functionality is not the last one, the loop moves on to the next test."""
+def test_regenerate_of_earlier_functionality_advances_past_it():
+    """When the regenerated functionality is not the last one, the loop moves on to the next test."""
     render_context = _render_context(current_frid="1", frid_being_implemented="2", frids_with_tests=["1", "2", "3"])
 
     render_context._handle_regression_testing()

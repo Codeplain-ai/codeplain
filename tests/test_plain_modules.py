@@ -343,13 +343,13 @@ def test_code_variable_frid_not_flagged_as_change(code_var_module):
 
 
 # --------------------------------------------------------------------------
-# update_frid_in_module_metadata — rerender of a single functionality
+# update_frid_in_module_metadata — regenerate of a single functionality
 # --------------------------------------------------------------------------
 
 
 def test_save_module_metadata_restates_every_functionality(solo_module):
     """save_module_metadata records the whole module against the current spec. That is why the
-    rerender path must not call it: it would restate the functionalities that were not rendered."""
+    regenerate path must not call it: it would restate the functionalities that were not rendered."""
     _write_metadata(solo_module, {"functionalities": ["old one", "old two", "old three"]})
 
     solo_module.save_module_metadata()
@@ -360,7 +360,7 @@ def test_save_module_metadata_restates_every_functionality(solo_module):
 
 
 def test_update_frid_leaves_other_functionalities_untouched(solo_module):
-    """Rerendering one functionality must not restate the spec of the others. Their code was not
+    """Regenerating one functionality must not restate the spec of the others. Their code was not
     regenerated, so their metadata entries have to keep the spec the code implements."""
     current = solo_module._get_module_functional_requirements()
     _write_metadata(solo_module, {"functionalities": ["old one", "old two", "old three"]})
@@ -389,7 +389,7 @@ def test_update_frid_keeps_source_hash_while_another_frid_differs(solo_module):
 
 
 def test_update_frid_refreshes_source_hash_when_module_matches_spec(solo_module):
-    """Once the last outstanding functionality is rerendered, the module matches the spec again and
+    """Once the last outstanding functionality is regenerated, the module matches the spec again and
     source_hash is stamped, so no further change is reported."""
     current = solo_module._get_module_functional_requirements()
     _write_metadata(

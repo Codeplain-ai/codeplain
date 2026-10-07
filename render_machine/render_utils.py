@@ -26,7 +26,7 @@ PIPE_SIZE_KB = 1024  # 1MB
 
 
 def revert_changes_for_frid(render_context):
-    if render_context.is_rerender:
+    if render_context.is_regenerate:
         return
     if render_context.frid_context.frid is not None:
         previous_frid = plain_spec.get_previous_frid(render_context.plain_source_tree, render_context.frid_context.frid)

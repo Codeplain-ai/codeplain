@@ -13,8 +13,8 @@ class PrepareRepositories(BaseAction):
     SUCCESSFUL_OUTCOME = "repositories_prepared"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
-        if render_context.is_rerender:
-            return self._prepare_rerender(render_context)
+        if render_context.is_regenerate:
+            return self._prepare_regenerate(render_context)
 
         if render_context.render_range is not None and render_context.render_range[0] != plain_spec.get_first_frid(
             render_context.plain_source_tree
@@ -89,19 +89,19 @@ class PrepareRepositories(BaseAction):
 
         return self.SUCCESSFUL_OUTCOME, None
 
-    def _prepare_rerender(self, render_context: RenderContext):
+    def _prepare_regenerate(self, render_context: RenderContext):
         frid = render_context.render_range[0]
 
         if "." in frid:
             render_context.dispatch_error(
-                f"--rerender only supports top-level integer FRIDs (e.g. `1`, `2`). "
+                f"--regenerate only supports top-level integer FRIDs (e.g. `1`, `2`). "
                 f"Nested FRID `{frid}` is not supported."
             )
             return "error", None
 
         if not git_utils.has_commit_for_frid(render_context.build_folder, frid, render_context.module_name):
             render_context.dispatch_error(
-                f"Cannot re-render functionality {frid} because it has not been fully rendered yet. "
+                f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
                 f"Please render all functionalities first by running: "
                 f"codeplain {render_context.module_name}.plain"
             )
@@ -118,7 +118,7 @@ class PrepareRepositories(BaseAction):
 
         render_context.old_frid_spec = module_metadata["functionalities"][int(frid) - 1]
         # The specs the code on disk currently implements (code-truth). Sent to the API so the
-        # reimplementation prompt shows the old spec for any changed-but-not-yet-rerendered FR,
+        # regeneration prompt shows the old spec for any changed-but-not-yet-regenerated FR,
         # keeping specs and code in sync.
         render_context.code_functional_requirements = module_metadata["functionalities"]
 

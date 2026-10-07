@@ -12,8 +12,8 @@ class FinishFunctionalRequirement(BaseAction):
         render_context.plain_module.update_frid_in_module_metadata(render_context.frid_context.frid)
 
         commit_message = (
-            git_utils.FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE
-            if render_context.is_rerender
+            git_utils.FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE
+            if render_context.is_regenerate
             else git_utils.FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE
         )
         git_utils.add_all_files_and_commit(

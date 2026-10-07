@@ -323,7 +323,7 @@ class PlainModule:
         metadata[MODULE_FUNCTIONALITIES] = functionalities
 
         # source_hash claims the code implements the whole spec, so only stamp it when that is
-        # true. Rerendering one functionality leaves the other functionalities as they were.
+        # true. Regenerating one functionality leaves the other functionalities as they were.
         if self._metadata_matches_spec(metadata):
             metadata["source_hash"] = self.get_module_source_hash()
 

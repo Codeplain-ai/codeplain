@@ -48,7 +48,7 @@ class RenderContext:
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
         enter_pause_event: Optional[threading.Event] = None,
-        is_rerender: bool = False,
+        is_regenerate: bool = False,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -72,7 +72,7 @@ class RenderContext:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
-        self.is_rerender = is_rerender
+        self.is_regenerate = is_regenerate
         self.old_frid_spec: str | None = None
         self.code_functional_requirements: list[str] | None = None
         self.script_execution_history = ScriptExecutionHistory()
@@ -89,7 +89,7 @@ class RenderContext:
         self.frid_context: Optional[FridContext] = None
         self.unit_tests_running_context: Optional[UnitTestsRunningContext] = None
         self.conformance_tests_running_context: Optional[ConformanceTestsRunningContext] = None
-        # Constants that should remain for a single frid, but possible over multiple rerenderings of the same frid
+        # Constants that should remain for a single frid, but possible over multiple regenerations of the same frid
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
 
         # Initialize conformance tests utilities. The resolver lets a required module that ships
@@ -380,7 +380,7 @@ class RenderContext:
             return False
 
         terminal_frid = (
-            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_rerender else ctx.frid_being_implemented
+            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_regenerate else ctx.frid_being_implemented
         )
         return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
 
@@ -503,11 +503,11 @@ class RenderContext:
 
         if ctx.current_conformance_tests_exist():
             if (
-                self.is_rerender
+                self.is_regenerate
                 and ctx.current_testing_frid == ctx.frid_being_implemented
                 and not self._has_reached_implementation_frid()
             ):
-                # The rerendered functionality was already tested in the initial phase, so move past
+                # The regenerated functionality was already tested in the initial phase, so move past
                 # it. Advancing is only safe while a later test exists, because getting the next test
                 # moves the frid of the running context and there is no frid after the last one.
                 self.conformance_tests_running_context = self._get_next_test_to_run()

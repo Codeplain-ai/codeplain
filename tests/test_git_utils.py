@@ -9,7 +9,7 @@ from git import Repo
 from git_utils import (
     BASE_FOLDER_COMMIT_MESSAGE,
     FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
-    FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE,
+    FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE,
     REFACTORED_CODE_COMMIT_MESSAGE,
     add_all_files_and_commit,
     diff,
@@ -496,8 +496,8 @@ def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
     assert get_last_rendered_functionality(empty_repo) == ("module_a", "1")
 
 
-def test_get_last_finished_frid_ignores_reimplemented_commits(empty_repo):
-    """A reimplemented commit sits on top of the frontier and must not become the last rendered frid."""
+def test_get_last_finished_frid_ignores_regenerated_commits(empty_repo):
+    """A regenerated commit sits on top of the frontier and must not become the last rendered frid."""
     file_path = Path(empty_repo) / "a.txt"
     for frid in ("1", "2", "3"):
         file_path.write_text(f"v{frid}")
@@ -512,7 +512,7 @@ def test_get_last_finished_frid_ignores_reimplemented_commits(empty_repo):
     file_path.write_text("v1 again")
     add_all_files_and_commit(
         empty_repo,
-        FUNCTIONAL_REQUIREMENT_REIMPLEMENTED_COMMIT_MESSAGE.format("1"),
+        FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE.format("1"),
         module_name="module_a",
         frid="1",
     )

@@ -271,13 +271,15 @@ def render(  # noqa: C901
     event_bus: EventBus,
     default_log_level: str = "INFO",
 ):
-    # Compute render range from either --render-range, --render-from, or --rerender
+    # Compute render range from either --render-range, --render-from, or --regenerate
     render_range = None
-    is_rerender = False
-    if args.render_range or args.render_from or args.rerender:
-        if args.rerender:
-            render_range = plain_spec.get_render_range(args.rerender + "," + args.rerender, plain_module.plain_source)
-            is_rerender = True
+    is_regenerate = False
+    if args.render_range or args.render_from or args.regenerate:
+        if args.regenerate:
+            render_range = plain_spec.get_render_range(
+                args.regenerate + "," + args.regenerate, plain_module.plain_source
+            )
+            is_regenerate = True
         else:
             render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
 
@@ -305,7 +307,7 @@ def render(  # noqa: C901
         module.reconcile_metadata_with_git()
 
     render_choice = None
-    if render_range is None and not is_rerender:
+    if render_range is None and not is_regenerate:
         plain_module_render_state = get_plain_module_render_state(plain_module, args.render_conformance_tests)
         if plain_module_render_state is not None:
             render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
@@ -353,7 +355,7 @@ def render(  # noqa: C901
         event_bus,
         stop_event=stop_event,
         enter_pause_event=enter_pause_event,
-        is_rerender=is_rerender,
+        is_regenerate=is_regenerate,
     )
 
     render_error: list[Exception] = []

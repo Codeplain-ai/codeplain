@@ -287,9 +287,9 @@ def create_parser():
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
     render_range_group.add_argument(
-        "--rerender",
+        "--regenerate",
         type=frid_string,
-        help="Re-render a single already-rendered functionality (e.g. `2`). "
+        help="Regenerate a single already-rendered functionality (e.g. `2`). "
         "Only top-level integer FRIDs are supported.",
     )
 

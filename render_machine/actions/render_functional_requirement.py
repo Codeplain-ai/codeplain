@@ -61,7 +61,7 @@ class RenderFunctionalRequirement(BaseAction):
                 render_context.get_required_modules_functionalities(),
                 render_context.should_run_unit_tests(),
                 render_context.run_state,
-                is_reimplementation=render_context.is_rerender,
+                is_regeneration=render_context.is_regenerate,
                 old_functional_requirement_text=render_context.old_frid_spec,
                 code_functional_requirements=render_context.code_functional_requirements,
             )
