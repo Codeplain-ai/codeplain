@@ -1,8 +1,11 @@
+import socket
 import time
 from typing import Optional
 
 import requests
+from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError, RequestException, Timeout
+from urllib3.connection import HTTPConnection
 
 import plain2code_exceptions
 from plain2code_console import RETRY_COLOR
@@ -14,6 +17,50 @@ RETRY_DELAY = 3
 # A report the render does not consume must not be able to hold the process open
 # at exit, and requests waits indefinitely by default.
 REPORT_TIMEOUT_SECONDS = 5
+
+# A render call can leave the connection with nothing on it for several minutes while the
+# service works on the answer. Network equipment between the two, such as the address
+# translation a CI runner sits behind, drops a connection that quiet and tells neither end.
+# The answer then has nowhere to go and the client waits for it for as long as it is allowed
+# to run. These probes put a packet on the connection often enough to keep it, and they end
+# it when the other end has really gone.
+KEEPALIVE_IDLE_SECONDS = 60
+KEEPALIVE_INTERVAL_SECONDS = 30
+KEEPALIVE_FAILED_PROBES = 4
+
+
+def keepalive_socket_options():
+    """The socket options that keep a long, quiet request alive, for the platforms that have them."""
+    options = list(HTTPConnection.default_socket_options)
+    options.append((socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1))
+    # The option that sets the idle time is named differently per platform, and Windows has
+    # none of the three. Whatever is missing is left out; the keepalive itself still applies.
+    for idle_option in ("TCP_KEEPIDLE", "TCP_KEEPALIVE"):
+        if hasattr(socket, idle_option):
+            options.append((socket.IPPROTO_TCP, getattr(socket, idle_option), KEEPALIVE_IDLE_SECONDS))
+            break
+    if hasattr(socket, "TCP_KEEPINTVL"):
+        options.append((socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, KEEPALIVE_INTERVAL_SECONDS))
+    if hasattr(socket, "TCP_KEEPCNT"):
+        options.append((socket.IPPROTO_TCP, socket.TCP_KEEPCNT, KEEPALIVE_FAILED_PROBES))
+    return options
+
+
+class KeepaliveAdapter(HTTPAdapter):
+    """Opens every connection with keepalive on."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["socket_options"] = keepalive_socket_options()
+        return super().init_poolmanager(*args, **kwargs)
+
+
+def new_session():
+    """A requests session whose connections carry keepalive."""
+    session = requests.Session()
+    session.mount("https://", KeepaliveAdapter())
+    session.mount("http://", KeepaliveAdapter())
+    return session
+
 
 RETRY_ERROR_CODES = [
     "LLMInternalError",
@@ -36,6 +83,7 @@ class CodeplainAPI:
     def __init__(self, api_key, console):
         self.api_key = api_key
         self.console = console
+        self.session = new_session()
 
     @property
     def api_url(self):
@@ -139,7 +187,7 @@ class CodeplainAPI:
 
         for attempt in range(num_retries + 1):
             try:
-                response = requests.post(endpoint_url, headers=headers, json=payload, timeout=timeout)
+                response = self.session.post(endpoint_url, headers=headers, json=payload, timeout=timeout)
 
                 try:
                     response_json = response.json()
