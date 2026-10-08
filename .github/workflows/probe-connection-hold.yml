@@ -1,0 +1,66 @@
+# Measure how long a quiet connection to the render service survives, from a CI runner.
+#
+# The equipment under suspicion is the runner's own outbound network, so this has to run
+# here rather than on a developer machine. It is started by hand: it holds connections open
+# for several minutes at a time and has no reason to run on a push.
+#
+# It needs the /connection_hold endpoint, which lives on the testing deployment only.
+name: Probe connection hold
+
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: "Render service to measure"
+        type: string
+        required: true
+        default: "https://api.test.codeplain.ai"
+      delays:
+        description: "Seconds to wait before answering, comma separated"
+        type: string
+        required: true
+        default: "60,180,240,300,420,540"
+      repeats:
+        description: "Attempts per delay, per connection kind"
+        type: string
+        required: true
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe
+    runs-on: ubuntu-latest
+    # Every delay runs twice per repeat, once with keepalive and once without, so the
+    # worst case is sum(delays) * 2 * repeats. Leave room for it.
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: python -m pip install --quiet requests
+
+      - name: Probe
+        env:
+          CODEPLAIN_API_KEY: ${{ secrets.CODEPLAIN_API_KEY }}
+        run: |
+          python ops/probe_connection_hold.py \
+            --api "${{ inputs.api }}" \
+            --delays "${{ inputs.delays }}" \
+            --repeats "${{ inputs.repeats }}" \
+            --json-out probe-results.json
+
+      - name: Keep the measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-results
+          path: probe-results.json
+          if-no-files-found: warn
