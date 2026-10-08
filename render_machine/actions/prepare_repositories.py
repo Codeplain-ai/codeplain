@@ -92,13 +92,6 @@ class PrepareRepositories(BaseAction):
     def _prepare_regenerate(self, render_context: RenderContext):
         frid = render_context.render_range[0]
 
-        if "." in frid:
-            render_context.dispatch_error(
-                f"--regenerate only supports top-level integer FRIDs (e.g. `1`, `2`). "
-                f"Nested FRID `{frid}` is not supported."
-            )
-            return "error", None
-
         if not git_utils.has_commit_for_frid(render_context.build_folder, frid, render_context.module_name):
             render_context.dispatch_error(
                 f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
