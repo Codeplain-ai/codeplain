@@ -1,13 +1,20 @@
 # Measure how long a quiet connection to the render service survives, from a CI runner.
 #
 # The equipment under suspicion is the runner's own outbound network, so this has to run
-# here rather than on a developer machine. It is started by hand: it holds connections open
-# for several minutes at a time and has no reason to run on a push.
+# here rather than on a developer machine.
 #
-# It needs the /connection_hold endpoint, which lives on the testing deployment only.
+# It holds connections open for several minutes at a time, so it runs only for the branch
+# it belongs to and never for any other. It needs the /connection_hold endpoint, which
+# lives on the testing deployment only.
 name: Probe connection hold
 
 on:
+  # A workflow is only offered as a manual run once it is on the default branch, and this
+  # one is not meant to live there. Pushing the branch runs it, which is enough to measure
+  # from a runner. Re-run it from the Actions page to measure again without a new commit.
+  push:
+    branches:
+      - chore/probe-connection-hold
   workflow_dispatch:
     inputs:
       api:
@@ -50,11 +57,15 @@ jobs:
       - name: Probe
         env:
           CODEPLAIN_API_KEY: ${{ secrets.CODEPLAIN_API_KEY }}
+          # A push carries no inputs, so each one falls back to its default.
+          API: ${{ inputs.api || 'https://api.test.codeplain.ai' }}
+          DELAYS: ${{ inputs.delays || '60,180,240,300,420,540' }}
+          REPEATS: ${{ inputs.repeats || '3' }}
         run: |
           python ops/probe_connection_hold.py \
-            --api "${{ inputs.api }}" \
-            --delays "${{ inputs.delays }}" \
-            --repeats "${{ inputs.repeats }}" \
+            --api "$API" \
+            --delays "$DELAYS" \
+            --repeats "$REPEATS" \
             --json-out probe-results.json
 
       - name: Keep the measurements
