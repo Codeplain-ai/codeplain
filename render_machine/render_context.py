@@ -48,6 +48,7 @@ class RenderContext:
         test_script_timeout: Optional[int] = None,
         stop_event: Optional[threading.Event] = None,
         enter_pause_event: Optional[threading.Event] = None,
+        is_regenerate: bool = False,
     ):
         self.codeplain_api: CodeplainAPI = codeplain_api
         self.memory_manager = memory_manager
@@ -71,6 +72,9 @@ class RenderContext:
         self.event_bus = event_bus
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
+        self.is_regenerate = is_regenerate
+        self.old_frid_spec: str | None = None
+        self.code_functional_requirements: list[str] | None = None
         self.script_execution_history = ScriptExecutionHistory()
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
@@ -85,7 +89,7 @@ class RenderContext:
         self.frid_context: Optional[FridContext] = None
         self.unit_tests_running_context: Optional[UnitTestsRunningContext] = None
         self.conformance_tests_running_context: Optional[ConformanceTestsRunningContext] = None
-        # Constants that should remain for a single frid, but possible over multiple rerenderings of the same frid
+        # Constants that should remain for a single frid, but possible over multiple regenerations of the same frid
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
 
         # Initialize conformance tests utilities. The resolver lets a required module that ships
@@ -369,11 +373,16 @@ class RenderContext:
     def _has_reached_implementation_frid(self) -> bool:
         """Check if regression has reached the FRID being implemented."""
         ctx = self.conformance_tests_running_context
-        return (
+        if not (
             ctx.execution_phase == TestExecutionPhase.RUNNING_REGRESSION
             and ctx.current_testing_module_name == self.module_name
-            and (ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented)
+        ):
+            return False
+
+        terminal_frid = (
+            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_regenerate else ctx.frid_being_implemented
         )
+        return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
@@ -492,22 +501,65 @@ class RenderContext:
         # Set up specs and run test
         self._setup_test_specifications()
 
-        if ctx.current_conformance_tests_exist():
-            # Check if this is the implementation FRID (last test to run)
-            if self._has_reached_implementation_frid():
-                # Reached implementation FRID - only re-run it if code changed during regression
-                if ctx.code_changed_during_regression:
-                    # Code changed - run the implementation FRID again to verify no regression
-                    # After it passes, mark as completed on next iteration
-                    ctx.execution_phase = TestExecutionPhase.COMPLETED
-                else:
-                    # No code changes - skip re-running implementation FRID, mark as completed immediately
-                    ctx.execution_phase = TestExecutionPhase.COMPLETED
-                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
-                    return
+        if not ctx.current_conformance_tests_exist():
+            self._end_regression_run()
+            return
 
+        if (
+            self.is_regenerate
+            and ctx.current_testing_module_name == self.module_name
+            and ctx.current_testing_frid == ctx.frid_being_implemented
+            and not self._has_reached_implementation_frid()
+        ):
+            # The regenerated functionality was already tested in the initial phase, so move past it.
+            self.conformance_tests_running_context = self._get_next_test_to_run()
+            ctx = self.conformance_tests_running_context
+            self._setup_test_specifications()
+
+            if not ctx.current_conformance_tests_exist():
+                self._end_regression_run()
+                return
+
+        # Check if this is the implementation FRID (last test to run)
+        if self._has_reached_implementation_frid():
+            # Reached implementation FRID - only re-run it if code changed during regression
+            if ctx.code_changed_during_regression:
+                # Code changed - run the implementation FRID again to verify no regression
+                # After it passes, mark as completed on next iteration
+                ctx.execution_phase = TestExecutionPhase.COMPLETED
+            else:
+                # No code changes - skip re-running implementation FRID, mark as completed immediately
+                ctx.execution_phase = TestExecutionPhase.COMPLETED
+                self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+                return
+
+        self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+
+    def _end_regression_run(self):
+        """End the regression run when the next functionality has no conformance tests.
+
+        The functionalities of this module are walked through the spec file, so the walk can reach a
+        functionality that has none. A project that was rendered only in part has such
+        functionalities. Nothing is left to run then, and the run must not end without a trigger:
+        the state machine would stay in the same state and generate conformance tests for that
+        functionality.
+
+        The running context goes back to the functionality being implemented, because the
+        postprocessing steps look their conformance test folder up by it.
+        """
+        ctx = self.conformance_tests_running_context
+        ctx.current_testing_module_name = self.module_name
+        ctx.current_testing_frid = ctx.frid_being_implemented
+        self._setup_test_specifications()
+        ctx.execution_phase = TestExecutionPhase.COMPLETED
+
+        if ctx.code_changed_during_regression:
+            # Code changed during the run, so test the functionality being implemented once more.
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+        else:
+            self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
 
+    # TODO why is this in the context and not part of the state machine (in an action)
     # ========== Main Conformance Test Orchestration ==========
 
     def start_conformance_tests_for_frid(self):

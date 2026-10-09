@@ -271,10 +271,17 @@ def render(  # noqa: C901
     event_bus: EventBus,
     default_log_level: str = "INFO",
 ):
-    # Compute render range from either --render-range or --render-from
+    # Compute render range from either --render-range, --render-from, or --regenerate
     render_range = None
-    if args.render_range or args.render_from:
-        render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
+    is_regenerate = False
+    if args.render_range or args.render_from or args.regenerate:
+        if args.regenerate:
+            render_range = plain_spec.get_render_range(
+                args.regenerate + "," + args.regenerate, plain_module.plain_source
+            )
+            is_regenerate = True
+        else:
+            render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
 
     run_state.user_email = _check_connection(codeplainAPI)
 
@@ -300,7 +307,7 @@ def render(  # noqa: C901
         module.reconcile_metadata_with_git()
 
     render_choice = None
-    if render_range is None:
+    if render_range is None and not is_regenerate:
         plain_module_render_state = get_plain_module_render_state(plain_module, args.render_conformance_tests)
         if plain_module_render_state is not None:
             render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
@@ -348,6 +355,7 @@ def render(  # noqa: C901
         event_bus,
         stop_event=stop_event,
         enter_pause_event=enter_pause_event,
+        is_regenerate=is_regenerate,
     )
 
     render_error: list[Exception] = []

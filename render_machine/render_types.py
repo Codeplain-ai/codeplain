@@ -131,7 +131,10 @@ class ConformanceTestsRunningContext:
         if plain_spec.ACCEPTANCE_TESTS not in self.current_testing_frid_specifications:
             return None
         acceptance_tests = self.current_testing_frid_specifications[plain_spec.ACCEPTANCE_TESTS]
-        if not acceptance_tests or self.acceptance_tests_completed == 0:
+        # The counter belongs to the functionality being implemented. The specifications can belong
+        # to another functionality, which can have fewer acceptance tests, so the counter alone is
+        # not a valid position in this list.
+        if self.acceptance_tests_completed == 0 or self.acceptance_tests_completed > len(acceptance_tests):
             return None
         return acceptance_tests[self.acceptance_tests_completed - 1]
 
