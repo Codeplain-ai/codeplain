@@ -161,6 +161,17 @@ def setup_logging(
     return logging.getLevelName(configured_log_level)
 
 
+def attached_to_terminal() -> bool:
+    """Whether a person at a terminal can see and drive the TUI.
+
+    The TUI reads keys from stdin and draws on stderr; the exit summary goes to
+    stdout. Started from a script or an agent, stdin is usually at end-of-file,
+    and Textual's input thread then reads EOF in a tight loop at 100% CPU while
+    a stopped render waits for an Enter nobody can press.
+    """
+    return all(stream is not None and stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr))
+
+
 def _check_connection(codeplainAPI: codeplain_api.CodeplainAPI) -> Optional[str]:
     """Check API connectivity, validate API key and client version, and return the user email."""
     response = codeplainAPI.connection_check(system_config.client_version)
@@ -473,11 +484,20 @@ def main():  # noqa: C901
 
     run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
 
+    # Without a terminal nobody can watch or drive the TUI, so render as --headless does:
+    # progress on stdout, and a non-zero exit status when the render stops.
+    no_terminal = not args.headless and not attached_to_terminal()
+    if no_terminal:
+        args.headless = True
+
     if args.headless:
         # Suppress Rich console output.
         console.quiet = True
 
     default_log_level = setup_logging(args, event_bus, run_state, args.log_to_file, args.log_file_name, args.headless)
+
+    if no_terminal:
+        console.info("No terminal attached, so rendering without the TUI, as with --headless.")
 
     initialize_telemetry()
 

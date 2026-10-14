@@ -428,7 +428,8 @@ def create_parser():
         action="store_true",
         default=False,
         help="Run in headless mode: no TUI. Progress is written to the log file and streamed "
-        "to stdout as it happens; the specification text itself stays in the log file only.",
+        "to stdout as it happens; the specification text itself stays in the log file only. "
+        "Used automatically when stdin, stdout or stderr is not a terminal.",
     )
 
     parser.add_argument(

@@ -122,6 +122,9 @@ def run_main(render_side_effect=None, api_key="test-key"):
             render_side_effect(run_state)
 
     with (
+        # The args ask for the TUI. Under pytest there is no terminal, which would
+        # otherwise switch the render to headless.
+        patch("plain2code.attached_to_terminal", return_value=True),
         patch("plain2code.parse_arguments", return_value=make_args(api_key=api_key)),
         patch("plain2code.file_utils.get_template_directories", return_value=["templates"]),
         patch("plain2code.plain_modules.PlainModule", return_value=MagicMock(all_required_modules=[])),
