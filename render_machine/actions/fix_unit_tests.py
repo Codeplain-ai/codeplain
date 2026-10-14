@@ -4,10 +4,12 @@ import file_utils
 import render_machine.render_utils as render_utils
 from plain2code_console import console
 from plain2code_exceptions import InternalClientError
+from plain2code_utils import truncate_middle
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 
+# Same as MAX_ISSUE_LENGTH on the server: output within it reaches the fixer as is, without an LLM summary.
 MAX_ISSUE_LENGTH = 10000
 
 
@@ -21,9 +23,12 @@ class FixUnitTests(BaseAction):
             )
         previous_unittests_issue = previous_action_payload["previous_unittests_issue"]
 
-        if previous_unittests_issue and len(previous_unittests_issue) > MAX_ISSUE_LENGTH:
-            console.debug(
-                f"Unit tests issue text is too long and will be smartly truncated to {MAX_ISSUE_LENGTH} characters."
+        unittests_issue, omitted_characters = truncate_middle(previous_unittests_issue, MAX_ISSUE_LENGTH)
+        if omitted_characters:
+            console.warning(
+                f"Unit test output is {len(previous_unittests_issue):,} characters, over the "
+                f"{MAX_ISSUE_LENGTH:,}-character budget. The fixer gets the start and the end; "
+                f"{omitted_characters:,} characters in the middle are left out."
             )
 
         existing_files, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(
@@ -46,7 +51,7 @@ class FixUnitTests(BaseAction):
             existing_files_content,
             render_context.module_name,
             render_context.get_required_modules_functionalities(),
-            previous_unittests_issue,
+            unittests_issue,
             run_state=render_context.run_state,
             conformance_tests_fixes=conformance_tests_fixes,
         )

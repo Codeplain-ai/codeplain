@@ -72,6 +72,16 @@ cp /path/to/plain2code_client/test_scripts/run_conformance_tests_python.sh ./
 ```
 You may need to modify these scripts based on your specific project requirements.
 
+### Keep test output within the 10,000-character budget
+
+When a unit test script fails, its output goes to the fixer, which gets at most 10,000 characters of it. Longer output is cut from the middle: the fixer gets about the first and the last 4,980 characters, with a marker saying how many characters were left out. A warning in the log gives the full size each time this happens. Conformance test output over the same budget is summarized on the server instead.
+
+Output the fixer cannot act on uses up the budget and pushes the lines that matter into the middle, where they are cut. To keep the whole output within the budget:
+
+- Print a passing test run as its summary line only, and a failing one in full. A passing run still reaches the fixer when something else in the script fails, such as the linter.
+- Print lint results as counts per rule, then one line per offense. For RuboCop: `rubocop --format offenses --format emacs`.
+- Leave out coverage tables, slowest-test reports, and progress output.
+
 ## 3. Configure Parameters
 
 Create a `config.yaml` (default name, which you can change with `--config-name` argument in the file) file to configure the plain2code CLI parameters.
