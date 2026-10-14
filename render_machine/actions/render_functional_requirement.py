@@ -7,7 +7,7 @@ from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import FunctionalRequirementTooComplex
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
-from render_machine.render_context import RenderContext
+from render_machine.render_context import MAX_UNITTEST_FIX_ATTEMPTS, RenderContext
 from render_machine.render_types import RenderError
 
 MAX_CODE_GENERATION_RETRIES = 2
@@ -20,9 +20,16 @@ class RenderFunctionalRequirement(BaseAction):
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if render_context.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
-            error_msg = f"Unittests could not be fixed after rendering the functionality {render_context.frid_context.frid} for the {MAX_CODE_GENERATION_RETRIES} times."
+            # A render attempt is only restarted once its unit tests used up every fix round.
+            error_msg = (
+                f"Functionality {render_context.frid_context.frid}: unit tests still fail after "
+                f"{MAX_CODE_GENERATION_RETRIES} render attempts, {MAX_UNITTEST_FIX_ATTEMPTS} fix rounds each."
+            )
+            last_output_path = render_context.script_execution_history.latest_unit_test_output_path
+            if last_output_path:
+                error_msg += f" Last unit tests output: {last_output_path}"
             render_context.last_error_message = error_msg
-            return self.ITERATION_LIMIT_EXCEEDED_OUTCOME, None
+            return self.ITERATION_LIMIT_EXCEEDED_OUTCOME, RenderError.encode(message=error_msg).to_payload()
 
         render_context.frid_context.functional_requirement_render_attempts += 1
 

@@ -214,17 +214,15 @@ class RenderError:
         """Decode error from action payload.
 
         Expects standardized format: {"error": {"message": ..., "type": ..., "details": ...}}
+        Any other payload is not an error (e.g. the payload of the action that ran before an error was
+        dispatched from a state callback) and decodes to None.
         """
-        if payload is None:
+        if not isinstance(payload, dict) or "error" not in payload:
             return None
 
-        if isinstance(payload, dict) and "error" in payload:
-            error_data = payload["error"]
-            return cls(
-                message=error_data.get("message", "Unknown error"),
-                error_type=error_data.get("type"),
-                details=error_data.get("details"),
-            )
-
-        # Unexpected format - log and return generic error
-        return cls(message=f"Unexpected error format: {type(payload).__name__}")
+        error_data = payload["error"]
+        return cls(
+            message=error_data.get("message", "Unknown error"),
+            error_type=error_data.get("type"),
+            details=error_data.get("details"),
+        )
