@@ -47,11 +47,18 @@ def keepalive_socket_options():
 
 
 class KeepaliveAdapter(HTTPAdapter):
-    """Opens every connection with keepalive on."""
+    """Opens every connection with keepalive on, whether it goes direct or through a proxy."""
 
     def init_poolmanager(self, *args, **kwargs):
         kwargs["socket_options"] = keepalive_socket_options()
         return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        # A request that goes through a proxy is served from a separate pool, which the
+        # options above never reach. A render behind a proxy is as quiet as any other and
+        # needs the same keepalive.
+        proxy_kwargs["socket_options"] = keepalive_socket_options()
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
 
 
 def new_session():
