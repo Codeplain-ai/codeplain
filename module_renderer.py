@@ -134,10 +134,8 @@ class ModuleRenderer:
 
         code_renderer.run()
         if code_renderer.render_context.state == States.RENDER_FAILED.value:
-            error_message = RenderError.get_display_message(
-                code_renderer.render_context.previous_action_payload,
-                fallback_message=code_renderer.render_context.last_error_message,
-            )
+            # ExitWithError resolved and logged the stop reason; the TUI shows the same text.
+            error_message = code_renderer.render_context.last_error_message or RenderError.get_display_message(None)
             code_renderer.render_context.event_bus.publish(RenderFailed(error_message=error_message))
             return False, True
 
