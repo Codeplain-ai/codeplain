@@ -66,7 +66,10 @@ options:
   --unittests-script UNITTESTS_SCRIPT
                         Shell script to run unit tests on generated code.
                         Receives the module's code folder path as its first
-                        argument (e.g. `plain_modules/module_name/code`).
+                        argument (e.g. `plain_modules/module_name/code`). When
+                        it fails, the fixer gets at most 10,000 characters of
+                        its output: the start and the end, with the middle
+                        left out.
   --conformance-tests-script CONFORMANCE_TESTS_SCRIPT
                         Path to conformance tests shell script. Every
                         conformance test script should accept two arguments:

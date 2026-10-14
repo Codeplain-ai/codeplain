@@ -35,6 +35,29 @@ def format_duration_hms(total_seconds: float) -> str:
     return f"{hours}h {minutes % 60}m"
 
 
+def _omission_marker(omitted: int) -> str:
+    return f"\n\n[... {omitted:,} characters omitted ...]\n\n"
+
+
+def truncate_middle(text: str, max_length: int) -> tuple[str, int]:
+    """Fit text into max_length characters by cutting the middle out, keeping equal shares of start and end.
+
+    Test output carries the first failures at the start and the summary lines and lint findings at the
+    end, so both ends are kept. A marker in place of the cut says how many characters were left out.
+    Returns the fitted text and the number of characters left out (0 when the text already fits).
+    """
+    if len(text) <= max_length:
+        return text, 0
+
+    # The marker's length depends on the count it reports, so leave room for the largest possible count.
+    kept_at_each_end = (max_length - len(_omission_marker(len(text)))) // 2
+    if kept_at_each_end < 1:
+        raise ValueError(f"A budget of {max_length} characters cannot hold the omission marker.")
+
+    omitted = len(text) - 2 * kept_at_each_end
+    return text[:kept_at_each_end] + _omission_marker(omitted) + text[-kept_at_each_end:], omitted
+
+
 AMBIGUITY_CAUSES = {
     "reference_resource_ambiguity": "Ambiguity is in the reference resources",
     "definition_ambiguity": "Ambiguity is in the definitions",

@@ -299,7 +299,8 @@ def create_parser():
         parser,
         "--unittests-script",
         type=str,
-        help="Shell script to run unit tests on generated code. Receives the module's code folder path as its first argument (e.g. `plain_modules/module_name/code`).",
+        help="Shell script to run unit tests on generated code. Receives the module's code folder path as its first argument (e.g. `plain_modules/module_name/code`). "
+        "When it fails, the fixer gets at most 10,000 characters of its output: the start and the end, with the middle left out.",
     )
     _add_arg(
         parser,
