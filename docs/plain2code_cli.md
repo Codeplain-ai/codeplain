@@ -121,6 +121,8 @@ options:
   --headless            Run in headless mode: no TUI. Progress is written to
                         the log file and streamed to stdout as it happens; the
                         specification text itself stays in the log file only.
+                        Used automatically when stdin, stdout or stderr is not
+                        a terminal.
   --status              Display account status including user information, API
                         key label, and rendering credits. Does not render any
                         code.
