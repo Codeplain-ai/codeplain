@@ -142,7 +142,21 @@ def get_existing_files_content(build_folder, existing_files):
     return existing_files_content
 
 
+def ensure_final_newline(content: str) -> str:
+    """Ends non-empty text with a newline, as linters expect (e.g. RuboCop, ESLint eol-last, Ruff W292)."""
+    if content and not content.endswith("\n"):
+        return content + "\n"
+    return content
+
+
 def store_response_files(target_folder, response_files, existing_files):
+    """Writes the files returned by the API to target_folder. None content deletes the file.
+
+    Every written file ends with a newline - whole-file rewrites come back from the API without one. The
+    added newline is also written back into response_files, so callers that diff response_files against
+    the folder afterwards see exactly what is on disk. Content is written byte-for-byte, without newline
+    translation, so the disk matches response_files on every platform.
+    """
     for file_name in response_files:
         full_file_name = os.path.join(target_folder, file_name)
 
@@ -156,9 +170,11 @@ def store_response_files(target_folder, response_files, existing_files):
 
             continue
 
+        response_files[file_name] = ensure_final_newline(response_files[file_name])
+
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
-        with open(full_file_name, "w", encoding="utf-8") as f:
+        with open(full_file_name, "w", encoding="utf-8", newline="") as f:
             f.write(response_files[file_name])
 
         if file_name not in existing_files:
