@@ -13,12 +13,10 @@ exits non-zero. With a terminal the TUI is kept, and waiting for Enter must
 stay idle.
 """
 
-import fcntl
 import os
 import struct
 import subprocess
 import sys
-import termios
 import textwrap
 import threading
 import time
@@ -247,6 +245,10 @@ STOPPED_TUI = textwrap.dedent("""
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
 def test_a_stopped_render_on_a_terminal_waits_for_enter_without_spinning(tmp_path):
+    # Unix-only modules: imported here so Windows can still collect the other tests in this file.
+    import fcntl
+    import termios
+
     controller, terminal = os.openpty()
     fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     report = tmp_path / "cpu_seconds"
