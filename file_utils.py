@@ -154,7 +154,8 @@ def store_response_files(target_folder, response_files, existing_files):
 
     Every written file ends with a newline - whole-file rewrites come back from the API without one. The
     added newline is also written back into response_files, so callers that diff response_files against
-    the folder afterwards see exactly what is on disk.
+    the folder afterwards see exactly what is on disk. Content is written byte-for-byte, without newline
+    translation, so the disk matches response_files on every platform.
     """
     for file_name in response_files:
         full_file_name = os.path.join(target_folder, file_name)
@@ -173,7 +174,7 @@ def store_response_files(target_folder, response_files, existing_files):
 
         os.makedirs(os.path.dirname(full_file_name), exist_ok=True)
 
-        with open(full_file_name, "w", encoding="utf-8") as f:
+        with open(full_file_name, "w", encoding="utf-8", newline="") as f:
             f.write(response_files[file_name])
 
         if file_name not in existing_files:

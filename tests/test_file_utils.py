@@ -1,8 +1,10 @@
 import os
 import tempfile
 
+import _pyio
 import pytest
 
+import file_utils
 from diff_utils import get_code_diff
 from file_utils import get_existing_files_content, load_linked_resources, store_response_files
 from plain2code_exceptions import UnsupportedBase64Content, UnsupportedResourceType
@@ -146,3 +148,19 @@ def test_store_response_files_still_deletes_a_file_whose_content_is_none(templat
     assert not os.path.exists(os.path.join(template_dir, "app/foo.rb"))
     assert existing_files == []
     assert response_files == {"app/foo.rb": None}
+
+
+def test_store_response_files_writes_the_same_bytes_where_text_mode_writes_crlf(template_dir, monkeypatch):
+    """Files hold exactly the normalized content even where text mode writes CRLF line endings (native Windows)."""
+    # Python's reference io (_pyio) takes its line separator from os.linesep, so here it translates like Windows.
+    monkeypatch.setattr(os, "linesep", "\r\n")
+    monkeypatch.setattr(file_utils, "open", _pyio.open, raising=False)
+    with _pyio.open(os.path.join(template_dir, "probe.txt"), "w") as probe:
+        probe.write("\n")
+    assert _read_bytes(template_dir, "probe.txt") == "\r\n"
+
+    response_files = {"app/foo.rb": "class Foo\nend", "app/bar.rb": "class Bar\r\nend\r\n"}
+    store_response_files(template_dir, response_files, [])
+
+    assert _read_bytes(template_dir, "app/foo.rb") == response_files["app/foo.rb"] == "class Foo\nend\n"
+    assert _read_bytes(template_dir, "app/bar.rb") == response_files["app/bar.rb"] == "class Bar\r\nend\r\n"
