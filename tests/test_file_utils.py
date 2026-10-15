@@ -1,7 +1,6 @@
 import os
 import tempfile
 
-import _pyio
 import pytest
 
 import file_utils
@@ -158,6 +157,9 @@ def test_store_response_files_still_deletes_a_file_whose_content_is_none(templat
 
 def test_store_response_files_writes_the_same_bytes_where_text_mode_writes_crlf(template_dir, monkeypatch):
     """Files hold exactly the normalized content even where text mode writes CRLF line endings (native Windows)."""
+    # Imported here: isort 8 and isort 9 disagree on which section a top-level `import _pyio` belongs to.
+    import _pyio
+
     # Python's reference io (_pyio) takes its line separator from os.linesep, so here it translates like Windows.
     monkeypatch.setattr(os, "linesep", "\r\n")
     monkeypatch.setattr(file_utils, "open", _pyio.open, raising=False)
