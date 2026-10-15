@@ -85,8 +85,7 @@ def test_load_linked_resources_real_base64_image_raises(template_dir):
 
 
 def test_store_response_files_writes_unicode_as_utf8(template_dir):
-    # Content with a non-cp1252 character (📍 U+1F4CD) must be written as UTF-8
-    # regardless of the platform's default text encoding (e.g. cp1252 on Windows).
+    """A non-cp1252 character (📍 U+1F4CD) is written as UTF-8, whatever the platform's default encoding."""
     content = "Location 📍 marker\n"
     store_response_files(template_dir, {"notes.md": content}, [])
 
@@ -96,6 +95,7 @@ def test_store_response_files_writes_unicode_as_utf8(template_dir):
 
 
 def _read_bytes(folder, file_name):
+    """Returns a file's content exactly as stored on disk, without newline translation."""
     with open(os.path.join(folder, file_name), "rb") as f:
         return f.read().decode("utf-8")
 
@@ -111,16 +111,20 @@ def _read_bytes(folder, file_name):
     ],
 )
 def test_store_response_files_ends_every_text_file_with_a_newline(template_dir, content, expected):
-    # Linters gate on a final newline (RuboCop Layout/TrailingEmptyLines, ESLint eol-last, Ruff W292), so a
-    # whole-file rewrite that comes back without one must not reach the disk that way.
+    """A missing final newline is added, as linters such as RuboCop, ESLint and Ruff require.
+
+    An existing final newline is not doubled, and empty content stays empty.
+    """
     store_response_files(template_dir, {"app/foo.rb": content}, [])
 
     assert _read_bytes(template_dir, "app/foo.rb") == expected
 
 
 def test_store_response_files_hands_back_the_content_it_wrote(template_dir):
-    # Callers diff the response files against the build folder after storing them (fix journal, conformance
-    # fixes handed to the unit tests fixer), so the response files must match what is on disk.
+    """response_files holds the content as written, so diffs taken after storing match the disk.
+
+    The fix journal and the conformance fixes handed to the unit tests fixer take such diffs.
+    """
     response_files = {"app/foo.rb": "class Foo\nend", "app/bar.rb": "class Bar\nend\n"}
 
     store_response_files(template_dir, response_files, [])
@@ -129,6 +133,7 @@ def test_store_response_files_hands_back_the_content_it_wrote(template_dir):
 
 
 def test_rewriting_a_file_without_its_final_newline_does_not_change_it(template_dir):
+    """A rewrite that drops only the final newline leaves the file byte-identical and produces no diff."""
     existing_files = store_response_files(template_dir, {"app/foo.rb": "class Foo\nend\n"}, [])
     existing_files_content = get_existing_files_content(template_dir, existing_files)
 
@@ -140,6 +145,7 @@ def test_rewriting_a_file_without_its_final_newline_does_not_change_it(template_
 
 
 def test_store_response_files_still_deletes_a_file_whose_content_is_none(template_dir):
+    """None content still deletes the file and removes it from existing_files, and is not turned into a newline."""
     existing_files = store_response_files(template_dir, {"app/foo.rb": "class Foo\nend\n"}, [])
 
     response_files = {"app/foo.rb": None}
