@@ -113,12 +113,11 @@ class RenderContext:
         self.machine = machine
 
     def dispatch_error(self, error_message: str):
-        """Log error, store it, and dispatch HANDLE_ERROR trigger.
+        """Store the error and dispatch HANDLE_ERROR trigger. ExitWithError logs it and the TUI displays it.
 
         Args:
             error_message: The error message to log and display to the user.
         """
-        console.error(error_message)
         self.last_error_message = error_message
         self.machine.dispatch(triggers.HANDLE_ERROR)
 

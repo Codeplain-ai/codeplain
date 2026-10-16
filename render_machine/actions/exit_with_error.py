@@ -10,7 +10,13 @@ class ExitWithError(BaseAction):
     SUCCESSFUL_OUTCOME = "error_handled"
 
     def execute(self, render_context: RenderContext, previous_action_payload: Any | None):
-        console.error(previous_action_payload)
+        # The stop reason is the error payload of the failed action, or the message stored when the
+        # error was dispatched from a state callback. The log and the TUI both show this text.
+        error_message = RenderError.get_display_message(
+            previous_action_payload, fallback_message=render_context.last_error_message
+        )
+        render_context.last_error_message = error_message
+        console.error(error_message)
 
         render_context.codeplain_api.fail_functional_requirement(
             render_context.frid_context.frid,
@@ -27,9 +33,4 @@ class ExitWithError(BaseAction):
         if render_context.run_state.render_id is not None:
             console.info(f"Render ID: {render_context.run_state.render_id}")
 
-        return (
-            self.SUCCESSFUL_OUTCOME,
-            RenderError.encode(
-                message=render_context.last_error_message or "Unknown error",
-            ).to_payload(),
-        )
+        return self.SUCCESSFUL_OUTCOME, RenderError.encode(message=error_message).to_payload()

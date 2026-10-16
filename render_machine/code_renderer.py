@@ -67,14 +67,11 @@ class CodeRenderer:
             self.render_context.run_state.current_render_state = self.render_context.state
             self.render_context.script_execution_history.should_update_script_outputs = False
 
-            self.render_context.previous_action_payload = previous_action_payload
-
             outcome, previous_action_payload = self.action_map[self.render_context.state].execute(
                 self.render_context, previous_action_payload
             )
 
             if self.render_context.state == States.RENDER_FAILED.value:
-                self.render_context.last_error_message = previous_action_payload
                 self.render_context.event_bus.publish(RenderModuleFailed(module_name=self.render_context.module_name))
                 break
 
