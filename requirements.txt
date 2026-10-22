@@ -1,4 +1,4 @@
-plain-parser==0.1.4
+plain-parser @ git+https://github.com/plainlang/plain-parser@feat/explicit-test-scenarios
 
 # Both transitive via plain-parser; pinned so an automatic mistletoe upgrade doesn't change spec hashes.
 mistletoe==1.6.0
