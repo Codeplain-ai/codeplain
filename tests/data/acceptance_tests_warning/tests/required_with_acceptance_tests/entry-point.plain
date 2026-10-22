@@ -1,0 +1,11 @@
+---
+module: required_with_acceptance_tests
+func_id: entry-point
+---
+
+***conformance tests***
+
+# runs-without-errors
+Starting :App: exits with status 0.
+
+***acceptance tests***

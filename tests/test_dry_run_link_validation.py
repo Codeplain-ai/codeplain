@@ -23,7 +23,8 @@ PLAIN_TEMPLATE = """***definitions***
 
 ***functional specs***
 
-- A :Widget: can be created.
+# create-widget
+A :Widget: can be created.
 """
 
 

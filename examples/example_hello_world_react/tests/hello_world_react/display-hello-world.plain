@@ -1,0 +1,11 @@
+---
+module: hello_world_react
+func_id: display-hello-world
+---
+
+***conformance tests***
+
+# shows-hello-world
+Opening :App: in a browser shows "hello, world".
+
+***acceptance tests***

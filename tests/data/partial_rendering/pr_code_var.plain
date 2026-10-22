@@ -4,6 +4,8 @@
 
 ***functional specs***
 
-- Plain functionality one.
+# plain-one
+Plain functionality one.
 
-- Implement {% include "pr_implement.plain", variable_name: "configurable-value" %}
+# implement-configurable
+Implement {% include "pr_implement.plain", variable_name: "configurable-value" %}

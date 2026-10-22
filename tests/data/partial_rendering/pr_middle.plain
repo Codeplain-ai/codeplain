@@ -9,6 +9,8 @@ requires:
 
 ***functional specs***
 
-- Middle functionality one.
+# middle-one
+Middle functionality one.
 
-- Middle functionality two.
+# middle-two
+Middle functionality two.

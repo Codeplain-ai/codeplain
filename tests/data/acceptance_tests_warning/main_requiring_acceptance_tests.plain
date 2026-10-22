@@ -13,4 +13,5 @@ requires:
 
 ***functional specs***
 
-- Display "hello, world"
+# display-hello
+:MainApp: displays "hello, world".
