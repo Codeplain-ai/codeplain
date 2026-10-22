@@ -9,6 +9,8 @@ requires:
 
 ***functional specs***
 
-- Root functionality one.
+# root-one
+Root functionality one.
 
-- Root functionality two.
+# root-two
+Root functionality two.
