@@ -488,6 +488,8 @@ def main():  # noqa: C901
             os.path.basename(args.filename),
             args.build_folder,
             template_dirs,
+            args.test_dir,
+            args.render_conformance_tests,
         )
     except Exception as e:
         console.error(f"Error: {user_error_message(e)}")
