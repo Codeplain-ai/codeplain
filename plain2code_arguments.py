@@ -2,6 +2,8 @@ import argparse
 import os
 from typing import Optional, Sequence
 
+from plain_parser.plain_spec import is_semantic_id
+
 from path_resolution import resolve_path
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
@@ -132,14 +134,14 @@ def job_tag_string(s):
 
 
 def frid_string(s):
-    """Validate that the FRID is an integer."""
+    """Validate that the functionality ID is a func-id."""
     if not s:
         raise argparse.ArgumentTypeError("The functionality ID cannot be empty.")
 
-    try:
-        int(s)
-    except ValueError:
-        raise argparse.ArgumentTypeError("Functionality ID string must be a number.")
+    if not is_semantic_id(s):
+        raise argparse.ArgumentTypeError(
+            f"Invalid functionality ID '{s}'. A functionality ID holds lowercase letters, digits and hyphens."
+        )
     return s
 
 
@@ -333,7 +335,7 @@ def create_parser():
         render_range_group,
         "--render-range",
         type=frid_range_string,
-        help="Specify a range of functionalities to render (e.g. `1` , `2`, `3`). "
+        help="Specify a range of functionalities to render (e.g. `add-task`, `add-task,list-tasks`). "
         "Use comma to separate start and end IDs. If only one functionality ID is provided, only that functionality is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
@@ -341,7 +343,7 @@ def create_parser():
         render_range_group,
         "--render-from",
         type=frid_string,
-        help="Continue generation starting from this specific functionality (e.g. `2`). "
+        help="Continue generation starting from this specific functionality (e.g. `add-task`). "
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
 

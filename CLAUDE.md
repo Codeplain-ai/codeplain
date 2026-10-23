@@ -76,8 +76,8 @@ python plain2code.py path/to/file.plain --log-to-file
 python plain2code.py path/to/file.plain --headless
 
 # Render specific functionality range
-python plain2code.py file.plain --render-range 1,3  # Render functionalities 1-3
-python plain2code.py file.plain --render-from 2     # Resume from functionality 2
+python plain2code.py file.plain --render-range add-task,delete-task  # Render add-task through delete-task
+python plain2code.py file.plain --render-from delete-task            # Resume from delete-task
 
 # Run with examples
 cd examples/example_hello_world_python
@@ -136,7 +136,7 @@ black . --check && isort . --check-only && flake8 . && mypy . --check-untyped-de
 
 **Plain Modules**: A `.plain` file can `import` other `.plain` files, creating a module dependency tree. The renderer processes required modules first (depth-first), then the top module.
 
-**Functionalities (FRIDs)**: Each functional requirement in a `.plain` file has a unique ID (FRID). The renderer processes them sequentially. State is checkpointed after each FRID.
+**Functionalities (FRIDs)**: Each functional requirement in a `.plain` file has a unique ID (FRID), the func-id of its `# <func-id>` heading. The renderer processes them sequentially. State is checkpointed after each FRID.
 
 **Render State Machine** (`render_machine/states.py`): Hierarchical FSM with states like:
 - `IMPLEMENTING_FRID` → `PROCESSING_UNIT_TESTS` → `REFACTORING_CODE` → `PROCESSING_CONFORMANCE_TESTS`
