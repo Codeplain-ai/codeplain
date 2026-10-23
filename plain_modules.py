@@ -18,6 +18,7 @@ require_git()
 
 from git import Repo
 from git.exc import NoSuchPathError
+from plain_parser import project
 
 import file_utils
 import git_utils
@@ -134,7 +135,14 @@ def _strip_functional_requirements(plain_source_tree: dict) -> dict:
 
 
 class PlainModule:
-    def __init__(self, filename: str, build_folder: str, template_dirs: list[str]):
+    def __init__(
+        self,
+        filename: str,
+        build_folder: str,
+        template_dirs: list[str],
+        test_dirs: list[str] | None = None,
+        conformance_tests_enabled: bool = False,
+    ):
         self.filename = filename
         self.build_folder = build_folder
         self.template_dirs = template_dirs
@@ -161,6 +169,19 @@ class PlainModule:
                 )
                 for module_name in required_modules_names
             ]
+        if test_dirs is not None:
+            self._bind_test_scenarios(test_dirs, conformance_tests_enabled)
+
+    def _bind_test_scenarios(self, test_dirs: list[str], conformance_tests_enabled: bool) -> None:
+        """Add the scenarios of the test plain files under ``test_dirs`` to the functionalities of the chain.
+
+        With conformance tests enabled, a functionality without a conformance scenario stops the run here.
+        """
+        chain = [(module.module_name, module.plain_source) for module in self.all_required_modules]
+        chain.append((self.module_name, self.plain_source))
+        project.bind_test_plain_files(chain, test_dirs, self.template_dirs, self.template_dirs[0])
+        if conformance_tests_enabled:
+            project.check_conformance_scenarios(chain)
 
     @cached_property
     def all_required_modules(self) -> list[PlainModule]:

@@ -78,6 +78,7 @@ def make_args():
         api="https://api.example.com",
         filename="project.plain",
         template_dir=None,
+        test_dir=[],
         build_folder="build",
         render_range=None,
         render_from=None,
