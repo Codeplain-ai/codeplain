@@ -467,16 +467,7 @@ class RenderContext:
         if ctx.acceptance_test_phase == AcceptanceTestPhase.IN_PROGRESS:
             if self._has_more_acceptance_test_phases():
                 # Run next phase
-                if ctx.acceptance_tests_completed == 0:
-                    ctx.current_testing_frid_high_level_implementation_plan = None
-
                 ctx.acceptance_tests_completed += 1
-                acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-                    : ctx.acceptance_tests_completed
-                ]
-                ctx.get_conformance_tests_json(ctx.current_testing_module_name)[ctx.current_testing_frid][
-                    plain_spec.ACCEPTANCE_TESTS
-                ] = acceptance_tests
                 return
             else:
                 # All phases done - move to regression
