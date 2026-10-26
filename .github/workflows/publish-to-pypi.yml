@@ -104,6 +104,20 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
 
+      # Before the success notice, so a failed success post cannot trigger it.
+      - name: Notify Slack (failure)
+        if: ${{ failure() && vars.SLACK_CHANNEL_ID != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          errors: true
+          payload: |
+            channel: ${{ vars.SLACK_CHANNEL_ID }}
+            text: >-
+              *Codeplain Client*: Publishing `${{ github.ref_name }}` to PyPI FAILED :x:.
+              See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.
+
       # GitHub marks the release itself as a pre-release; the tag (v0.4.0rc1)
       # carries the same intent for PEP 440. pip and uv skip pre-releases by
       # default, so "--upgrade" would NOT pick one up. Tell people the command
@@ -133,19 +147,6 @@ jobs:
             text: >-
               *Codeplain Client*: `${{ github.ref_name }}` published to PyPI :white_check_mark:.
               Install with `pip install --upgrade codeplain`.
-
-      - name: Notify Slack (failure)
-        if: ${{ failure() && vars.SLACK_CHANNEL_ID != '' }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          errors: true
-          payload: |
-            channel: ${{ vars.SLACK_CHANNEL_ID }}
-            text: >-
-              *Codeplain Client*: Publishing `${{ github.ref_name }}` to PyPI FAILED :x:.
-              See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.
 
   # Release pipelines to be turned on only after the rest of the infrastructure
   # is ready.
