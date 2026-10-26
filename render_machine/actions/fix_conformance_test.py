@@ -6,6 +6,7 @@ import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
+from plain2code_utils import qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -45,7 +46,8 @@ class FixConformanceTest(BaseAction):
         console.info(f"Running conformance tests attempt {ctx.fix_attempts + 1}.")
 
         console.info(
-            f"Fixing conformance test for functionality {render_context.conformance_tests_running_context.current_testing_frid} in module {render_context.conformance_tests_running_context.current_testing_module_name}."
+            f"Fixing conformance test for functionality "
+            f"{qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}."
         )
 
         if not previous_action_payload.get("previous_conformance_tests_issue"):
@@ -145,7 +147,7 @@ class FixConformanceTest(BaseAction):
             render_context.conformance_tests_running_context.conflicting_frid = current_testing_frid
             console.info(
                 f"↻ Potential conflicting functionalities detected while fixing conformance tests "
-                f"for functionality {current_testing_frid} in module {current_testing_module_name}.",
+                f"for functionality {qualified_frid(current_testing_module_name, current_testing_frid)}.",
                 color=RETRY_COLOR,
             )
 

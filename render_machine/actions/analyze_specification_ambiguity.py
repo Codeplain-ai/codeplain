@@ -5,7 +5,7 @@ import git_utils
 import plain_spec
 from plain2code_console import console
 from plain2code_exceptions import InternalClientError
-from plain2code_utils import AMBIGUITY_CAUSES
+from plain2code_utils import AMBIGUITY_CAUSES, qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -43,12 +43,14 @@ class AnalyzeSpecificationAmbiguity(BaseAction):
             fixed_implementation_code_diff,
             run_state=render_context.run_state,
         )
+        functionality = qualified_frid(render_context.module_name, render_context.frid_context.frid)
         if rendering_analysis:
             # TODO: Before this output is exposed to the user, we should check the 'guidance' field using LLM in the same way as we do conflicting requirements.
             console.info(
-                f"Specification ambiguity detected! {AMBIGUITY_CAUSES[rendering_analysis['cause']]} of the functionality {render_context.frid_context.frid}."
+                f"Specification ambiguity detected! {AMBIGUITY_CAUSES[rendering_analysis['cause']]} "
+                f"of the functionality {functionality}."
             )
             console.info(rendering_analysis["guidance"])
         else:
-            console.debug(f"No specification ambiguity detected for functionality {render_context.frid_context.frid}.")
+            console.debug(f"No specification ambiguity detected for functionality {functionality}.")
         return self.SUCCESSFUL_OUTCOME, None

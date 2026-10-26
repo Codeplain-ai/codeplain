@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from plain2code_events import RenderContextSnapshot
+from plain2code_utils import qualified_frid
 from render_machine.render_types import AcceptanceTestPhase
 from render_machine.states import States
 
@@ -18,6 +19,12 @@ from .widget_helpers import (
     update_progress_item_status,
     update_progress_item_substates,
 )
+
+
+def _testing_functionality(snapshot: RenderContextSnapshot) -> str:
+    """The functionality whose conformance tests are running, as `<module>:<func-id>`."""
+    ctx = snapshot.conformance_tests_running_context
+    return qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)
 
 
 class StateHandler(ABC):
@@ -54,7 +61,11 @@ class FridReadyHandler(StateHandler):
         """Handle READY_FOR_FRID_IMPLEMENTATION state."""
         # Update FRID text
 
-        rendering_functionality_text = f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{snapshot.frid_context.frid}: {snapshot.frid_context.functional_requirement_text}"
+        functionality = qualified_frid(snapshot.module_name, snapshot.frid_context.frid)
+        rendering_functionality_text = (
+            f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{functionality}: "
+            f"{snapshot.frid_context.functional_requirement_text}"
+        )
         get_frid_progress(self.tui).update_functionality_text(rendering_functionality_text)
 
         # Set progress states
@@ -184,7 +195,7 @@ class ConformanceTestsHandler(StateHandler):
                 phase = snapshot.conformance_tests_running_context.acceptance_test_phase
                 # Rendering full conformance tests (if there are no acceptance tests available or haven't been started yet)
                 if phase == AcceptanceTestPhase.NOT_STARTED or phase == AcceptanceTestPhase.NOT_APPLICABLE:
-                    rendering_text = f"Rendering conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
+                    rendering_text = f"Rendering conformance tests for functionality {_testing_functionality(snapshot)}"
                     update_progress_item_substates(
                         self.tui,
                         TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
@@ -209,21 +220,13 @@ class ConformanceTestsHandler(StateHandler):
                     [Substate("Preparing testing environment for conformance tests")],
                 )
             elif segments[2] == States.CONFORMANCE_TEST_ENV_PREPARED.value:
-                running_text = f"Running conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
-                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
-                    running_text += (
-                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
-                    )
+                running_text = f"Running conformance tests for functionality {_testing_functionality(snapshot)}"
 
                 update_progress_item_substates(
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(running_text)]
                 )
             elif segments[2] == States.CONFORMANCE_TEST_FAILED.value:
-                fixing_text = f"Fixing conformance tests for functionality {snapshot.conformance_tests_running_context.current_testing_frid}"
-                if snapshot.conformance_tests_running_context.current_testing_module_name != snapshot.module_name:
-                    fixing_text += (
-                        f" of module {snapshot.conformance_tests_running_context.current_testing_module_name}"
-                    )
+                fixing_text = f"Fixing conformance tests for functionality {_testing_functionality(snapshot)}"
 
                 update_progress_item_substates(
                     self.tui, TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value, [Substate(fixing_text)]

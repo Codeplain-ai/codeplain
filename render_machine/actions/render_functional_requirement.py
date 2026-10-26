@@ -5,6 +5,7 @@ import render_machine.render_utils as render_utils
 from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import FunctionalRequirementTooComplex
+from plain2code_utils import qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import MAX_UNITTEST_FIX_ATTEMPTS, RenderContext
@@ -21,8 +22,9 @@ class RenderFunctionalRequirement(BaseAction):
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if render_context.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
             # A render attempt is only restarted once its unit tests used up every fix round.
+            functionality = qualified_frid(render_context.module_name, render_context.frid_context.frid)
             error_msg = (
-                f"Functionality {render_context.frid_context.frid}: unit tests still fail after "
+                f"Functionality {functionality}: unit tests still fail after "
                 f"{MAX_CODE_GENERATION_RETRIES} render attempts, {MAX_UNITTEST_FIX_ATTEMPTS} fix rounds each."
             )
             last_output_path = render_context.script_execution_history.latest_unit_test_output_path
@@ -36,7 +38,8 @@ class RenderFunctionalRequirement(BaseAction):
         if render_context.frid_context.functional_requirement_render_attempts > 1:
             console.info(
                 f"↻ Unittests could not be fixed after rendering the functionality. "
-                f"Restarting rendering functionality {render_context.frid_context.frid} from scratch.",
+                f"Restarting rendering functionality "
+                f"{qualified_frid(render_context.module_name, render_context.frid_context.frid)} from scratch.",
                 color=RETRY_COLOR,
             )
 

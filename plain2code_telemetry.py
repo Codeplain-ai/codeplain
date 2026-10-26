@@ -17,6 +17,7 @@ from sentry_sdk.integrations.modules import ModulesIntegration
 from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 
 from plain2code_state import RunState
+from plain2code_utils import qualified_frid
 from system_config import system_config
 
 SENTRY_DSN = "https://64d0d86b50b34e2dede3e4eaf5142282@o4510793955934208.ingest.us.sentry.io/4511540621213696"
@@ -103,7 +104,7 @@ def capture_crash(exc_info, run_state: Optional[RunState], args) -> bool:
                 scope.set_tag("render_id", run_state.render_id)
                 scope.set_tag("render_state", run_state.current_render_state)
                 scope.set_tag("current_module", run_state.current_module)
-                scope.set_tag("current_frid", run_state.current_frid)
+                scope.set_tag("current_frid", qualified_frid(run_state.current_module, run_state.current_frid))
                 if run_state.user_email:
                     scope.set_user({"email": run_state.user_email})
             scope.set_tag("headless", bool(getattr(args, "headless", False)))

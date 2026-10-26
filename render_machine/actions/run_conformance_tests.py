@@ -3,6 +3,7 @@ from typing import Any
 
 import render_machine.render_utils as render_utils
 from plain2code_console import console
+from plain2code_utils import qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
@@ -33,11 +34,11 @@ class RunConformanceTests(BaseAction):
                 )
             )
 
+        ctx = render_context.conformance_tests_running_context
         console.info(
             f"Running conformance tests script {conformance_tests_script} "
             + f"for {conformance_tests_folder_name} ("
-            + f"functionality {render_context.conformance_tests_running_context.current_testing_frid} "
-            + f"in module {render_context.conformance_tests_running_context.current_testing_module_name}"
+            + f"functionality {qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}"
             + ")."
         )
         exit_code, conformance_tests_issue, conformance_tests_temp_log_file_path = render_utils.execute_script(
