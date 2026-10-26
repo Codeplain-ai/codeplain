@@ -110,9 +110,6 @@ jobs:
       # authenticate this run — no long-lived API token needed.
       id-token: write
 
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
     steps:
       - name: Download distribution packages
         uses: actions/download-artifact@v8
@@ -127,21 +124,31 @@ jobs:
           # version should be a no-op, not a red build.
           skip-existing: true
 
+      # Spell out the --pre install: a plain "pip install codeplain" will
+      # NOT pick this up, which otherwise reads as a broken publish.
       - name: Notify Slack (success)
-        if: ${{ success() && env.SLACK_WEBHOOK_URL != '' }}
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          # Spell out the --pre install: a plain "pip install codeplain" will
-          # NOT pick this up, which otherwise reads as a broken publish.
-          TEXT="*Codeplain Client*: dev build \`$VERSION\` published to PyPI :test_tube:. Normal installs are unaffected — try it with \`pip install --pre codeplain==$VERSION\`. Pre-release builds talk to \`api.test.codeplain.ai\` by default."
-          curl -s -X POST "$SLACK_WEBHOOK_URL" \
-            -H 'Content-type: application/json' \
-            --data "$(jq -n --arg t "$TEXT" '{text:$t}')"
+        if: ${{ success() && vars.SLACK_CHANNEL_ID != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          errors: true
+          payload: |
+            channel: ${{ vars.SLACK_CHANNEL_ID }}
+            text: >-
+              *Codeplain Client*: dev build `${{ needs.build.outputs.version }}` published to PyPI :test_tube:.
+              Normal installs are unaffected — try it with `pip install --pre codeplain==${{ needs.build.outputs.version }}`.
+              Pre-release builds talk to `api.test.codeplain.ai` by default.
 
       - name: Notify Slack (failure)
-        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
-        run: |
-          curl -s -X POST "$SLACK_WEBHOOK_URL" \
-            -H 'Content-type: application/json' \
-            --data "{\"text\":\"*Codeplain Client*: Publishing dev build to PyPI FAILED :x: (commit \`${{ github.sha }}\`). See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.\"}"
+        if: ${{ failure() && vars.SLACK_CHANNEL_ID != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          errors: true
+          payload: |
+            channel: ${{ vars.SLACK_CHANNEL_ID }}
+            text: >-
+              *Codeplain Client*: Publishing dev build to PyPI FAILED :x: (commit `${{ github.sha }}`).
+              See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.
