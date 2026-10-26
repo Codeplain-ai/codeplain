@@ -455,20 +455,20 @@ def test_get_last_finished_frid_returns_latest(empty_repo):
     file_path.write_text("v1")
     add_all_files_and_commit(
         empty_repo,
-        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("add-task"),
         module_name="module_a",
-        frid="1",
+        frid="add-task",
     )
 
     file_path.write_text("v2")
     add_all_files_and_commit(
         empty_repo,
-        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("2"),
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("list-tasks"),
         module_name="module_a",
-        frid="2",
+        frid="list-tasks",
     )
 
-    assert get_last_rendered_functionality(empty_repo) == ("module_a", "2")
+    assert get_last_rendered_functionality(empty_repo) == ("module_a", "list-tasks")
 
 
 def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
@@ -477,22 +477,22 @@ def test_get_last_finished_frid_ignores_non_finished_commits(empty_repo):
     file_path.write_text("v1")
     add_all_files_and_commit(
         empty_repo,
-        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("add-task"),
         module_name="module_a",
-        frid="1",
+        frid="add-task",
     )
 
     # A refactor commit (not a finished-frid checkpoint) comes after.
     file_path.write_text("v2")
     add_all_files_and_commit(
         empty_repo,
-        REFACTORED_CODE_COMMIT_MESSAGE.format("2"),
+        REFACTORED_CODE_COMMIT_MESSAGE.format("list-tasks"),
         module_name="module_a",
-        frid="2",
+        frid="list-tasks",
     )
 
-    # The last *finished* FRID is still 1
-    assert get_last_rendered_functionality(empty_repo) == ("module_a", "1")
+    # The last *finished* FRID is still add-task
+    assert get_last_rendered_functionality(empty_repo) == ("module_a", "add-task")
 
 
 def test_get_last_finished_frid_without_module_name(empty_repo):
@@ -501,9 +501,9 @@ def test_get_last_finished_frid_without_module_name(empty_repo):
     file_path.write_text("v1")
     add_all_files_and_commit(
         empty_repo,
-        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("7"),
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("rename-task"),
         module_name=None,
-        frid="7",
+        frid="rename-task",
     )
 
     with pytest.raises(InvalidGitRepositoryError, match="Could not find module name in finished commit"):
