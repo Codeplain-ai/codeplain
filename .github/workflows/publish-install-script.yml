@@ -14,10 +14,10 @@ jobs:
     name: Upload to Cloudflare R2
     runs-on: ubuntu-latest
 
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
     steps:
+      - name: Short SHA for Slack
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Upload install scripts to R2
@@ -58,16 +58,29 @@ jobs:
           echo "✓ examples.ps1 uploaded to R2"
 
       - name: Notify Slack (success)
-        if: ${{ success() && env.SLACK_WEBHOOK_URL != '' }}
-        run: |
-          curl -s -X POST "$SLACK_WEBHOOK_URL" \
-            -H 'Content-type: application/json' \
-            --data "{\"text\":\"*Codeplain Client*: Install scripts deployed to R2 :white_check_mark: (\`${GITHUB_SHA:0:7}\`, by *${{ github.actor }}*).\"}"
+        if: ${{ success() && vars.SLACK_CHANNEL_ID != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          errors: true
+          payload: |
+            channel: ${{ vars.SLACK_CHANNEL_ID }}
+            text: >-
+              *Codeplain Client*: Install scripts deployed to R2 :white_check_mark:
+              (`${{ env.SHORT_SHA }}`, by *${{ github.actor }}*).
 
       - name: Notify Slack (failure)
-        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
-        run: |
-          curl -s -X POST "$SLACK_WEBHOOK_URL" \
-            -H 'Content-type: application/json' \
-            --data "{\"text\":\"*Codeplain Client*: Install script deploy to R2 FAILED :x: (\`${GITHUB_SHA:0:7}\`). Users may be getting a stale installer. See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.\"}"
+        if: ${{ failure() && vars.SLACK_CHANNEL_ID != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          errors: true
+          payload: |
+            channel: ${{ vars.SLACK_CHANNEL_ID }}
+            text: >-
+              *Codeplain Client*: Install script deploy to R2 FAILED :x: (`${{ env.SHORT_SHA }}`).
+              Users may be getting a stale installer.
+              See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.
 
