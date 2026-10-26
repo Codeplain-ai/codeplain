@@ -176,7 +176,7 @@ class RenderContext:
         if self.render_range is None or len(self.render_range) == 0:
             return next_frid is not None
 
-        return next_frid is not None and int(next_frid) <= int(self.render_range[-1])
+        return next_frid is not None and next_frid in self.render_range
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0

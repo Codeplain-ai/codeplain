@@ -201,7 +201,11 @@ def change_is_only_future_work(
     if plain_module_render_state.last_render_frid is None:
         return True
 
-    return int(partial_start.frid) > int(plain_module_render_state.last_render_frid)
+    frids = list(plain_spec.get_frids(partial_start.module.plain_source))
+    if plain_module_render_state.last_render_frid not in frids:
+        return False
+
+    return frids.index(partial_start.frid) > frids.index(plain_module_render_state.last_render_frid)
 
 
 def _resume_render_choice(
