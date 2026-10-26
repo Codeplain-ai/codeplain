@@ -124,9 +124,18 @@ jobs:
           # version should be a no-op, not a red build.
           skip-existing: true
 
-      # Before the success notice, so a failed success post cannot trigger it.
+  # End-of-run notices run in their own job: a failed Slack post fails only this
+  # job, not the publish or its GitHub deployment, and "Re-run failed jobs"
+  # re-posts without publishing again.
+  notify:
+    name: Notify Slack
+    needs: [build, publish-dev]
+    if: ${{ !cancelled() && vars.SLACK_CHANNEL_ID != '' && contains(fromJSON('["success", "failure"]'), needs.publish-dev.result) }}
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Notify Slack (failure)
-        if: ${{ failure() && vars.SLACK_CHANNEL_ID != '' }}
+        if: ${{ needs.publish-dev.result == 'failure' }}
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           method: chat.postMessage
@@ -141,7 +150,7 @@ jobs:
       # Spell out the --pre install: a plain "pip install codeplain" will
       # NOT pick this up, which otherwise reads as a broken publish.
       - name: Notify Slack (success)
-        if: ${{ success() && vars.SLACK_CHANNEL_ID != '' }}
+        if: ${{ needs.publish-dev.result == 'success' }}
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           method: chat.postMessage
