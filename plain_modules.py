@@ -335,12 +335,13 @@ class PlainModule:
         # for every code-variable FR after a partial/interrupted render.
         metadata = self.load_module_metadata() or {}
         functionalities = metadata.get(MODULE_FUNCTIONALITIES, [])
-        frid_index = int(frid) - 1
-        frid_text = self._get_module_functional_requirements()[frid_index]
-        if frid_index < len(functionalities):
-            functionalities[frid_index] = frid_text
+        functionality = next(item for item in self._get_module_functional_requirements() if item["id"] == frid)
+        for position, stored in enumerate(functionalities):
+            if stored["id"] == frid:
+                functionalities[position] = functionality
+                break
         else:
-            functionalities.append(frid_text)
+            functionalities.append(functionality)
         metadata[MODULE_FUNCTIONALITIES] = functionalities
 
         metadata_utils.write_metadata(self.module_metadata_path(), metadata)
@@ -382,15 +383,18 @@ class PlainModule:
 
         return module_metadata["source_hash"] != self.get_module_source_hash()
 
-    def _get_module_functional_requirements(self) -> list[str]:
+    def _get_module_functional_requirements(self) -> list[dict[str, str]]:
+        """The functionalities of the module as `id` / `markdown` entries, in file order."""
         module_functional_requirements = []
 
         for functional_requirement in self.plain_source[plain_spec.FUNCTIONAL_REQUIREMENTS]:
-            module_functional_requirements.append(functional_requirement["markdown"])
+            module_functional_requirements.append(
+                {"id": functional_requirement["id"], "markdown": functional_requirement["markdown"]}
+            )
 
         return module_functional_requirements
 
-    def get_functionalities(self) -> dict[str, list[str]]:
+    def get_functionalities(self) -> dict[str, list[dict[str, str]]]:
         functionalities = {}
         for required_module in self.required_modules:
             functionalities.update(required_module.get_functionalities())
@@ -420,18 +424,19 @@ class PlainModule:
         metadata_utils.write_metadata(self.module_metadata_path(), self.get_hashes())
 
     def truncate_metadata_functionalities(self, frid: str | None) -> None:
-        """Trim the stored functionalities list to the first int(frid) entries.
+        """Trim the stored functionalities list to end at the functionality ``frid``.
 
         The metadata file is not tracked in the module's git repo, so when the
         code repo is reverted to an earlier functionality the stored list must
-        be trimmed to match the reverted code. A frid of None means no
-        functionality is implemented (empty list).
+        be trimmed to match the reverted code. A frid of None, or one the module
+        no longer has, means no functionality is implemented (empty list).
         """
         metadata = self.load_module_metadata()
         if metadata is None:
             return
 
-        keep_count = int(frid) if frid is not None else 0
+        frids = list(plain_spec.get_frids(self.plain_source))
+        keep_count = frids.index(frid) + 1 if frid in frids else 0
         if metadata_utils.truncate_functionalities(metadata, keep_count):
             metadata_utils.write_metadata(self.module_metadata_path(), metadata)
 
@@ -595,7 +600,7 @@ class PlainModule:
             last_rendered_module_name is not None
             and last_rendered_module_name == self.module_name
             and last_rendered_frid is not None
-            and int(last_rendered_frid) >= int(frids[-1])
+            and last_rendered_frid == frids[-1]
         ):
             return True
 

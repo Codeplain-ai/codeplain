@@ -42,8 +42,7 @@ def determine_partial_render_start(plain_module: "PlainModule") -> PartialRender
         if not changes:
             continue
 
-        current_fr_count = len(module._get_module_functional_requirements())
-        earliest_frid = _get_earliest_affected_frid(changes, current_fr_count)
+        earliest_frid = _get_earliest_affected_frid(changes, _stored_frids(module), _current_frids(module))
         if earliest_frid is None:
             continue
         return PartialRenderStart(module=module, frid=earliest_frid)
@@ -66,125 +65,97 @@ def _non_functional_content_changed(module: "PlainModule") -> bool:
     return stored_hash != module.get_module_non_functional_source_hash()
 
 
-def _get_earliest_affected_frid(changes: list[FunctionalityChange], current_fr_count: int) -> str | None:
-    """Earliest FRID (in current spec numbering) that must be re-rendered.
+def _stored_functionalities(module: "PlainModule") -> list[dict[str, str]]:
+    metadata = module.load_module_metadata()
+    return metadata.get(MODULE_FUNCTIONALITIES_KEY, []) if metadata else []
 
-    Returns the minimum position across all changes:
-    - added / edited: the FRID itself.
-    - removed: the position the removal opened up (now occupied by the next FR).
-    - moved: the FR's old position.
 
-    Correctness does not rely on any single change type's position being individually
-    "the" earliest (in particular, a move's old position is *not* always its earliest
-    touched position once moves mix with adds/removes). The guarantee is structural:
-    the first index at which the new spec diverges from the old is always emitted as
-    some change anchored at that index — a move with that old position, or an
-    edit/removal/addition there — so the minimum over all change FRIDs lands at or
-    before the true first divergence. Rendering runs from this FRID to the end of the
-    module, so an at-or-before start point is always safe (it can re-render unchanged
-    trailing FRs, but never skips a changed one).
+def _stored_frids(module: "PlainModule") -> list[str]:
+    return [functionality["id"] for functionality in _stored_functionalities(module)]
 
-    Returns None when every change is a removal beyond the current spec length
-    (only trailing FRs were removed, so nothing needs rendering).
+
+def _current_frids(module: "PlainModule") -> list[str]:
+    return [functionality["id"] for functionality in module._get_module_functional_requirements()]
+
+
+def _get_earliest_affected_frid(
+    changes: list[FunctionalityChange], old_frids: list[str], new_frids: list[str]
+) -> str | None:
+    """The func-id of the earliest functionality in the new order that must be re-rendered.
+
+    Rendering runs from this functionality to the end of the module, so an at-or-before start
+    point is always safe: it can re-render unchanged trailing functionalities, but never skips
+    a changed one.
+
+    Returns None when every change is a removal past the end of the new order (only trailing
+    functionalities were removed, so nothing needs rendering).
     """
     earliest = None
     for change in changes:
-        frid_int = int(change.frid)
-        if change.change_type == "removed" and frid_int > current_fr_count:
+        position = _affected_position(change, old_frids, new_frids)
+        if position is None:
             continue
-        if earliest is None or frid_int < earliest:
-            earliest = frid_int
+        if earliest is None or position < earliest:
+            earliest = position
     if earliest is None:
         return None
-    return str(earliest)
+    return new_frids[earliest]
+
+
+def _affected_position(change: FunctionalityChange, old_frids: list[str], new_frids: list[str]) -> int | None:
+    """Where in the new order the change must be rendered from.
+
+    A removed functionality has no place in the new order, so the one that took its place is
+    rendered instead. A removal past the end of the new order needs no render.
+    """
+    if change.change_type == "removed":
+        position = old_frids.index(change.frid)
+        return position if position < len(new_frids) else None
+
+    return new_frids.index(change.frid)
 
 
 def _detect_module_changes(module: "PlainModule") -> list[FunctionalityChange]:
-    metadata = module.load_module_metadata()
-    old_frs: list[str] = metadata.get(MODULE_FUNCTIONALITIES_KEY, []) if metadata else []
-    new_frs: list[str] = module._get_module_functional_requirements()
+    old_frs = _stored_functionalities(module)
+    new_frs = module._get_module_functional_requirements()
 
     if old_frs == new_frs:
         return []
 
-    moves, edits, removed, added = _classify_changes(old_frs, new_frs)
+    old_frids = [functionality["id"] for functionality in old_frs]
+    new_frids = [functionality["id"] for functionality in new_frs]
+    old_markdown = {functionality["id"]: functionality["markdown"] for functionality in old_frs}
 
     changes: list[FunctionalityChange] = []
     name = module.module_name
 
-    for old_idx, new_idx in moves:
-        old_frid = _frid_from_index(old_idx)
-        new_frid = _frid_from_index(new_idx)
-        changes.append(FunctionalityChange(module=name, frid=old_frid, change_type="moved", detail=new_frid))
+    for frid in _moved_frids(old_frids, new_frids):
+        changes.append(FunctionalityChange(module=name, frid=frid, change_type="moved"))
 
-    for idx in edits:
-        changes.append(FunctionalityChange(module=name, frid=_frid_from_index(idx), change_type="edited"))
+    for functionality in new_frs:
+        frid = functionality["id"]
+        if frid in old_markdown and functionality["markdown"] != old_markdown[frid]:
+            changes.append(FunctionalityChange(module=name, frid=frid, change_type="edited"))
 
-    for idx in removed:
-        changes.append(FunctionalityChange(module=name, frid=_frid_from_index(idx), change_type="removed"))
+    for frid in old_frids:
+        if frid not in new_frids:
+            changes.append(FunctionalityChange(module=name, frid=frid, change_type="removed"))
 
-    for idx in added:
-        changes.append(FunctionalityChange(module=name, frid=_frid_from_index(idx), change_type="added"))
+    for frid in new_frids:
+        if frid not in old_markdown:
+            changes.append(FunctionalityChange(module=name, frid=frid, change_type="added"))
 
     return changes
 
 
-def _classify_changes(
-    old_frs: list[str], new_frs: list[str]
-) -> tuple[list[tuple[int, int]], list[int], list[int], list[int]]:
-    matched_old: set[int] = set()
-    matched_new: set[int] = set()
+def _moved_frids(old_frids: list[str], new_frids: list[str]) -> list[str]:
+    """The func-ids the two orders keep but place differently, in the new order.
 
-    for i in range(min(len(old_frs), len(new_frs))):
-        if old_frs[i] == new_frs[i]:
-            matched_old.add(i)
-            matched_new.add(i)
-
-    content_matches: list[tuple[int, int]] = []
-    for old_idx in range(len(old_frs)):
-        if old_idx in matched_old:
-            continue
-        for new_idx in range(len(new_frs)):
-            if new_idx in matched_new:
-                continue
-            if old_frs[old_idx] == new_frs[new_idx]:
-                content_matches.append((old_idx, new_idx))
-                matched_old.add(old_idx)
-                matched_new.add(new_idx)
-                break
-
-    moves: list[tuple[int, int]] = []
-    if content_matches and _has_relative_order_change(content_matches):
-        moves = content_matches
-
-    edits: list[int] = []
-    for i in range(min(len(old_frs), len(new_frs))):
-        if i not in matched_old and i not in matched_new:
-            edits.append(i)
-            matched_old.add(i)
-            matched_new.add(i)
-
-    removed = [i for i in range(len(old_frs)) if i not in matched_old]
-    added = [i for i in range(len(new_frs)) if i not in matched_new]
-
-    return moves, edits, removed, added
-
-
-def _has_relative_order_change(matches: list[tuple[int, int]]) -> bool:
-    """Check if content matches represent a true reorder (relative order changed).
-
-    If all matches preserve relative order (sorted by old_idx gives same ordering
-    as sorted by new_idx), it's just a positional shift from insertions/removals.
+    Only the functionalities present in both orders are compared, so an addition or a removal
+    alone shifts no one: it is a move only when the kept functionalities swap places.
     """
-    if len(matches) <= 1:
-        return False
-    sorted_by_old = sorted(matches, key=lambda m: m[0])
-    new_indices = [m[1] for m in sorted_by_old]
-    for i in range(len(new_indices) - 1):
-        if new_indices[i] > new_indices[i + 1]:
-            return True
-    return False
+    kept = set(old_frids) & set(new_frids)
+    old_order = [frid for frid in old_frids if frid in kept]
+    new_order = [frid for frid in new_frids if frid in kept]
 
-
-def _frid_from_index(index: int) -> str:
-    return str(index + 1)
+    return [frid for position, frid in enumerate(new_order) if old_order[position] != frid]
