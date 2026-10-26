@@ -10,6 +10,7 @@ from event_bus import EventBus
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
+from plain2code_utils import qualified_frid
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -297,13 +298,15 @@ class RenderContext:
             self.functional_requirements_render_attempts_failed_unit_during_conformance_tests
             >= MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS
         ):
-            error_msg = f"Failed to adjust the unit tests after implementation code was update while fixing the conformance tests for functionality {self.frid_context.frid} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
+            functionality = qualified_frid(self.module_name, self.frid_context.frid)
+            error_msg = f"Failed to adjust the unit tests after implementation code was update while fixing the conformance tests for functionality {functionality} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
             self.dispatch_error(error_msg)
         else:
+            functionality = qualified_frid(self.module_name, self.frid_context.frid)
             console.info(
                 f"↻ Failed to adjust the unit tests after implementation code was updated while fixing the "
-                f"conformance tests for functionality {self.frid_context.frid}. "
-                f"Restarting rendering the functionality {self.frid_context.frid} from scratch.",
+                f"conformance tests for functionality {functionality}. "
+                f"Restarting rendering the functionality {functionality} from scratch.",
                 color=RETRY_COLOR,
             )
             self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
@@ -402,7 +405,10 @@ class RenderContext:
         """Handle regeneration of conformance tests after too many failures."""
         ctx = self.conformance_tests_running_context
 
-        console.info(f"Recreating conformance tests for functionality {ctx.current_testing_frid}.")
+        console.info(
+            f"Recreating conformance tests for functionality "
+            f"{qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}."
+        )
 
         existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(ctx.current_testing_frid)
         file_utils.delete_folder(existing_folder["folder_name"])

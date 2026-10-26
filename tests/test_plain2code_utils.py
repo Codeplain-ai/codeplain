@@ -1,6 +1,6 @@
 """Tests for pure helpers in plain2code_utils."""
 
-from plain2code_utils import format_duration_hms
+from plain2code_utils import format_duration_hms, qualified_frid
 
 
 class TestFormatDurationHms:
@@ -34,3 +34,14 @@ class TestFormatDurationHms:
 
     def test_negative_input_clamped_to_zero(self):
         assert format_duration_hms(-5) == "0s"
+
+
+class TestQualifiedFrid:
+    def test_names_the_module_and_the_func_id(self):
+        assert qualified_frid("task-manager", "add-task") == "task-manager:add-task"
+
+    def test_without_a_module_the_func_id_stands_alone(self):
+        assert qualified_frid(None, "add-task") == "add-task"
+
+    def test_without_a_functionality_there_is_no_name(self):
+        assert qualified_frid("task-manager", None) is None

@@ -1,6 +1,7 @@
 from typing import Any
 
 from plain2code_console import console
+from plain2code_utils import qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -26,7 +27,8 @@ class DistillConformanceTestMemory(BaseAction):
         if not fix_journals:
             return self.SUCCESSFUL_OUTCOME, None
 
-        console.info(f"Distilling conformance test fix learnings for functionality {render_context.frid_context.frid}.")
+        functionality = qualified_frid(render_context.module_name, render_context.frid_context.frid)
+        console.info(f"Distilling conformance test fix learnings for functionality {functionality}.")
 
         try:
             _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
