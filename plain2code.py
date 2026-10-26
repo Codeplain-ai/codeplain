@@ -272,29 +272,36 @@ def report_render_finished(
         pass
 
 
-def warn_if_acceptance_tests_without_conformance_script(plain_module, args) -> None:
-    """Warn when any loaded module (including required modules) defines acceptance tests
-    but no conformance tests script is configured.
+def _has_scenarios(plain_source_tree) -> bool:
+    """Whether a test plain file bound a scenario to any functionality of the module."""
+    for functionality in plain_source_tree.get(plain_spec.FUNCTIONAL_REQUIREMENTS) or []:
+        if functionality.get(plain_spec.CONFORMANCE_TESTS) or functionality.get(plain_spec.ACCEPTANCE_TESTS):
+            return True
+    return False
 
-    Acceptance tests are treated as conformance tests, so a conformance tests script is required
-    to actually run them. Without it, the acceptance tests cannot be executed.
+
+def warn_if_scenarios_without_conformance_script(plain_module, args) -> None:
+    """Warn when a test plain file was found but conformance tests are disabled.
+
+    The scenarios are rendered as conformance tests, so without a conformance tests script
+    none of them is rendered.
     """
     if args.conformance_tests_script:
         return
 
-    module_names_with_acceptance_tests = [
+    module_names_with_scenarios = [
         module.module_name
         for module in plain_module.all_required_modules + [plain_module]
-        if plain_spec.has_acceptance_tests(module.plain_source)
+        if _has_scenarios(module.plain_source)
     ]
-    if not module_names_with_acceptance_tests:
+    if not module_names_with_scenarios:
         return
 
-    module_names = ", ".join(module_names_with_acceptance_tests)
+    module_names = ", ".join(module_names_with_scenarios)
     console.warning(
-        f"Acceptance tests were found ({module_names}) but no conformance tests script is configured. "
-        "Acceptance tests are treated as conformance tests and require a conformance tests script "
-        "(--conformance-tests-script or 'conformance_tests_script' in config) to be executed."
+        f"Test scenarios were found ({module_names}) but no conformance tests script is configured, "
+        "so no scenario is rendered. Set --conformance-tests-script or 'conformance_tests_script' "
+        "in the config file to render them."
     )
 
 
@@ -326,7 +333,7 @@ def render(  # noqa: C901
     enter_pause_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
-    warn_if_acceptance_tests_without_conformance_script(plain_module, args)
+    warn_if_scenarios_without_conformance_script(plain_module, args)
 
     # A built module can be distributed as a "<module>.module" zip archive instead of an unpacked directory.
     # Extract any such module to a scratch location up front. Scratch dirs are removed in main()'s finally.
@@ -505,7 +512,7 @@ def main():  # noqa: C901
         console.info("Printing dry run output...\n")
         render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
         print_dry_run_output(plain_module.plain_source, render_range)
-        warn_if_acceptance_tests_without_conformance_script(plain_module, args)
+        warn_if_scenarios_without_conformance_script(plain_module, args)
         return
 
     event_bus = EventBus()

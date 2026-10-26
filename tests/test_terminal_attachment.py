@@ -131,7 +131,7 @@ def run_render(succeeded, terminal, render_state=None, render_choices=None):
         patch("plain2code.codeplain_api.CodeplainAPI"),
         patch("plain2code._check_connection", return_value="user@codeplain.ai"),
         patch("plain2code.signal.signal"),
-        patch("plain2code.warn_if_acceptance_tests_without_conformance_script"),
+        patch("plain2code.warn_if_scenarios_without_conformance_script"),
         patch("plain2code.get_plain_module_render_state", return_value=render_state),
         patch("plain2code.get_render_choices", return_value=render_choices),
         patch("plain2code.ModuleRenderer", side_effect=make_module_renderer),
