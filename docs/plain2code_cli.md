@@ -6,16 +6,16 @@ usage: generate_cli.py [-h] [--verbose] [--base-folder BASE_FOLDER]
                        [--log-to-file | --no-log-to-file]
                        [--log-file-name LOG_FILE_NAME]
                        [--config-name CONFIG_NAME]
-                       [--render-range RENDER_RANGE |
-                       --render-from RENDER_FROM] [--force-render]
-                       [--unittests-script UNITTESTS_SCRIPT]
+                       [--render-range RENDER_RANGE | --render-from RENDER_FROM]
+                       [--force-render] [--unittests-script UNITTESTS_SCRIPT]
                        [--conformance-tests-script CONFORMANCE_TESTS_SCRIPT]
                        [--prepare-environment-script PREPARE_ENVIRONMENT_SCRIPT]
                        [--test-script-timeout TEST_SCRIPT_TIMEOUT]
                        [--api [API]] [--api-key API_KEY] [--full-plain]
                        [--dry-run] [--replay-with REPLAY_WITH]
-                       [--template-dir TEMPLATE_DIR] [--copy-build]
-                       [--build-dest BUILD_DEST] [--copy-conformance-tests]
+                       [--template-dir TEMPLATE_DIR] [--test-dir TEST_DIR]
+                       [--copy-build] [--build-dest BUILD_DEST]
+                       [--copy-conformance-tests]
                        [--conformance-tests-dest CONFORMANCE_TESTS_DEST]
                        [--render-machine-graph]
                        [--logging-config-path LOGGING_CONFIG_PATH]
@@ -51,17 +51,17 @@ options:
                         a file already exists at the resolved path, it will be
                         overwritten by the current logs.
   --render-range RENDER_RANGE
-                        Specify a range of functionalities to render (e.g. `1`
-                        , `2`, `3`). Use comma to separate start and end IDs.
-                        If only one functionality ID is provided, only that
-                        functionality is rendered. Range is inclusive of both
-                        start and end IDs.
+                        Specify a range of functionalities to render (e.g.
+                        `add-task`, `add-task,list-tasks`). Use comma to
+                        separate start and end IDs. If only one functionality
+                        ID is provided, only that functionality is rendered.
+                        Range is inclusive of both start and end IDs.
   --render-from RENDER_FROM
                         Continue generation starting from this specific
-                        functionality (e.g. `2`). The functionality with this
-                        ID will be included in the output. The functionality
-                        ID must match one of the functionalities in your plain
-                        file.
+                        functionality (e.g. `add-task`). The functionality
+                        with this ID will be included in the output. The
+                        functionality ID must match one of the functionalities
+                        in your plain file.
   --force-render        Force re-render of all the required modules.
   --unittests-script UNITTESTS_SCRIPT
                         Shell script to run unit tests on generated code.
@@ -100,6 +100,9 @@ options:
                         containing the plain file, 2) Custom template
                         directory (if provided through this argument), 3)
                         Built-in standard_template_library directory
+  --test-dir TEST_DIR   Folder scanned for test plain files; repeat the option
+                        for more than one. Defaults to 'tests' next to the
+                        plain file.
   --copy-build          If set, copy the rendered contents of code in `--base-
                         folder` folder to `--build-dest` folder after
                         successful rendering.

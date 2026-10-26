@@ -1,8 +1,9 @@
 import os
 import sys
 
-# Add the parent directory to the path so we can import plain2code_arguments
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Put the checkout first on the path so we read its plain2code_arguments, not an
+# installed copy of codeplain that would reflect whatever was last released.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def main():
