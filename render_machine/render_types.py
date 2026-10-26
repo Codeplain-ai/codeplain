@@ -132,8 +132,6 @@ class ConformanceTestsRunningContext:
 
         self.regenerating_conformance_tests: bool = False
 
-        self.current_testing_frid_high_level_implementation_plan: Optional[str] = None
-
         # Implementation code changes made by the conformance tests fixer during this conformance phase, in
         # order. Each entry is {"hypothesis": str | None, "approach": str | None, "code_diff": {file: diff}}.
         # Handed to the unit tests fixer so it adjusts the unit tests instead of reverting these changes.
@@ -160,19 +158,8 @@ class ConformanceTestsRunningContext:
             self.get_conformance_tests_json(self.current_testing_module_name).get(self.current_testing_frid) is not None
         )
 
-    def get_current_acceptance_tests(self) -> Optional[list[str]]:
-        if (
-            plain_spec.ACCEPTANCE_TESTS
-            in self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid]
-        ):
-            return self.get_conformance_tests_json(self.current_testing_module_name)[self.current_testing_frid][
-                plain_spec.ACCEPTANCE_TESTS
-            ]
-
-        return []
-
-    def get_current_acceptance_test(self) -> Optional[str]:
-        """Get the current acceptance test text (raw, unformatted)."""
+    def get_current_acceptance_scenario(self) -> Optional[dict]:
+        """The acceptance scenario being rendered, as the functionality's tree entry holds it."""
         if plain_spec.ACCEPTANCE_TESTS not in self.current_testing_frid_specifications:
             return None
         acceptance_tests = self.current_testing_frid_specifications[plain_spec.ACCEPTANCE_TESTS]

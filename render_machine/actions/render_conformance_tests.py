@@ -109,9 +109,7 @@ class RenderConformanceTests(BaseAction):
             style=console.INPUT_STYLE,
         )
 
-        all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
-
-        response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
+        response_files, traceability = render_context.codeplain_api.render_conformance_tests(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
             render_context.plain_source_tree,
@@ -124,13 +122,10 @@ class RenderConformanceTests(BaseAction):
             render_context.conformance_tests_running_context.get_conformance_tests_json(
                 render_context.conformance_tests_running_context.current_testing_module_name
             ),
-            all_acceptance_tests,
             run_state=render_context.run_state,
         )
 
-        render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
-            implementation_plan_summary
-        )
+        self._warn_about_untraced_scenarios(render_context, traceability)
 
         file_utils.store_response_files(conformance_tests_folder_name, response_files, [])
 
@@ -142,6 +137,19 @@ class RenderConformanceTests(BaseAction):
         )
 
         return self.SUCCESSFUL_OUTCOME, None
+
+    @staticmethod
+    def _warn_about_untraced_scenarios(render_context: RenderContext, traceability: dict) -> None:
+        """Warn about scenarios with no test, and about tests that implement no scenario."""
+        frid = render_context.conformance_tests_running_context.current_testing_frid
+
+        missing = traceability.get("missing") or []
+        if missing:
+            console.warning(f"No conformance test was generated for {frid} scenarios: {', '.join(missing)}.")
+
+        extra = traceability.get("extra") or []
+        if extra:
+            console.warning(f"Conformance tests of {frid} that implement no scenario: {', '.join(extra)}.")
 
     def _render_acceptance_test(self, render_context: RenderContext):
         if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:
@@ -160,12 +168,12 @@ class RenderConformanceTests(BaseAction):
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
         )
 
-        # Get the current acceptance test being rendered (completed count is 1-based)
-        acceptance_test = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
+        # Get the current acceptance scenario being rendered (completed count is 1-based)
+        scenario = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
             render_context.conformance_tests_running_context.acceptance_tests_completed - 1
         ]
 
-        console.info(f"Generating acceptance test:\n  {acceptance_test}")
+        console.info(f"Generating acceptance test for scenario {scenario['id']}.")
 
         response_files = render_context.codeplain_api.render_acceptance_tests(
             render_context.frid_context.frid,
@@ -176,7 +184,7 @@ class RenderConformanceTests(BaseAction):
             conformance_tests_files_content,
             render_context.module_name,
             render_context.get_required_modules_functionalities(),
-            acceptance_test,
+            scenario["id"],
             run_state=render_context.run_state,
         )
         conformance_tests_folder_name = (

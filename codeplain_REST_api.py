@@ -82,6 +82,7 @@ ERROR_CODE_EXCEPTIONS = {
     "MissingResource": plain2code_exceptions.MissingResource,
     "PlainSyntaxError": plain2code_exceptions.PlainSyntaxError,
     "InternalServerError": plain2code_exceptions.InternalServerError,
+    "OutdatedClient": plain2code_exceptions.OutdatedClientVersion,
 }
 
 
@@ -363,7 +364,6 @@ class CodeplainAPI:
         required_modules,
         conformance_tests_folder_name,
         conformance_tests_json,
-        all_acceptance_tests,
         run_state: RunState,
     ):
         endpoint_url = f"{self.api_url}/render_conformance_tests"
@@ -380,11 +380,10 @@ class CodeplainAPI:
             "required_modules": required_modules,
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "conformance_tests_json": conformance_tests_json,
-            "all_acceptance_tests": all_acceptance_tests,
         }
 
         response = self.post_request(endpoint_url, headers, payload, run_state)
-        return response["patched_response_files"], response["conformance_tests_plan_summary_string"]
+        return response["patched_response_files"], response["traceability"]
 
     def generate_folder_name_from_functional_requirement(
         self,
@@ -419,11 +418,9 @@ class CodeplainAPI:
         required_modules,
         code_diff,
         conformance_tests_files,
-        acceptance_tests,
         conformance_tests_issue,
         implementation_fix_count,
         conformance_tests_folder_name,
-        current_testing_frid_high_level_implementation_plan: Optional[str],
         conflicting_requirements_count: int,
         fix_attempts_journal: list,
         run_state: RunState,
@@ -446,13 +443,9 @@ class CodeplainAPI:
             "conformance_tests_issue": conformance_tests_issue,
             "implementation_fix_count": implementation_fix_count,
             "conformance_tests_folder_name": conformance_tests_folder_name,
-            "current_testing_frid_high_level_implementation_plan": current_testing_frid_high_level_implementation_plan,
             "conflicting_requirements_count": conflicting_requirements_count,
             "fix_attempts_journal": fix_attempts_journal,
         }
-
-        if acceptance_tests is not None:
-            payload["acceptance_tests"] = acceptance_tests
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
@@ -466,7 +459,7 @@ class CodeplainAPI:
         conformance_tests_files,
         module_name: str,
         required_modules,
-        acceptance_test,
+        scenario_id,
         run_state: RunState,
     ):
         """
@@ -484,7 +477,7 @@ class CodeplainAPI:
             conformance_tests_files (dict): A dictionary containing conformance test files.
             required_modules (dict): A dictionary where the keys represent module names
                                      and the values are lists of functionalities implemented in those modules.
-            acceptance_test (dict): A dictionary containing acceptance test information.
+            scenario_id (str): The scenario-id of the acceptance scenario to render.
 
         Returns:
             dict: The rendered acceptance tests.
@@ -504,7 +497,7 @@ class CodeplainAPI:
             "conformance_tests_files": conformance_tests_files,
             "module_name": module_name,
             "required_modules": required_modules,
-            "acceptance_test": acceptance_test,
+            "scenario_id": scenario_id,
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)

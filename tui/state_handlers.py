@@ -20,22 +20,6 @@ from .widget_helpers import (
 )
 
 
-def format_acceptance_test_text(raw_text: str | None) -> str:
-    """Format acceptance test text for display by removing list prefix if present.
-
-    Args:
-        raw_text: The raw acceptance test text from specifications (can be None during state transitions)
-
-    Returns:
-        Formatted text with "- " prefix removed if present, or empty string if None
-    """
-    if raw_text is None:
-        return ""
-    if raw_text.startswith("- "):
-        return raw_text[2:]
-    return raw_text
-
-
 class StateHandler(ABC):
     """Abstract base class for state handlers that process state machine transitions."""
 
@@ -207,8 +191,12 @@ class ConformanceTestsHandler(StateHandler):
                         [Substate(rendering_text)],
                     )
                 else:
-                    acceptance_test = snapshot.conformance_tests_running_context.get_current_acceptance_test()
-                    acceptance_test_text = f"Rendering acceptance test: {format_acceptance_test_text(acceptance_test)}"  # type: ignore
+                    scenario = snapshot.conformance_tests_running_context.get_current_acceptance_scenario()
+                    acceptance_test_text = (
+                        f"Rendering acceptance test for scenario {scenario['id']}"
+                        if scenario
+                        else "Rendering acceptance test"
+                    )
                     update_progress_item_substates(
                         self.tui,
                         TUIComponents.FRID_PROGRESS_CONFORMANCE_TEST.value,
