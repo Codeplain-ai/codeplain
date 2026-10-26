@@ -57,19 +57,7 @@ jobs:
             --content-type "text/plain"
           echo "✓ examples.ps1 uploaded to R2"
 
-      - name: Notify Slack (success)
-        if: ${{ success() && vars.SLACK_CHANNEL_ID != '' }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          errors: true
-          payload: |
-            channel: ${{ vars.SLACK_CHANNEL_ID }}
-            text: >-
-              *Codeplain Client*: Install scripts deployed to R2 :white_check_mark:
-              (`${{ env.SHORT_SHA }}`, by *${{ github.actor }}*).
-
+      # Before the success notice, so a failed success post cannot trigger it.
       - name: Notify Slack (failure)
         if: ${{ failure() && vars.SLACK_CHANNEL_ID != '' }}
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
@@ -83,4 +71,17 @@ jobs:
               *Codeplain Client*: Install script deploy to R2 FAILED :x: (`${{ env.SHORT_SHA }}`).
               Users may be getting a stale installer.
               See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.
+
+      - name: Notify Slack (success)
+        if: ${{ success() && vars.SLACK_CHANNEL_ID != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          errors: true
+          payload: |
+            channel: ${{ vars.SLACK_CHANNEL_ID }}
+            text: >-
+              *Codeplain Client*: Install scripts deployed to R2 :white_check_mark:
+              (`${{ env.SHORT_SHA }}`, by *${{ github.actor }}*).
 
