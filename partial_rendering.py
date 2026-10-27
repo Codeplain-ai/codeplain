@@ -3,7 +3,7 @@ from typing import Literal
 
 import plain_spec
 from change_detection import PartialRenderStart, determine_partial_render_start
-from plain2code_exceptions import ModuleDoesNotExistError
+from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
 from plain_modules import PlainModule
 
 
@@ -83,6 +83,30 @@ def module_comes_before_or_equal(
     raise ValueError(f"Module {module1.module_name} and {module2.module_name} not found in {all_required_modules}")
 
 
+def _check_last_rendered_frid(module: PlainModule, last_rendered_frid: str | None) -> None:
+    """Stop when the build folder was rendered for a functionality the module no longer has.
+
+    The resume point comes from the commit messages of the build folder. A folder rendered by a
+    client that numbered the functionalities names none of today's func-ids, and neither does one
+    whose functionality was removed from the specification. Either way the render cannot continue
+    from it.
+    """
+    if last_rendered_frid is None:
+        return
+
+    frids = list(plain_spec.get_frids(module.plain_source))
+    if last_rendered_frid in frids:
+        return
+
+    raise MissingPreviousFunctionalitiesError(
+        f"The build folder of module {module.module_name} was rendered for functionality "
+        f"'{last_rendered_frid}', which the module does not have. Its functionalities are: "
+        f"{', '.join(frids)}.\n\n"
+        "A build folder rendered by a client that numbered the functionalities cannot be continued. "
+        f"Remove {module.build_folder} and render again."
+    )
+
+
 def get_plain_module_render_state(
     plain_module: PlainModule, render_conformance_tests: bool = False
 ) -> PlainModuleRenderState | None:
@@ -113,6 +137,8 @@ def get_plain_module_render_state(
                 f"Last rendered module {last_rendered_module_name} not found in {[rmodule.module_name for rmodule in all_required_modules]}"
             )
         module = found_module
+
+    _check_last_rendered_frid(module, last_rendered_frid)
 
     pr = PlainModuleRenderState(
         last_render_module=module,

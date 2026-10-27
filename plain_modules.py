@@ -193,8 +193,7 @@ class PlainModule:
         functionality whose test plain file holds no scenario is recorded instead, so the run can warn
         about it and go on without conformance tests for it.
         """
-        chain = [(module.module_name, module.plain_source) for module in self.all_required_modules]
-        chain.append((self.module_name, self.plain_source))
+        chain = self._unique_chain()
         bound = project.bind_test_plain_files(chain, test_dirs, self.template_dirs, self.template_dirs[0])
         if conformance_tests_enabled:
             project.check_test_plain_files(chain, bound)
@@ -362,6 +361,23 @@ class PlainModule:
         metadata[MODULE_FUNCTIONALITIES] = functionalities
 
         metadata_utils.write_metadata(self.module_metadata_path(), metadata)
+
+    def _unique_chain(self) -> list[tuple[str, dict]]:
+        """The chain as one entry per module, every module holding the one tree of its name.
+
+        A module reached through more than one `requires` path is parsed once per path, so the chain
+        would otherwise carry two equal trees for it. Only one of them would get the scenarios of the
+        test plain files, and which one the renderer then reads is a matter of which path it took.
+        """
+        chain: list[tuple[str, dict]] = []
+        trees: dict[str, dict] = {}
+        for module in self.all_required_modules + [self]:
+            if module.module_name in trees:
+                module.plain_source = trees[module.module_name]
+                continue
+            trees[module.module_name] = module.plain_source
+            chain.append((module.module_name, module.plain_source))
+        return chain
 
     def get_module_source_hash(self) -> str:
         return plain_spec.get_hash_value([self.plain_source] + self.resources_list)
