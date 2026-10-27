@@ -280,6 +280,23 @@ def _has_scenarios(plain_source_tree) -> bool:
     return False
 
 
+def warn_about_functionalities_without_scenarios(plain_module) -> None:
+    """Warn about every functionality whose test plain file holds no conformance scenario.
+
+    Such a functionality is rendered, but no conformance test is rendered or run for it.
+    """
+    functionalities = [
+        f"{module_name}:{func_id}" for module_name, func_id in plain_module.functionalities_without_scenarios
+    ]
+    if not functionalities:
+        return
+
+    console.warning(
+        f"No conformance scenario is written for {', '.join(functionalities)}, "
+        "so each one is rendered without conformance tests."
+    )
+
+
 def warn_if_scenarios_without_conformance_script(plain_module, args) -> None:
     """Warn when a test plain file was found but conformance tests are disabled.
 
@@ -334,6 +351,7 @@ def render(  # noqa: C901
     signal.signal(signal.SIGTERM, lambda _signum, _frame: stop_event.set())
 
     warn_if_scenarios_without_conformance_script(plain_module, args)
+    warn_about_functionalities_without_scenarios(plain_module)
 
     # A built module can be distributed as a "<module>.module" zip archive instead of an unpacked directory.
     # Extract any such module to a scratch location up front. Scratch dirs are removed in main()'s finally.
@@ -513,6 +531,7 @@ def main():  # noqa: C901
         render_range = plain_spec.compute_render_range(args, plain_module.plain_source)
         print_dry_run_output(plain_module.plain_source, render_range)
         warn_if_scenarios_without_conformance_script(plain_module, args)
+        warn_about_functionalities_without_scenarios(plain_module)
         return
 
     event_bus = EventBus()

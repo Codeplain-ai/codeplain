@@ -316,10 +316,13 @@ class RenderContext:
         self.machine.dispatch(triggers.START_NEW_REFACTORING_ITERATION)
 
     def start_conformance_tests_processing(self):
-        console.info("Implementing conformance tests...")
         current_frid_specifications, _ = plain_spec.get_specifications_for_frid(
             self.plain_source_tree, self.frid_context.frid
         )
+        has_own_scenarios = bool(current_frid_specifications.get(plain_spec.CONFORMANCE_TESTS))
+        if has_own_scenarios:
+            console.info("Implementing conformance tests...")
+
         self.conformance_tests_running_context = ConformanceTestsRunningContext(
             current_testing_module_name=self.module_name,
             current_testing_frid=self.frid_context.frid,
@@ -330,6 +333,30 @@ class RenderContext:
             should_prepare_testing_environment=True,
             frid_being_implemented=self.frid_context.frid,
         )
+
+        if has_own_scenarios:
+            return
+
+        # No scenario was written for this functionality, so no conformance test is rendered or run
+        # for it. The tests of the previous functionalities still run, so a regression it causes is
+        # still caught.
+        functionality = qualified_frid(self.module_name, self.frid_context.frid)
+        if self._has_conformance_tests_to_run_in_regression():
+            console.info(
+                f"No conformance scenario is written for {functionality}. "
+                "Running the conformance tests of the previous functionalities."
+            )
+            self._start_regression_phase()
+        else:
+            console.info(f"No conformance scenario is written for {functionality}, and there is none to re-run.")
+            self.conformance_tests_running_context.execution_phase = TestExecutionPhase.COMPLETED
+
+    def _has_conformance_tests_to_run_in_regression(self) -> bool:
+        """Whether any functionality rendered before this one has conformance tests to re-run."""
+        for module in self.required_modules or []:
+            if self.conformance_tests.get_conformance_tests_json(module.module_name):
+                return True
+        return bool(self.conformance_tests.get_conformance_tests_json(self.module_name))
 
     def finish_conformance_tests_processing(self):
         self.conformance_tests_running_context = None
