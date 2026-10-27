@@ -4,11 +4,22 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 3
+    # Skip releases younger than two days. Security updates are never delayed.
+    cooldown:
+      default-days: 2
+    open-pull-requests-limit: 5
+    # "chore(deps): ..." — also applies to pip security update PRs.
     commit-message:
-      prefix: "dependabot"
+      prefix: "chore"
+      include: "scope"
     labels:
       - "dependencies"
+    # Routine bumps arrive as one weekly PR; majors stay separate.
+    groups:
+      pip-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Keeps the SHA-pinned actions in publish-to-pypi.yml patched.
   - package-ecosystem: "github-actions"
