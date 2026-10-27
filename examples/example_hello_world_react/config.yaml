@@ -1,2 +1,3 @@
 conformance-tests-script: ../../test_scripts/run_conformance_tests_cypress.sh
 verbose: true
+test-dir: tests

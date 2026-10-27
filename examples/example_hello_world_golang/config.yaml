@@ -1,3 +1,4 @@
 verbose: true
 unittests-script: ../../test_scripts/run_unittests_golang.sh
 conformance-tests-script: ../../test_scripts/run_conformance_tests_golang.sh
+test-dir: tests

@@ -19,7 +19,6 @@ require_git()
 from git import Repo
 from git.exc import NoSuchPathError
 from plain_parser import project
-from plain_parser.exceptions import MissingConformanceScenariosError
 
 import file_utils
 import git_utils
@@ -135,29 +134,17 @@ def _strip_functional_requirements(plain_source_tree: dict) -> dict:
     return stripped
 
 
-def _check_test_plain_files(
-    chain: list[tuple[str, dict]], bound: list[project.BoundTestPlainFile]
-) -> list[tuple[str, str]]:
-    """Raise for the first functionality of the chain, in render order, that has no test plain file.
+def _functionalities_without_scenarios(chain: list[tuple[str, dict]]) -> list[tuple[str, str]]:
+    """The functionalities whose test plain file holds no conformance scenario.
 
-    Returns the functionalities whose test plain file holds no conformance scenario. They are
-    rendered without conformance tests.
+    Each one is rendered without conformance tests.
     """
-    with_a_test_plain_file = {
-        (test_plain_file.parsed.module, test_plain_file.parsed.func_id) for test_plain_file in bound
-    }
-    without_scenarios = []
-    for module_name, tree in chain:
-        for functionality in tree.get(plain_spec.FUNCTIONAL_REQUIREMENTS) or []:
-            func_id = functionality["id"]
-            if (module_name, func_id) not in with_a_test_plain_file:
-                raise MissingConformanceScenariosError(
-                    f"Functionality {module_name}:{func_id} has no test plain file. Add one "
-                    f"(by convention tests/{module_name}/{func_id}.plain) with the add-test-scenarios skill."
-                )
-            if not functionality[plain_spec.CONFORMANCE_TESTS]:
-                without_scenarios.append((module_name, func_id))
-    return without_scenarios
+    return [
+        (module_name, functionality["id"])
+        for module_name, tree in chain
+        for functionality in tree.get(plain_spec.FUNCTIONAL_REQUIREMENTS) or []
+        if not functionality[plain_spec.CONFORMANCE_TESTS]
+    ]
 
 
 class PlainModule:
@@ -210,7 +197,8 @@ class PlainModule:
         chain.append((self.module_name, self.plain_source))
         bound = project.bind_test_plain_files(chain, test_dirs, self.template_dirs, self.template_dirs[0])
         if conformance_tests_enabled:
-            self.functionalities_without_scenarios = _check_test_plain_files(chain, bound)
+            project.check_test_plain_files(chain, bound)
+            self.functionalities_without_scenarios = _functionalities_without_scenarios(chain)
 
     @cached_property
     def all_required_modules(self) -> list[PlainModule]:

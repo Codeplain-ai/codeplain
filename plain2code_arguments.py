@@ -19,7 +19,6 @@ CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
 
 
 DEFAULT_BUILD_FOLDER = "plain_modules"
-DEFAULT_TEST_DIR = "tests"
 DEFAULT_BUILD_DEST = "dist"
 DEFAULT_CONFORMANCE_TESTS_DEST = "dist_conformance_tests"
 MAX_JOB_TAG_LENGTH = 300
@@ -90,9 +89,6 @@ def _resolve_path_arguments(
             _resolve_path_arg(action.dest, args, cwd, config_dir, spec_dir)
         elif getattr(action, "_is_path_list", False):
             _resolve_path_list_arg(action.dest, args, cwd, config_dir, spec_dir)
-
-    if args.test_dir is None:
-        args.test_dir = [os.path.join(spec_dir, DEFAULT_TEST_DIR)]
 
 
 def _resolve_script_path(
@@ -449,7 +445,8 @@ def create_parser():
         action="append",
         default=None,
         help="Folder scanned for test plain files; repeat the option for more than one. "
-        f"Defaults to '{DEFAULT_TEST_DIR}' next to the plain file.",
+        "There is no default: without this option and without the 'test-dir' config key, no test "
+        "plain file is read. Required when a conformance tests script is configured.",
         path_list=True,
     )
     _add_arg(
@@ -574,6 +571,12 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
         parser.error("--conformance-tests-dest and --build-folder cannot be the same")
 
     args.render_conformance_tests = args.conformance_tests_script is not None
+
+    if args.render_conformance_tests and not args.test_dir:
+        parser.error(
+            "A conformance tests script is configured, but no test directory is given. "
+            "Pass --test-dir or set test-dir in the config file."
+        )
 
     if not args.render_conformance_tests and args.copy_conformance_tests:
         parser.error("--copy-conformance-tests requires --conformance-tests-script to be set")

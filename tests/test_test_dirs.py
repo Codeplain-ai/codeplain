@@ -29,10 +29,28 @@ def _parse(tmp_path, *extra_args):
     return parse_arguments([str(plain_file), *extra_args])
 
 
-def test_test_dir_defaults_to_tests_next_to_the_plain_file(tmp_path):
+def test_there_is_no_default_test_dir(tmp_path):
     args = _parse(tmp_path)
 
-    assert args.test_dir == [str(tmp_path / "tests")]
+    assert args.test_dir is None
+
+
+def test_a_conformance_tests_script_without_a_test_dir_is_a_usage_error(tmp_path):
+    script = tmp_path / "run_conformance_tests.sh"
+    script.write_text("#!/bin/sh\n")
+
+    with pytest.raises(SystemExit):
+        _parse(tmp_path, "--conformance-tests-script", str(script))
+
+
+def test_a_conformance_tests_script_with_a_test_dir_is_accepted(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "run_conformance_tests.sh"
+    script.write_text("#!/bin/sh\n")
+
+    args = _parse(tmp_path, "--conformance-tests-script", str(script), "--test-dir", "scenarios")
+
+    assert args.test_dir == [str(tmp_path / "scenarios")]
 
 
 def test_test_dir_can_be_given_more_than_once(tmp_path, monkeypatch):

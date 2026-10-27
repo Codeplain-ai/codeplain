@@ -96,6 +96,8 @@ def test_all_three_script_args_resolved(layout):
         "unittests-script: script_in_config.sh\n"
         "conformance-tests-script: script_in_config.sh\n"
         "prepare-environment-script: script_in_config.sh\n"
+        # A conformance tests script needs a test directory beside it.
+        "test-dir: tests\n"
     )
 
     with patch("os.getcwd", return_value=str(layout["config"])):
