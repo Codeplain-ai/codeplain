@@ -23,7 +23,7 @@ from partial_rendering import (
     module_comes_before_or_equal,
     spec_change,
 )
-from plain2code_exceptions import ModuleDoesNotExistError
+from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
 
 
 def _tree(*frids: str) -> dict:
@@ -48,6 +48,7 @@ class FakeModule:
         frids=("fr-a", "fr-b", "fr-c", "fr-d", "fr-e"),
     ):
         self.module_name = module_name
+        self.build_folder = "plain_modules"
         self.required_modules = list(required_modules or [])
         self._metadata = metadata
         self._source_hash = source_hash if source_hash is not None else f"src-{module_name}"
@@ -275,18 +276,26 @@ def test_detect_partial_rendering_returns_none_when_nothing_rendered():
 
 
 def test_detect_partial_rendering_no_changes_returns_last_rendered():
-    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "1"))
+    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "fr-a"))
     pr = get_plain_module_render_state(root)
     assert isinstance(pr, PlainModuleRenderState)
     assert pr.last_render_module is leaf
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
     assert pr.change is None
     assert pr.change_type is None
 
 
 def test_detect_partial_rendering_raises_when_last_rendered_module_unknown():
-    root, _, _ = _build_fresh_tree(last_rendered=("phantom", "1"))
+    root, _, _ = _build_fresh_tree(last_rendered=("phantom", "fr-a"))
     with pytest.raises(ModuleDoesNotExistError, match="phantom"):
+        get_plain_module_render_state(root)
+
+
+def test_detect_partial_rendering_rejects_a_frid_the_module_does_not_have():
+    """A build folder rendered by a client that numbered the functionalities cannot be continued."""
+    root, _, _ = _build_fresh_tree(last_rendered=("leaf", "4"))
+
+    with pytest.raises(MissingPreviousFunctionalitiesError, match="'4', which the module does not have"):
         get_plain_module_render_state(root)
 
 
@@ -294,32 +303,32 @@ def test_detect_partial_rendering_spec_change_on_earlier_module_wins():
     """A spec change on an earlier (required) module is reported via
     ``change``/``change_type``; ``last_render_module`` and ``last_render_frid``
     remain the ones reported by ``get_module_render_status``."""
-    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "fr-a"))
     leaf._metadata = {"source_hash": "stale-leaf"}  # leaf's spec changed
 
     pr = get_plain_module_render_state(root)
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "spec_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 def test_detect_partial_rendering_spec_change_on_top_module_is_reported():
     """A spec change on the top (root) module is reported on the
     ``PartialRender``; ``last_render_module``/``last_render_frid`` reflect the
     module that was last rendered."""
-    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "1"))
+    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "fr-a"))
     root._metadata = {"source_hash": "stale-root"}  # spec change on root
 
     pr = get_plain_module_render_state(root)
     assert pr.last_render_module is leaf
     assert pr.change is root
     assert pr.change_type == "spec_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 def test_detect_partial_rendering_code_change_wins_over_last_rendered():
-    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "fr-a"))
     middle._metadata = {
         "source_hash": middle.get_module_source_hash(),
         "required_modules_code_hash": "stale-code",
@@ -329,7 +338,7 @@ def test_detect_partial_rendering_code_change_wins_over_last_rendered():
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "code_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive():
@@ -338,7 +347,7 @@ def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive()
     current ``pr.change``. Here both point at ``leaf`` — spec_change returns
     the module whose spec is stale; code_change returns the previous module
     whose code has changed — so the code_change branch wins the tie."""
-    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "fr-a"))
     # Leaf has a spec change.
     leaf._metadata = {"source_hash": "stale-leaf"}
     # Middle records a stale code hash for its required module (leaf).
@@ -351,7 +360,7 @@ def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive()
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "code_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 # -------------------------
