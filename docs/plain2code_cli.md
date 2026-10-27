@@ -101,8 +101,10 @@ options:
                         directory (if provided through this argument), 3)
                         Built-in standard_template_library directory
   --test-dir TEST_DIR   Folder scanned for test plain files; repeat the option
-                        for more than one. Defaults to 'tests' next to the
-                        plain file.
+                        for more than one. There is no default: without this
+                        option and without the 'test-dir' config key, no test
+                        plain file is read. Required when a conformance tests
+                        script is configured.
   --copy-build          If set, copy the rendered contents of code in `--base-
                         folder` folder to `--build-dest` folder after
                         successful rendering.
