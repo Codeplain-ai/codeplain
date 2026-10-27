@@ -10,11 +10,11 @@ pytest==9.1.1
 textual>=7.5.0
 networkx==3.6.1
 transitions==0.9.3
-sentry-sdk==2.69.2
+sentry-sdk==2.73.0
 
 
 # Development dependencies
-flake8==7.3.0
+flake8==7.4.1
 black==26.10.1
 isort==9.0.2
-mypy==2.3.0
+mypy==2.4.0
