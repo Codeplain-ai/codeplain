@@ -168,6 +168,21 @@ class RenderConformanceTests(BaseAction):
             # If there are no acceptance tests defined, continue.
             return self.SUCCESSFUL_OUTCOME, None
 
+        ctx = render_context.conformance_tests_running_context
+
+        # Get the current acceptance scenario being rendered (completed count is 1-based)
+        scenario = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
+            ctx.acceptance_tests_completed - 1
+        ]
+
+        # This action is entered through more than one path, and the counter above belongs to the
+        # state machine, not to the action. A path that enters it again without the counter moving
+        # asks for a scenario that already has a test. Rendering it again costs a call and lets the
+        # render write a second test for the one scenario.
+        if scenario["id"] in ctx.rendered_acceptance_scenarios:
+            console.warning(f"The acceptance scenario {scenario['id']} already has a test. It is not rendered again.")
+            return self.SUCCESSFUL_OUTCOME, None
+
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
         (
@@ -176,14 +191,9 @@ class RenderConformanceTests(BaseAction):
         ) = render_context.conformance_tests.fetch_existing_conformance_test_files(
             render_context.module_name,
             render_context.required_modules,
-            render_context.conformance_tests_running_context.current_testing_module_name,
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
+            ctx.current_testing_module_name,
+            ctx.get_current_conformance_test_folder_name(),
         )
-
-        # Get the current acceptance scenario being rendered (completed count is 1-based)
-        scenario = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-            render_context.conformance_tests_running_context.acceptance_tests_completed - 1
-        ]
 
         console.info(f"Generating acceptance test for scenario {scenario['id']}.")
 
@@ -201,10 +211,9 @@ class RenderConformanceTests(BaseAction):
         )
 
         self._warn_about_untraced_scenarios(render_context, traceability)
+        ctx.rendered_acceptance_scenarios.append(scenario["id"])
 
-        conformance_tests_folder_name = (
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
-        )
+        conformance_tests_folder_name = ctx.get_current_conformance_test_folder_name()
 
         file_utils.store_response_files(conformance_tests_folder_name, response_files, conformance_tests_files)
         console.print_files(

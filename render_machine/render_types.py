@@ -126,6 +126,10 @@ class ConformanceTestsRunningContext:
         self.execution_phase: TestExecutionPhase = TestExecutionPhase.TESTING_CURRENT_FRID
         self.acceptance_test_phase: AcceptanceTestPhase = AcceptanceTestPhase.NOT_STARTED
         self.acceptance_tests_completed: int = 0
+        # The acceptance scenarios of this functionality that already have a test, in render order.
+        # The action that renders them is entered through more than one path, so it reads this
+        # instead of trusting the counter above, which a repeated entry leaves where it was.
+        self.rendered_acceptance_scenarios: list[str] = []
         self.frid_being_implemented: Optional[str] = frid_being_implemented
         self.test_that_triggered_code_change: Optional[tuple[str, str]] = None
         self.code_changed_during_regression: bool = False
