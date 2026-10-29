@@ -140,7 +140,13 @@ class RenderConformanceTests(BaseAction):
 
     @staticmethod
     def _warn_about_untraced_scenarios(render_context: RenderContext, traceability: dict) -> None:
-        """Warn about scenarios with no test, and about tests that implement no scenario."""
+        """Warn about a scenario with no test, a test that implements no scenario, and a scenario
+        with more than one test.
+
+        Both test renders report the same traceability, so both are checked the same way. A render
+        that writes a test the specification did not ask for, or leaves one it did ask for unwritten,
+        must say so instead of reporting success.
+        """
         frid = render_context.conformance_tests_running_context.current_testing_frid
 
         missing = traceability.get("missing") or []
@@ -150,6 +156,12 @@ class RenderConformanceTests(BaseAction):
         extra = traceability.get("extra") or []
         if extra:
             console.warning(f"Conformance tests of {frid} that implement no scenario: {', '.join(extra)}.")
+
+        duplicated = traceability.get("duplicated") or []
+        if duplicated:
+            console.warning(
+                f"More than one conformance test of {frid} implements the scenarios: {', '.join(duplicated)}."
+            )
 
     def _render_acceptance_test(self, render_context: RenderContext):
         if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:
@@ -175,7 +187,7 @@ class RenderConformanceTests(BaseAction):
 
         console.info(f"Generating acceptance test for scenario {scenario['id']}.")
 
-        response_files = render_context.codeplain_api.render_acceptance_tests(
+        response_files, traceability = render_context.codeplain_api.render_acceptance_tests(
             render_context.frid_context.frid,
             render_context.plain_source_tree,
             render_context.frid_context.linked_resources,
@@ -187,6 +199,9 @@ class RenderConformanceTests(BaseAction):
             scenario["id"],
             run_state=render_context.run_state,
         )
+
+        self._warn_about_untraced_scenarios(render_context, traceability)
+
         conformance_tests_folder_name = (
             render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
         )

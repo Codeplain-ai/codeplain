@@ -1,4 +1,6 @@
-"""The client warns about scenarios with no conformance test, and about tests that implement no scenario."""
+"""The client warns about a scenario with no conformance test, a test that implements no scenario,
+and a scenario with more than one test. Both test renders report the same traceability, so the
+conformance call and the acceptance call are checked the same way."""
 
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -36,10 +38,31 @@ def test_a_test_implementing_no_scenario_is_named():
     assert "test_something_else" in warning
 
 
-def test_both_are_reported():
-    warnings = _warn({"implemented": {}, "missing": ["add-second-task"], "extra": ["test_something_else"]})
+def test_a_scenario_with_more_than_one_test_is_named():
+    [warning] = _warn(
+        {
+            "implemented": {"add-first-task": ["test_add_first_task", "test_add_first_task_scenario"]},
+            "missing": [],
+            "extra": [],
+            "duplicated": ["add-first-task"],
+        }
+    )
 
-    assert len(warnings) == 2
+    assert "add-task" in warning
+    assert "add-first-task" in warning
+
+
+def test_every_fault_is_reported():
+    warnings = _warn(
+        {
+            "implemented": {},
+            "missing": ["add-second-task"],
+            "extra": ["test_something_else"],
+            "duplicated": ["add-first-task"],
+        }
+    )
+
+    assert len(warnings) == 3
 
 
 def test_a_response_without_the_lists_warns_about_nothing():

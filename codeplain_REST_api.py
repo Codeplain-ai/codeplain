@@ -480,7 +480,8 @@ class CodeplainAPI:
             scenario_id (str): The scenario-id of the acceptance scenario to render.
 
         Returns:
-            dict: The rendered acceptance tests.
+            tuple: The rendered acceptance tests, and the traceability of every scenario of the
+                   functionality a test is due for.
 
         Raises:
             Exception: If the request fails or returns an error.
@@ -500,7 +501,8 @@ class CodeplainAPI:
             "scenario_id": scenario_id,
         }
 
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        response = self.post_request(endpoint_url, headers, payload, run_state)
+        return response["patched_response_files"], response["traceability"]
 
     def analyze_rendering(
         self,
