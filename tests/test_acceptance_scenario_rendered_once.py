@@ -12,7 +12,7 @@ import pytest
 
 import plain_spec
 from render_machine.actions.render_conformance_tests import RenderConformanceTests
-from render_machine.render_types import ConformanceTestsRunningContext
+from render_machine.render_types import AcceptanceTestPhase, ConformanceTestsRunningContext
 
 MODULE = "vault_functions"
 FRID = "change-encryption-key"
@@ -115,3 +115,54 @@ def test_a_functionality_without_acceptance_scenarios_renders_nothing(render_con
     assert outcome == RenderConformanceTests.SUCCESSFUL_OUTCOME
     assert render_context.codeplain_api.render_acceptance_tests.call_count == 0
 
+
+class TestRegeneratedConformanceTests:
+    """Regeneration deletes the tests folder of the functionality, so the acceptance tests in it are
+    gone too. The functionality must then write all of its tests again, from the first scenario."""
+
+    @staticmethod
+    def make_render_context(tmp_path, acceptance_tests_completed, rendered):
+        from render_machine.render_context import RenderContext
+
+        render_context = RenderContext.__new__(RenderContext)
+        render_context.module_name = MODULE
+        folder = tmp_path / "tests_folder"
+        folder.mkdir()
+
+        ctx = ConformanceTestsRunningContext(
+            current_testing_module_name=MODULE,
+            current_testing_frid=FRID,
+            fix_attempts=5,
+            conformance_tests_json={FRID: {"folder_name": str(folder)}},
+            conformance_tests_render_attempts=0,
+            current_testing_frid_specifications={plain_spec.ACCEPTANCE_TESTS: SCENARIOS},
+            should_prepare_testing_environment=False,
+            frid_being_implemented=FRID,
+        )
+        ctx.acceptance_test_phase = AcceptanceTestPhase.IN_PROGRESS
+        ctx.acceptance_tests_completed = acceptance_tests_completed
+        ctx.rendered_acceptance_scenarios = list(rendered)
+        ctx.regenerating_conformance_tests = True
+        render_context.conformance_tests_running_context = ctx
+
+        return render_context
+
+    def test_the_acceptance_phase_starts_again(self, tmp_path):
+        render_context = self.make_render_context(tmp_path, 1, [SCENARIOS[0]["id"]])
+
+        with patch("render_machine.render_context.console"):
+            render_context._handle_test_regeneration()
+
+        ctx = render_context.conformance_tests_running_context
+        assert ctx.acceptance_test_phase == AcceptanceTestPhase.NOT_STARTED
+        assert ctx.acceptance_tests_completed == 0
+        assert ctx.rendered_acceptance_scenarios == []
+
+    def test_the_deleted_folder_is_no_longer_claimed(self, tmp_path):
+        render_context = self.make_render_context(tmp_path, 1, [SCENARIOS[0]["id"]])
+
+        with patch("render_machine.render_context.console"):
+            render_context._handle_test_regeneration()
+
+        ctx = render_context.conformance_tests_running_context
+        assert not ctx.current_conformance_tests_exist()

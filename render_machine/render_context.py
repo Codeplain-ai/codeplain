@@ -444,6 +444,12 @@ class RenderContext:
         ctx.fix_attempts = 0
         ctx.regenerating_conformance_tests = False
 
+        # The folder held the acceptance tests of the functionality as well, so they are gone with
+        # it. The functionality writes all of its tests again, from the first scenario.
+        ctx.acceptance_test_phase = AcceptanceTestPhase.NOT_STARTED
+        ctx.acceptance_tests_completed = 0
+        ctx.rendered_acceptance_scenarios = []
+
     def _handle_retry_after_code_change(self):
         """Re-run the test that failed and triggered a code change."""
         ctx = self.conformance_tests_running_context
