@@ -13,9 +13,9 @@ usage: generate_cli.py [-h] [--verbose] [--base-folder BASE_FOLDER]
                        [--test-script-timeout TEST_SCRIPT_TIMEOUT]
                        [--api [API]] [--api-key API_KEY] [--full-plain]
                        [--dry-run] [--replay-with REPLAY_WITH]
-                       [--template-dir TEMPLATE_DIR] [--test-dir TEST_DIR]
-                       [--copy-build] [--build-dest BUILD_DEST]
-                       [--copy-conformance-tests]
+                       [--job-tag JOB_TAG] [--template-dir TEMPLATE_DIR]
+                       [--test-dir TEST_DIR] [--copy-build]
+                       [--build-dest BUILD_DEST] [--copy-conformance-tests]
                        [--conformance-tests-dest CONFORMANCE_TESTS_DEST]
                        [--render-machine-graph]
                        [--logging-config-path LOGGING_CONFIG_PATH]
@@ -94,6 +94,8 @@ options:
   --dry-run             Dry run preview of the code generation (without
                         actually making any changes).
   --replay-with REPLAY_WITH
+  --job-tag JOB_TAG     Tag sent to the server with every request and attached
+                        to the render's LangSmith traces (max 300 characters).
   --template-dir TEMPLATE_DIR
                         Path to a custom template directory. Templates are
                         searched in the following order: 1) Directory
