@@ -458,11 +458,20 @@ class RenderContext:
         """Called when a test passes after being retried due to code changes."""
         ctx = self.conformance_tests_running_context
 
-        if ctx.execution_phase == TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
-            # Test passed after code change - mark that code changed and restart regression
-            ctx.code_changed_during_regression = True
-            ctx.test_that_triggered_code_change = None
-            self._start_regression_phase()
+        if ctx.execution_phase != TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
+            return
+
+        # Test passed after code change - mark that code changed
+        ctx.code_changed_during_regression = True
+        ctx.test_that_triggered_code_change = None
+
+        if self._has_more_acceptance_test_phases():
+            # The functionality still has acceptance scenarios with no test. Go back to its own testing
+            # phase, so that the scenarios that remain still get one. Regression starts after them.
+            ctx.execution_phase = TestExecutionPhase.TESTING_CURRENT_FRID
+            return
+
+        self._start_regression_phase()
 
     def _handle_current_frid_testing(self):
         """Handle incremental testing of the current FRID being implemented."""
