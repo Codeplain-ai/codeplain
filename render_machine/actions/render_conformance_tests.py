@@ -52,9 +52,12 @@ class RenderConformanceTests(BaseAction):
                 ],
                 style=console.INFO_STYLE,
             )
+            # frid and module_name identify the functionality being rendered, which is what the API
+            # reserved credits for. The functionality under test is carried by functional_requirement
+            # and existing_folder_names, and may be an earlier one during regression.
             fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
-                frid=render_context.conformance_tests_running_context.current_testing_frid,
-                module_name=render_context.conformance_tests_running_context.current_testing_module_name,
+                frid=render_context.frid_context.frid,
+                module_name=render_context.module_name,
                 functional_requirement=render_context.conformance_tests_running_context.current_testing_frid_specifications[
                     plain_spec.FUNCTIONAL_REQUIREMENTS
                 ][
