@@ -84,6 +84,7 @@ def make_args():
         force_render=False,
         headless=False,
         replay_with=None,
+        job_tag=None,
         log_to_file=False,
         log_file_name="codeplain.log",
         render_conformance_tests=False,

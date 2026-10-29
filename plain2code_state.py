@@ -8,7 +8,7 @@ from typing import Optional
 class RunState:
     """Contains information about the identifiable state of the rendering process."""
 
-    def __init__(self, spec_filename: str, replay_with: Optional[str] = None):
+    def __init__(self, spec_filename: str, replay_with: Optional[str] = None, job_tag: Optional[str] = None):
         self.replay: bool = replay_with is not None
         self.render_succeeded: bool = False
         self.render_cancelled: bool = False
@@ -19,6 +19,7 @@ class RunState:
         else:
             self.render_id: str = str(uuid.uuid4())
         self.spec_filename: str = spec_filename
+        self.job_tag: Optional[str] = job_tag
         self.call_count: int = 0
         self.unittest_batch_id: int = 0
         self.render_time_accumulated: int = 0
@@ -70,9 +71,12 @@ class RunState:
         self.last_render_start_timestamp = time.monotonic()
 
     def to_dict(self):
-        return {
+        state = {
             "render_id": self.render_id,
             "call_count": self.call_count,
             "replay": self.replay,
             "spec_filename": self.spec_filename,
         }
+        if self.job_tag is not None:
+            state["job_tag"] = self.job_tag
+        return state

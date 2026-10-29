@@ -97,6 +97,7 @@ def make_args(api_key="test-key", headless=False):
         render_from=None,
         headless=headless,
         replay_with=None,
+        job_tag=None,
         log_to_file=False,
         log_file_name="codeplain.log",
         conformance_tests_script=None,

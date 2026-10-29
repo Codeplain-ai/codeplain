@@ -34,3 +34,8 @@ def test_add_to_render_time_is_cumulative_across_segments():
     run_state.add_to_render_time()
 
     assert run_state.render_time_accumulated == 7
+
+
+def test_to_dict_includes_job_tag_only_when_set():
+    assert "job_tag" not in RunState(spec_filename="x.plain").to_dict()
+    assert RunState(spec_filename="x.plain", job_tag="nightly").to_dict()["job_tag"] == "nightly"
