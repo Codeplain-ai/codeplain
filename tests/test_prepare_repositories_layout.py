@@ -45,6 +45,7 @@ def solo_module(get_test_data_path, tmp_build_folder):
 def _make_render_context(module: PlainModule, render_conformance_tests: bool) -> SimpleNamespace:
     return SimpleNamespace(
         render_range=None,
+        is_regenerate=False,
         plain_module=module,
         required_modules=module.required_modules,
         build_folder=module.module_build_folder,
@@ -244,7 +245,7 @@ def test_archive_with_tests_not_flagged(root_module):
 
 def test_render_state_flags_missing_tests_and_offers_rerender(root_module):
     """A code-only archive (conformance on) surfaces a 'missing_conformance_tests' render state with
-    a rerender choice and a quit choice."""
+    a regenerate choice and a quit choice."""
     previous = root_module.required_modules[-1]
     _init_repo_with_finished_frid(previous.module_build_folder, previous.module_name)
     _archive_module(previous)  # code/ only
