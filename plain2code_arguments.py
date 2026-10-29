@@ -19,6 +19,7 @@ CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
 DEFAULT_BUILD_FOLDER = "plain_modules"
 DEFAULT_BUILD_DEST = "dist"
 DEFAULT_CONFORMANCE_TESTS_DEST = "dist_conformance_tests"
+MAX_JOB_TAG_LENGTH = 300
 
 UNIT_TESTS_SCRIPT_NAME = "unittests_script"
 CONFORMANCE_TESTS_SCRIPT_NAME = "conformance_tests_script"
@@ -73,6 +74,15 @@ def _resolve_script_path(
 def non_empty_string(s):
     if not s:
         raise argparse.ArgumentTypeError("The string cannot be empty.")
+    return s
+
+
+def job_tag_string(s):
+    s = str(s)
+    if not s:
+        raise argparse.ArgumentTypeError("The job tag cannot be empty.")
+    if len(s) > MAX_JOB_TAG_LENGTH:
+        raise argparse.ArgumentTypeError(f"The job tag cannot be longer than {MAX_JOB_TAG_LENGTH} characters.")
     return s
 
 
@@ -365,6 +375,15 @@ def create_parser():
 
     _add_arg(
         parser,
+        "--job-tag",
+        type=job_tag_string,
+        default=None,
+        help=f"Tag sent to the server with every request and attached to the render's LangSmith traces "
+        f"(max {MAX_JOB_TAG_LENGTH} characters).",
+    )
+
+    _add_arg(
+        parser,
         "--template-dir",
         type=str,
         default=None,
@@ -450,6 +469,15 @@ def create_parser():
     return parser
 
 
+def _validate_job_tag(args, parser):
+    # Values from config.yaml bypass argparse's type conversion, so validate them here.
+    if args.job_tag is not None:
+        try:
+            args.job_tag = job_tag_string(args.job_tag)
+        except argparse.ArgumentTypeError as e:
+            parser.error(f"--job-tag: {e}")
+
+
 def parse_arguments(command_line: Optional[Sequence[str]] = None):
     parser = create_parser()
 
@@ -495,6 +523,8 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
 
     if not args.log_to_file and args.argument_sources.get("log_file_name") != "default":
         parser.error("--log-file-name cannot be used when --log-to-file is False.")
+
+    _validate_job_tag(args, parser)
 
     if args.full_plain and args.dry_run:
         parser.error("--full-plain and --dry-run are mutually exclusive")

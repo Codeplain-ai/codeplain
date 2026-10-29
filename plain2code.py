@@ -482,7 +482,7 @@ def main():  # noqa: C901
     codeplainAPI = codeplain_api.CodeplainAPI(args.api_key, console)
     codeplainAPI.api_url = args.api
 
-    run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with)
+    run_state = RunState(spec_filename=args.filename, replay_with=args.replay_with, job_tag=args.job_tag)
 
     # Without a terminal nobody can watch or drive the TUI, so render as --headless does:
     # progress on stdout, and a non-zero exit status when the render stops.

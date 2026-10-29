@@ -87,3 +87,23 @@ def test_mixed_sources(project):
     assert srcs["conformance_tests_dest"] == "cli"
     assert srcs["build_folder"] == "config"
     assert srcs["build_dest"] == "default"
+
+
+def test_job_tag_from_cli_and_config(project):
+    plain_file = os.path.join(project, "module.plain")
+    assert parse_arguments([plain_file]).job_tag is None
+    assert parse_arguments([plain_file, "--job-tag", "nightly"]).job_tag == "nightly"
+
+    (Path(project) / "config.yaml").write_text("job-tag: 123\n")
+    assert parse_arguments([plain_file]).job_tag == "123"
+    assert parse_arguments([plain_file, "--job-tag", "from_cli"]).job_tag == "from_cli"
+
+
+def test_job_tag_too_long_is_rejected(project):
+    plain_file = os.path.join(project, "module.plain")
+    with pytest.raises(SystemExit):
+        parse_arguments([plain_file, "--job-tag", "x" * 301])
+
+    (Path(project) / "config.yaml").write_text(f"job-tag: {'x' * 301}\n")
+    with pytest.raises(SystemExit):
+        parse_arguments([plain_file])
