@@ -100,7 +100,7 @@ def test_unit_tests_failing_after_the_last_attempt_name_the_cause(workspace, fix
     render_context = make_render_context(api, build_folder, unittests_script, fixtures_dir)
     code_renderer = CodeRenderer(render_context)
 
-    # The last render attempt of functionality 1, after its last unit-test fix round.
+    # The last render attempt of the first functionality, after its last unit-test fix round.
     render_context.start_implementing_frid()
     render_context.frid_context.functional_requirement_render_attempts = MAX_CODE_GENERATION_RETRIES
     render_context.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=MAX_UNITTEST_FIX_ATTEMPTS)
@@ -112,13 +112,13 @@ def test_unit_tests_failing_after_the_last_attempt_name_the_cause(workspace, fix
         code_renderer.run()
 
     assert render_context.state == States.RENDER_FAILED.value
-    assert api.failed_frids == ["1"]
+    assert api.failed_frids == ["solo-one"]
 
     last_output_path = render_context.script_execution_history.latest_unit_test_output_path
     assert last_output_path is not None and os.path.exists(last_output_path)
 
     expected_message = (
-        f"Functionality 1: unit tests still fail after {MAX_CODE_GENERATION_RETRIES} render attempts, "
+        f"Functionality pr_solo:solo-one: unit tests still fail after {MAX_CODE_GENERATION_RETRIES} render attempts, "
         f"{MAX_UNITTEST_FIX_ATTEMPTS} fix rounds each. Last unit tests output: {last_output_path}"
     )
     assert error_log_messages(caplog) == [expected_message]
@@ -155,7 +155,7 @@ def test_unit_tests_failing_again_during_conformance_tests_name_the_cause_once(w
     error_messages = error_log_messages(caplog)
     assert len(error_messages) == 1
     assert error_messages[0].startswith("Failed to adjust the unit tests")
-    assert "functionality 1" in error_messages[0]
+    assert "functionality pr_solo:solo-one" in error_messages[0]
     # The TUI shows the same stop reason as the log, not the unit tests output of the payload.
     assert render_context.last_error_message == error_messages[0]
 
@@ -165,7 +165,7 @@ class TestExitWithErrorMessage:
     def make_context(last_error_message=None):
         render_context = RenderContext.__new__(RenderContext)
         render_context.codeplain_api = FakeCodeplainAPI()
-        render_context.frid_context = SimpleNamespace(frid="1")
+        render_context.frid_context = SimpleNamespace(frid="solo-one")
         render_context.module_name = "mod"
         render_context.run_state = RunState(spec_filename="mod.plain")
         render_context.last_error_message = last_error_message
