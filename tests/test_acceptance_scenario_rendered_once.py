@@ -60,11 +60,12 @@ def render_context(tmp_path):
 
 
 def _render(render_context):
-    with patch("render_machine.actions.render_conformance_tests.ImplementationCodeHelpers") as code_helpers, patch(
-        "render_machine.actions.render_conformance_tests.MemoryManager"
-    ) as memory, patch("render_machine.actions.render_conformance_tests.file_utils"), patch(
-        "render_machine.actions.render_conformance_tests.console"
-    ) as console:
+    with (
+        patch("render_machine.actions.render_conformance_tests.ImplementationCodeHelpers") as code_helpers,
+        patch("render_machine.actions.render_conformance_tests.MemoryManager") as memory,
+        patch("render_machine.actions.render_conformance_tests.file_utils"),
+        patch("render_machine.actions.render_conformance_tests.console") as console,
+    ):
         code_helpers.fetch_existing_files.return_value = ({}, {})
         memory.fetch_memory_files.return_value = ({}, {})
         outcome, _ = RenderConformanceTests()._render_acceptance_test(render_context)
