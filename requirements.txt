@@ -10,7 +10,7 @@ rich==15.0.0
 tiktoken==0.14.0
 PyYAML==6.0.3
 gitpython==3.2.1
-pytest==9.1.1
+pytest==9.2.0
 textual>=7.5.0
 transitions==0.9.3
 sentry-sdk==2.73.0
