@@ -2,6 +2,8 @@ import argparse
 import os
 from typing import Optional, Sequence
 
+from plain_parser.plain_spec import is_semantic_id
+
 from path_resolution import resolve_path
 from plain2code_console import console
 from plain2code_exceptions import AmbiguousConfigFileError
@@ -48,6 +50,47 @@ def _resolve_path_arg(
     return resolved
 
 
+def _resolve_path_list_arg(
+    arg_name: str,
+    args,
+    cwd: str,
+    config_dir: Optional[str],
+    spec_dir: str,
+) -> None:
+    """Resolve a repeatable path-valued argument on ``args`` in-place.
+
+    A single string (as config.yaml may give it) is read as a one-item list.
+    """
+    original_value = getattr(args, arg_name, None)
+    if original_value is None:
+        return
+
+    if isinstance(original_value, str):
+        original_value = [original_value]
+
+    source = getattr(args, ARGUMENT_SOURCES, {}).get(arg_name, "default")
+    setattr(
+        args,
+        arg_name,
+        [resolve_path(value, source, cwd=cwd, config_dir=config_dir, spec_dir=spec_dir) for value in original_value],
+    )
+
+
+def _resolve_path_arguments(
+    parser: argparse.ArgumentParser,
+    args,
+    cwd: str,
+    config_dir: Optional[str],
+    spec_dir: str,
+) -> None:
+    """Resolve every path-valued argument on ``args`` in-place and apply the test-folder default."""
+    for action in parser._actions:
+        if getattr(action, "_is_path", False):
+            _resolve_path_arg(action.dest, args, cwd, config_dir, spec_dir)
+        elif getattr(action, "_is_path_list", False):
+            _resolve_path_list_arg(action.dest, args, cwd, config_dir, spec_dir)
+
+
 def _resolve_script_path(
     script_arg_name: str,
     args,
@@ -87,14 +130,14 @@ def job_tag_string(s):
 
 
 def frid_string(s):
-    """Validate that the FRID is an integer."""
+    """Validate that the functionality ID is a func-id."""
     if not s:
         raise argparse.ArgumentTypeError("The functionality ID cannot be empty.")
 
-    try:
-        int(s)
-    except ValueError:
-        raise argparse.ArgumentTypeError("Functionality ID string must be a number.")
+    if not is_semantic_id(s):
+        raise argparse.ArgumentTypeError(
+            f"Invalid functionality ID '{s}'. A functionality ID holds lowercase letters, digits and hyphens."
+        )
     return s
 
 
@@ -204,11 +247,14 @@ def update_args_with_config(args, parser, cli_provided: set[str]):
     return args
 
 
-def _add_arg(parser, *args, path=False, **kwargs):
-    """Add an argument; tag as path-valued when ``path=True`` so ``parse_arguments`` resolves it."""
+def _add_arg(parser, *args, path=False, path_list=False, **kwargs):
+    """Add an argument; tag as path-valued when ``path=True`` (or ``path_list=True`` when it is
+    repeatable) so ``parse_arguments`` resolves it."""
     action = parser.add_argument(*args, **kwargs)
     if path:
         action._is_path = True
+    if path_list:
+        action._is_path_list = True
 
 
 def create_parser():
@@ -285,7 +331,7 @@ def create_parser():
         render_range_group,
         "--render-range",
         type=frid_range_string,
-        help="Specify a range of functionalities to render (e.g. `1` , `2`, `3`). "
+        help="Specify a range of functionalities to render (e.g. `add-task`, `add-task,list-tasks`). "
         "Use comma to separate start and end IDs. If only one functionality ID is provided, only that functionality is rendered. "
         "Range is inclusive of both start and end IDs.",
     )
@@ -293,7 +339,7 @@ def create_parser():
         render_range_group,
         "--render-from",
         type=frid_string,
-        help="Continue generation starting from this specific functionality (e.g. `2`). "
+        help="Continue generation starting from this specific functionality (e.g. `add-task`). "
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
 
@@ -392,6 +438,16 @@ def create_parser():
         "2) Custom template directory (if provided through this argument), "
         "3) Built-in standard_template_library directory",
         path=True,
+    )
+    _add_arg(
+        parser,
+        "--test-dir",
+        action="append",
+        default=None,
+        help="Folder scanned for test plain files; repeat the option for more than one. "
+        "There is no default: without this option and without the 'test-dir' config key, no test "
+        "plain file is read. Required when a conformance tests script is configured.",
+        path_list=True,
     )
     _add_arg(
         parser,
@@ -507,9 +563,7 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
     # otherwise it is still just the lookup name (e.g. "config.yaml").
     config_dir = os.path.dirname(args.config_name) if os.path.isabs(args.config_name) else None
 
-    for action in parser._actions:
-        if getattr(action, "_is_path", False):
-            _resolve_path_arg(action.dest, args, cwd, config_dir, spec_dir)
+    _resolve_path_arguments(parser, args, cwd, config_dir, spec_dir)
 
     if args.build_folder == args.build_dest:
         parser.error("--build-folder and --build-dest cannot be the same")
@@ -517,6 +571,12 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
         parser.error("--conformance-tests-dest and --build-folder cannot be the same")
 
     args.render_conformance_tests = args.conformance_tests_script is not None
+
+    if args.render_conformance_tests and not args.test_dir:
+        parser.error(
+            "A conformance tests script is configured, but no test directory is given. "
+            "Pass --test-dir or set test-dir in the config file."
+        )
 
     if not args.render_conformance_tests and args.copy_conformance_tests:
         parser.error("--copy-conformance-tests requires --conformance-tests-script to be set")

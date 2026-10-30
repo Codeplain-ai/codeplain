@@ -1,0 +1,11 @@
+---
+module: typescript-react-app-boilerplate
+func_id: entry-point
+---
+
+***conformance tests***
+
+# app-starts
+:App: starts and serves a page on port 3000.
+
+***acceptance tests***

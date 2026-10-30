@@ -8,6 +8,7 @@ from textual.widgets import Label, ListItem, ListView, Static
 
 import plain_spec
 from partial_rendering import PlainModuleRenderState, RenderChoice, get_all_affected_modules_from_change
+from plain2code_utils import qualified_frid
 from plain_modules import PlainModule
 from tui.components import CustomFooter, TUIComponents
 
@@ -154,8 +155,8 @@ class PlainModuleRenderChoiceTUI(App):
         elif pr.last_render_module.is_module_fully_rendered():
             change_box.mount(Label("The current module is fully rendered.", classes="rendering-info-title"))
         else:
-            interrupted_frid = "1"
             interrupted_module = pr.last_render_module
+            interrupted_frid = plain_spec.get_first_frid(interrupted_module.plain_source)
             if pr.last_render_frid:
                 next_frid, next_module = pr.last_render_module.get_next_frid(
                     pr.last_render_frid, pr.last_render_module.module_name
@@ -164,11 +165,8 @@ class PlainModuleRenderChoiceTUI(App):
                     interrupted_frid = next_frid
                     interrupted_module = next_module
 
-            msg = f"--- Rendering interrupted during [#5593FF]functionality {interrupted_frid}"
-            if interrupted_module != pr.last_render_module:
-                msg += f" of module {interrupted_module.module_name}[/] ---"
-            else:
-                msg += "[/] ---"
+            interrupted = qualified_frid(interrupted_module.module_name, interrupted_frid)
+            msg = f"--- Rendering interrupted during [#5593FF]functionality {interrupted}[/] ---"
 
             change_box.mount(Label(msg, classes="rendering-info-row"))
 

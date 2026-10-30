@@ -1,0 +1,12 @@
+---
+module: hello_world_golang
+func_id: display-hello-world
+---
+
+***conformance tests***
+
+# prints-hello-world
+Running :App: prints "hello, world".
+  - :App: exits with status code 0.
+
+***acceptance tests***

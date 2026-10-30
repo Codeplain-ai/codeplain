@@ -10,4 +10,5 @@ import:
 
 ***functional specs***
 
-- Display "hello, world"
+# display-hello-world
+:App: displays "hello, world".

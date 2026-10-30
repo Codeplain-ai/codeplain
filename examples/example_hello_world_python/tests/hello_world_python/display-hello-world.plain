@@ -1,0 +1,13 @@
+---
+module: hello_world_python
+func_id: display-hello-world
+---
+
+***conformance tests***
+
+# prints-hello-world
+Running :App: prints "hello, world".
+  - :App: exits with status code 0.
+  - :App: completes in under 1 second.
+
+***acceptance tests***

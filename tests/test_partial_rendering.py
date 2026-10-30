@@ -12,6 +12,7 @@ under test relies on: ``module_name``, ``required_modules``,
 import pytest
 
 import partial_rendering
+import plain_spec
 from change_detection import PartialRenderStart
 from partial_rendering import (
     PlainModuleRenderState,
@@ -22,7 +23,14 @@ from partial_rendering import (
     module_comes_before_or_equal,
     spec_change,
 )
-from plain2code_exceptions import ModuleDoesNotExistError
+from plain2code_exceptions import MissingPreviousFunctionalitiesError, ModuleDoesNotExistError
+
+
+def _tree(*frids: str) -> dict:
+    """A plain source tree holding the given func-ids, in order."""
+    return {
+        plain_spec.FUNCTIONAL_REQUIREMENTS: [{"id": frid, "markdown": f"The {frid} functionality."} for frid in frids]
+    }
 
 
 class FakeModule:
@@ -37,9 +45,10 @@ class FakeModule:
         no_rendered_functionality=False,
         fully_rendered=False,
         next_frid=None,
-        plain_source="",
+        frids=("fr-a", "fr-b", "fr-c", "fr-d", "fr-e"),
     ):
         self.module_name = module_name
+        self.build_folder = "plain_modules"
         self.required_modules = list(required_modules or [])
         self._metadata = metadata
         self._source_hash = source_hash if source_hash is not None else f"src-{module_name}"
@@ -48,7 +57,7 @@ class FakeModule:
         self._no_rendered_functionality = no_rendered_functionality
         self._fully_rendered = fully_rendered
         self._next_frid = next_frid
-        self.plain_source = plain_source
+        self.plain_source = _tree(*frids)
 
     @property
     def all_required_modules(self):
@@ -267,18 +276,26 @@ def test_detect_partial_rendering_returns_none_when_nothing_rendered():
 
 
 def test_detect_partial_rendering_no_changes_returns_last_rendered():
-    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "1"))
+    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "fr-a"))
     pr = get_plain_module_render_state(root)
     assert isinstance(pr, PlainModuleRenderState)
     assert pr.last_render_module is leaf
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
     assert pr.change is None
     assert pr.change_type is None
 
 
 def test_detect_partial_rendering_raises_when_last_rendered_module_unknown():
-    root, _, _ = _build_fresh_tree(last_rendered=("phantom", "1"))
+    root, _, _ = _build_fresh_tree(last_rendered=("phantom", "fr-a"))
     with pytest.raises(ModuleDoesNotExistError, match="phantom"):
+        get_plain_module_render_state(root)
+
+
+def test_detect_partial_rendering_rejects_a_frid_the_module_does_not_have():
+    """A build folder rendered by a client that numbered the functionalities cannot be continued."""
+    root, _, _ = _build_fresh_tree(last_rendered=("leaf", "4"))
+
+    with pytest.raises(MissingPreviousFunctionalitiesError, match="'4', which the module does not have"):
         get_plain_module_render_state(root)
 
 
@@ -286,32 +303,32 @@ def test_detect_partial_rendering_spec_change_on_earlier_module_wins():
     """A spec change on an earlier (required) module is reported via
     ``change``/``change_type``; ``last_render_module`` and ``last_render_frid``
     remain the ones reported by ``get_module_render_status``."""
-    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "fr-a"))
     leaf._metadata = {"source_hash": "stale-leaf"}  # leaf's spec changed
 
     pr = get_plain_module_render_state(root)
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "spec_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 def test_detect_partial_rendering_spec_change_on_top_module_is_reported():
     """A spec change on the top (root) module is reported on the
     ``PartialRender``; ``last_render_module``/``last_render_frid`` reflect the
     module that was last rendered."""
-    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "1"))
+    root, _middle, leaf = _build_fresh_tree(last_rendered=("leaf", "fr-a"))
     root._metadata = {"source_hash": "stale-root"}  # spec change on root
 
     pr = get_plain_module_render_state(root)
     assert pr.last_render_module is leaf
     assert pr.change is root
     assert pr.change_type == "spec_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 def test_detect_partial_rendering_code_change_wins_over_last_rendered():
-    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "fr-a"))
     middle._metadata = {
         "source_hash": middle.get_module_source_hash(),
         "required_modules_code_hash": "stale-code",
@@ -321,7 +338,7 @@ def test_detect_partial_rendering_code_change_wins_over_last_rendered():
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "code_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive():
@@ -330,7 +347,7 @@ def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive()
     current ``pr.change``. Here both point at ``leaf`` — spec_change returns
     the module whose spec is stale; code_change returns the previous module
     whose code has changed — so the code_change branch wins the tie."""
-    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "1"))
+    root, middle, leaf = _build_fresh_tree(last_rendered=("middle", "fr-a"))
     # Leaf has a spec change.
     leaf._metadata = {"source_hash": "stale-leaf"}
     # Middle records a stale code hash for its required module (leaf).
@@ -343,7 +360,7 @@ def test_detect_partial_rendering_spec_and_code_changes_are_mutually_exclusive()
     assert pr.last_render_module is middle
     assert pr.change is leaf
     assert pr.change_type == "code_change"
-    assert pr.last_render_frid == "1"
+    assert pr.last_render_frid == "fr-a"
 
 
 # -------------------------
@@ -380,21 +397,21 @@ def test_render_choices_no_change_unrendered_module_offers_module_start():
 
 def test_render_choices_no_change_interrupted_module_offers_continue(monkeypatch):
     root, middle, _ = _build_choices_tree()
-    root._next_frid = ("2", middle)
-    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["2", "3"])
-    pr = PlainModuleRenderState(last_render_module=middle, last_render_frid="1")
+    root._next_frid = ("fr-b", middle)
+    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["fr-b", "fr-c"])
+    pr = PlainModuleRenderState(last_render_module=middle, last_render_frid="fr-a")
 
     choices = get_render_choices(root, pr)
 
     assert _choice_types(choices) == ["continue_from_frid", "quit"]
     assert choices["1"].module is middle
-    assert choices["1"].render_range == ["2", "3"]
+    assert choices["1"].render_range == ["fr-b", "fr-c"]
 
 
 def test_render_choices_no_change_fully_rendered_required_module_starts_next():
     root, middle, _ = _build_choices_tree()
     middle._fully_rendered = True
-    pr = PlainModuleRenderState(last_render_module=middle, last_render_frid="9")
+    pr = PlainModuleRenderState(last_render_module=middle, last_render_frid="fr-e")
 
     choices = get_render_choices(root, pr)
 
@@ -405,7 +422,7 @@ def test_render_choices_no_change_fully_rendered_required_module_starts_next():
 
 def test_render_choices_no_change_fully_rendered_top_module_rerenders_self():
     root, _, _ = _build_choices_tree(fully_rendered=True)
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9")
+    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="fr-e")
 
     choices = get_render_choices(root, pr)
 
@@ -423,10 +440,12 @@ def test_render_choices_spec_change_in_first_module_offers_partial_and_full_rest
     leaf already is the first module."""
     root, _, leaf = _build_choices_tree(fully_rendered=True)
     monkeypatch.setattr(
-        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=leaf, frid="1")
+        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=leaf, frid="fr-a")
     )
-    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["1", "2"])
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9", change=leaf, change_type="spec_change")
+    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["fr-a", "fr-b"])
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=leaf, change_type="spec_change"
+    )
 
     choices = get_render_choices(root, pr)
 
@@ -435,7 +454,7 @@ def test_render_choices_spec_change_in_first_module_offers_partial_and_full_rest
     assert "continue_from_frid" not in _choice_types(choices)
     assert _choice_types(choices) == ["render_from_change", "rerender_affected", "quit"]
     assert choices["1"].module is leaf
-    assert choices["1"].render_range == ["1", "2"]
+    assert choices["1"].render_range == ["fr-a", "fr-b"]
     assert choices["2"].module is leaf
 
 
@@ -444,10 +463,12 @@ def test_render_choices_spec_change_in_top_module_offers_partial_restart_and_ful
     scratch, and (3) rebuild everything from the first module — plus quit."""
     root, _, leaf = _build_choices_tree(fully_rendered=True)
     monkeypatch.setattr(
-        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=root, frid="3")
+        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=root, frid="fr-c")
     )
-    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["3", "4"])
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9", change=root, change_type="spec_change")
+    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["fr-c", "fr-d"])
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=root, change_type="spec_change"
+    )
 
     choices = get_render_choices(root, pr)
 
@@ -456,7 +477,7 @@ def test_render_choices_spec_change_in_top_module_offers_partial_restart_and_ful
     assert _choice_types(choices) == ["render_from_change", "rerender_affected", "rerender_from_first", "quit"]
     # (1) partial render from the changed functionality in C
     assert choices["1"].module is root
-    assert choices["1"].render_range == ["3", "4"]
+    assert choices["1"].render_range == ["fr-c", "fr-d"]
     # (2) re-render the affected module (C) from scratch
     assert choices["2"].module is root
     assert choices["2"].render_range is None
@@ -467,7 +488,9 @@ def test_render_choices_spec_change_in_top_module_offers_partial_restart_and_ful
 
 def test_render_choices_code_change_suppresses_resume_and_offers_rerender_affected():
     root, _, leaf = _build_choices_tree(fully_rendered=True)
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9", change=leaf, change_type="code_change")
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=leaf, change_type="code_change"
+    )
 
     choices = get_render_choices(root, pr)
 
@@ -482,7 +505,9 @@ def test_render_choices_spec_change_no_partial_start_falls_back_to_full_rerender
     affected module and the first module are offered for a full re-render."""
     root, middle, leaf = _build_choices_tree(fully_rendered=True)
     monkeypatch.setattr(partial_rendering, "determine_partial_render_start", lambda pm: None)
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9", change=middle, change_type="spec_change")
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=middle, change_type="spec_change"
+    )
 
     choices = get_render_choices(root, pr)
 
@@ -497,18 +522,20 @@ def test_render_choices_appended_after_render_frontier_auto_continues(monkeypatc
     """A new functionality appended after the last-rendered one is pure future work: offer
     only a non-destructive continue, so the renderer resumes without prompting the user."""
     root, _, _ = _build_choices_tree()  # not fully rendered: a new FR sits past the frontier
-    root._next_frid = ("3", root)
+    root._next_frid = ("fr-c", root)
     monkeypatch.setattr(
-        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=root, frid="3")
+        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=root, frid="fr-c")
     )
-    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["3"])
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="2", change=root, change_type="spec_change")
+    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["fr-c"])
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-b", change=root, change_type="spec_change"
+    )
 
     choices = get_render_choices(root, pr)
 
     assert _choice_types(choices) == ["continue_from_frid", "quit"]
     assert choices["1"].module is root
-    assert choices["1"].render_range == ["3"]
+    assert choices["1"].render_range == ["fr-c"]
     assert choices["1"].is_destructive is False
 
 
@@ -517,10 +544,12 @@ def test_render_choices_appended_in_required_module_still_prompts(monkeypatch):
     before the already-rendered top module, so a decision is still required."""
     root, middle, leaf = _build_choices_tree(fully_rendered=True)
     monkeypatch.setattr(
-        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=middle, frid="3")
+        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=middle, frid="fr-c")
     )
-    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["3"])
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9", change=middle, change_type="spec_change")
+    monkeypatch.setattr(partial_rendering.plain_spec, "get_render_range_from", lambda frid, source: ["fr-c"])
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=middle, change_type="spec_change"
+    )
 
     choices = get_render_choices(root, pr)
 
@@ -531,7 +560,7 @@ def test_render_choices_appended_in_required_module_still_prompts(monkeypatch):
 
 def test_render_choices_always_ends_with_quit():
     root, _, _ = _build_choices_tree(fully_rendered=True)
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9")
+    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="fr-e")
 
     choices = get_render_choices(root, pr)
 
@@ -547,25 +576,31 @@ def test_render_choices_always_ends_with_quit():
 
 def test_change_is_only_future_work_true_for_append_past_frontier():
     root, _, _ = _build_choices_tree()
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="2", change=root, change_type="spec_change")
-    assert change_is_only_future_work(root, pr, PartialRenderStart(module=root, frid="3")) is True
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-b", change=root, change_type="spec_change"
+    )
+    assert change_is_only_future_work(root, pr, PartialRenderStart(module=root, frid="fr-c")) is True
 
 
 def test_change_is_only_future_work_false_for_change_at_or_before_frontier():
     root, _, _ = _build_choices_tree()
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="3", change=root, change_type="spec_change")
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-c", change=root, change_type="spec_change"
+    )
     # Same frid (the changed functionality was already rendered) is not strictly after.
-    assert change_is_only_future_work(root, pr, PartialRenderStart(module=root, frid="3")) is False
-    assert change_is_only_future_work(root, pr, PartialRenderStart(module=root, frid="2")) is False
+    assert change_is_only_future_work(root, pr, PartialRenderStart(module=root, frid="fr-c")) is False
+    assert change_is_only_future_work(root, pr, PartialRenderStart(module=root, frid="fr-b")) is False
 
 
 def test_change_is_only_future_work_false_for_change_in_earlier_module():
     root, middle, _ = _build_choices_tree()
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9", change=middle, change_type="spec_change")
-    assert change_is_only_future_work(root, pr, PartialRenderStart(module=middle, frid="3")) is False
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=middle, change_type="spec_change"
+    )
+    assert change_is_only_future_work(root, pr, PartialRenderStart(module=middle, frid="fr-c")) is False
 
 
 def test_change_is_only_future_work_false_when_no_partial_start():
     root, _, _ = _build_choices_tree()
-    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="9")
+    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="fr-e")
     assert change_is_only_future_work(root, pr, None) is False

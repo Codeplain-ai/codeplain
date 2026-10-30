@@ -22,9 +22,13 @@ def print_dry_run_output(plain_source_tree: dict, render_range: Optional[list[st
                 f"{functional_requirement_text}\n"
                 "-------------------------------------\n"
             )
-            if plain_spec.ACCEPTANCE_TESTS in specifications:
-                for i, acceptance_test in enumerate(specifications[plain_spec.ACCEPTANCE_TESTS], 1):
-                    console.info(f"Generating acceptance test #{i}:\n\n{acceptance_test}\n")
+            for section, label in (
+                (plain_spec.CONFORMANCE_TESTS, "Conformance scenarios"),
+                (plain_spec.ACCEPTANCE_TESTS, "Acceptance scenarios"),
+            ):
+                scenario_ids = [scenario["id"] for scenario in specifications.get(section) or []]
+                if scenario_ids:
+                    console.info(f"{label}: {', '.join(scenario_ids)}\n")
         else:
             console.info(
                 "-------------------------------------\n"

@@ -55,6 +55,11 @@ def code_var_module(fixtures_dir, tmp_build_folder):
     return PlainModule("pr_code_var.plain", tmp_build_folder, [fixtures_dir])
 
 
+def _stored(*frids: str) -> list[dict[str, str]]:
+    """Metadata entries for the given func-ids, as the module stores them."""
+    return [{"id": frid, "markdown": f"{frid} markdown."} for frid in frids]
+
+
 def _write_metadata(module: PlainModule, metadata: dict) -> None:
     folder = module.get_codeplain_folder()
     os.makedirs(folder, exist_ok=True)
@@ -220,24 +225,23 @@ def test_get_next_module_raises_when_module_not_found(root_module):
 
 
 def test_get_next_frid_within_same_module(root_module):
-    # Each fixture module has FRIDs ["1", "2"].
-    next_frid, next_module = root_module.get_next_frid("1", "pr_leaf")
-    assert next_frid == "2"
+    next_frid, next_module = root_module.get_next_frid("leaf-one", "pr_leaf")
+    assert next_frid == "leaf-two"
     assert next_module.module_name == "pr_leaf"
 
 
 def test_get_next_frid_crosses_module_boundary(root_module):
     # After pr_leaf's last FRID, progress to pr_middle's first.
-    next_frid, next_module = root_module.get_next_frid("2", "pr_leaf")
+    next_frid, next_module = root_module.get_next_frid("leaf-two", "pr_leaf")
     assert next_module.module_name == "pr_middle"
-    assert next_frid == "1"
+    assert next_frid == "middle-one"
 
 
 def test_get_next_frid_from_last_required_module_progresses_to_root(root_module):
     # After pr_middle's last FRID, progress to the root's first FRID.
-    next_frid, next_module = root_module.get_next_frid("2", "pr_middle")
+    next_frid, next_module = root_module.get_next_frid("middle-two", "pr_middle")
     assert next_module is root_module
-    assert next_frid == "1"
+    assert next_frid == "root-one"
 
 
 # --------------------------------------------------------------------------
@@ -293,13 +297,13 @@ def test_is_module_fully_rendered_false_when_nothing_rendered(solo_module):
 
 
 def test_is_module_fully_rendered_false_when_only_first_frid_rendered(solo_module):
-    _init_build_repo_with_finished_frid(solo_module, "1")
+    _init_build_repo_with_finished_frid(solo_module, "solo-one")
     assert solo_module.is_module_fully_rendered() is False
 
 
 def test_is_module_fully_rendered_true_when_last_frid_rendered(solo_module):
-    # solo module has FRIDs ["1", "2", "3"]; "3" is the last.
-    _init_build_repo_with_finished_frid(solo_module, "3")
+    # solo module has FRIDs ["solo-one", "solo-two", "solo-three"]; the last one is "solo-three".
+    _init_build_repo_with_finished_frid(solo_module, "solo-three")
     assert solo_module.is_module_fully_rendered() is True
 
 
@@ -314,16 +318,16 @@ def test_update_frid_stores_raw_markdown_not_rendered_text(code_var_module):
     rendered text (code variable substituted) would make every later diff report
     a spurious edit for that FRID."""
     raw = code_var_module._get_module_functional_requirements()
-    # Sanity: FRID 2 really does carry an unsubstituted placeholder.
-    assert "{{ variable_name }}" in raw[1]
+    # Sanity: implement-configurable really does carry an unsubstituted placeholder.
+    assert "{{ variable_name }}" in raw[1]["markdown"]
 
-    code_var_module.update_frid_in_module_metadata("1")
-    code_var_module.update_frid_in_module_metadata("2")
+    code_var_module.update_frid_in_module_metadata("plain-one")
+    code_var_module.update_frid_in_module_metadata("implement-configurable")
 
     metadata = code_var_module.load_module_metadata()
     assert metadata["functionalities"] == raw
     # The substituted value must NOT leak into the stored baseline.
-    assert "configurable-value" not in metadata["functionalities"][1]
+    assert "configurable-value" not in metadata["functionalities"][1]["markdown"]
 
 
 def test_code_variable_frid_not_flagged_as_change(code_var_module):
@@ -336,8 +340,8 @@ def test_code_variable_frid_not_flagged_as_change(code_var_module):
         code_var_module,
         {"non_functional_source_hash": code_var_module.get_module_non_functional_source_hash()},
     )
-    code_var_module.update_frid_in_module_metadata("1")
-    code_var_module.update_frid_in_module_metadata("2")
+    code_var_module.update_frid_in_module_metadata("plain-one")
+    code_var_module.update_frid_in_module_metadata("implement-configurable")
 
     assert determine_partial_render_start(code_var_module) is None
 
@@ -651,26 +655,28 @@ def test_seed_module_metadata_overwrites_stale_functionalities(solo_module):
 
 
 def test_truncate_metadata_functionalities_no_metadata_is_noop(solo_module):
-    solo_module.truncate_metadata_functionalities("1")
+    solo_module.truncate_metadata_functionalities("solo-one")
     assert solo_module.load_module_metadata() is None
 
 
 def test_truncate_metadata_functionalities_shortens_list_and_keeps_hashes(solo_module):
-    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": ["fr1", "fr2", "fr3"]})
-    solo_module.truncate_metadata_functionalities("1")
+    _write_metadata(
+        solo_module, {"source_hash": "abc", "functionalities": _stored("solo-one", "solo-two", "solo-three")}
+    )
+    solo_module.truncate_metadata_functionalities("solo-one")
     metadata = solo_module.load_module_metadata()
-    assert metadata["functionalities"] == ["fr1"]
+    assert metadata["functionalities"] == _stored("solo-one")
     assert metadata["source_hash"] == "abc"
 
 
 def test_truncate_metadata_functionalities_noop_when_list_short_enough(solo_module):
-    _write_metadata(solo_module, {"functionalities": ["fr1"]})
-    solo_module.truncate_metadata_functionalities("2")
-    assert solo_module.load_module_metadata()["functionalities"] == ["fr1"]
+    _write_metadata(solo_module, {"functionalities": _stored("solo-one")})
+    solo_module.truncate_metadata_functionalities("solo-two")
+    assert solo_module.load_module_metadata()["functionalities"] == _stored("solo-one")
 
 
 def test_truncate_metadata_functionalities_none_frid_empties_list(solo_module):
-    _write_metadata(solo_module, {"functionalities": ["fr1", "fr2"]})
+    _write_metadata(solo_module, {"functionalities": _stored("solo-one", "solo-two")})
     solo_module.truncate_metadata_functionalities(None)
     assert solo_module.load_module_metadata()["functionalities"] == []
 
@@ -694,16 +700,16 @@ def _commit_finished_frid(module: PlainModule, frid: str) -> None:
 def test_revert_code_to_frid_reverts_repo_and_trims_metadata(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
-    _commit_finished_frid(solo_module, "1")
-    _commit_finished_frid(solo_module, "2")
-    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": ["fr1", "fr2"]})
+    _commit_finished_frid(solo_module, "solo-one")
+    _commit_finished_frid(solo_module, "solo-two")
+    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": _stored("solo-one", "solo-two")})
 
-    solo_module.revert_code_to_frid("1")
+    solo_module.revert_code_to_frid("solo-one")
 
-    assert os.path.exists(os.path.join(solo_module.module_build_folder, "frid_1.txt"))
-    assert not os.path.exists(os.path.join(solo_module.module_build_folder, "frid_2.txt"))
+    assert os.path.exists(os.path.join(solo_module.module_build_folder, "frid_solo-one.txt"))
+    assert not os.path.exists(os.path.join(solo_module.module_build_folder, "frid_solo-two.txt"))
     metadata = solo_module.load_module_metadata()
-    assert metadata["functionalities"] == ["fr1"]
+    assert metadata["functionalities"] == _stored("solo-one")
     assert metadata["source_hash"] == "abc"
     # The metadata folder lives outside the code repo and must survive the revert.
     assert os.path.exists(solo_module.get_codeplain_folder())
@@ -712,12 +718,12 @@ def test_revert_code_to_frid_reverts_repo_and_trims_metadata(solo_module):
 def test_revert_code_to_frid_none_reverts_to_initial_state(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
-    _commit_finished_frid(solo_module, "1")
-    _write_metadata(solo_module, {"functionalities": ["fr1"]})
+    _commit_finished_frid(solo_module, "solo-one")
+    _write_metadata(solo_module, {"functionalities": _stored("solo-one")})
 
     solo_module.revert_code_to_frid(None)
 
-    assert not os.path.exists(os.path.join(solo_module.module_build_folder, "frid_1.txt"))
+    assert not os.path.exists(os.path.join(solo_module.module_build_folder, "frid_solo-one.txt"))
     assert solo_module.load_module_metadata()["functionalities"] == []
 
 
@@ -730,13 +736,13 @@ def test_reconcile_metadata_with_git_trims_metadata_ahead_of_git(solo_module):
     # Simulates the crash window: metadata records FR 2 but git only committed FR 1.
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
-    _commit_finished_frid(solo_module, "1")
-    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": ["fr1", "fr2"]})
+    _commit_finished_frid(solo_module, "solo-one")
+    _write_metadata(solo_module, {"source_hash": "abc", "functionalities": _stored("solo-one", "solo-two")})
 
     solo_module.reconcile_metadata_with_git()
 
     metadata = solo_module.load_module_metadata()
-    assert metadata["functionalities"] == ["fr1"]
+    assert metadata["functionalities"] == _stored("solo-one")
     # Only the functionalities baseline is trimmed; the hashes are left untouched.
     assert metadata["source_hash"] == "abc"
 
@@ -744,20 +750,20 @@ def test_reconcile_metadata_with_git_trims_metadata_ahead_of_git(solo_module):
 def test_reconcile_metadata_with_git_in_sync_is_noop(solo_module):
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
-    _commit_finished_frid(solo_module, "1")
-    _commit_finished_frid(solo_module, "2")
-    _write_metadata(solo_module, {"functionalities": ["fr1", "fr2"]})
+    _commit_finished_frid(solo_module, "solo-one")
+    _commit_finished_frid(solo_module, "solo-two")
+    _write_metadata(solo_module, {"functionalities": _stored("solo-one", "solo-two")})
 
     solo_module.reconcile_metadata_with_git()
 
-    assert solo_module.load_module_metadata()["functionalities"] == ["fr1", "fr2"]
+    assert solo_module.load_module_metadata()["functionalities"] == _stored("solo-one", "solo-two")
 
 
 def test_reconcile_metadata_with_git_no_finished_frid_empties_list(solo_module):
     # Only the initial commit exists (no finished FRID), so the baseline must be emptied.
     os.makedirs(solo_module.module_build_folder)
     init_git_repo(solo_module.module_build_folder, module_name=solo_module.module_name)
-    _write_metadata(solo_module, {"functionalities": ["fr1"]})
+    _write_metadata(solo_module, {"functionalities": _stored("solo-one")})
 
     solo_module.reconcile_metadata_with_git()
 
@@ -777,7 +783,7 @@ def test_reconcile_metadata_with_git_ignores_foreign_module_frid(solo_module):
         module_name="other-module",
         frid="1",
     )
-    _write_metadata(solo_module, {"functionalities": ["fr1"]})
+    _write_metadata(solo_module, {"functionalities": _stored("solo-one")})
 
     solo_module.reconcile_metadata_with_git()
 

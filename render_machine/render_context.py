@@ -10,6 +10,7 @@ from event_bus import EventBus
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
+from plain2code_utils import qualified_frid
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -176,7 +177,7 @@ class RenderContext:
         if self.render_range is None or len(self.render_range) == 0:
             return next_frid is not None
 
-        return next_frid is not None and int(next_frid) <= int(self.render_range[-1])
+        return next_frid is not None and next_frid in self.render_range
 
     def finish_implementing_frid(self):
         self.functional_requirements_render_attempts_failed_unit_during_conformance_tests = 0
@@ -297,13 +298,15 @@ class RenderContext:
             self.functional_requirements_render_attempts_failed_unit_during_conformance_tests
             >= MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS
         ):
-            error_msg = f"Failed to adjust the unit tests after implementation code was update while fixing the conformance tests for functionality {self.frid_context.frid} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
+            functionality = qualified_frid(self.module_name, self.frid_context.frid)
+            error_msg = f"Failed to adjust the unit tests after implementation code was update while fixing the conformance tests for functionality {functionality} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
             self.dispatch_error(error_msg)
         else:
+            functionality = qualified_frid(self.module_name, self.frid_context.frid)
             console.info(
                 f"↻ Failed to adjust the unit tests after implementation code was updated while fixing the "
-                f"conformance tests for functionality {self.frid_context.frid}. "
-                f"Restarting rendering the functionality {self.frid_context.frid} from scratch.",
+                f"conformance tests for functionality {functionality}. "
+                f"Restarting rendering the functionality {functionality} from scratch.",
                 color=RETRY_COLOR,
             )
             self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
@@ -313,10 +316,13 @@ class RenderContext:
         self.machine.dispatch(triggers.START_NEW_REFACTORING_ITERATION)
 
     def start_conformance_tests_processing(self):
-        console.info("Implementing conformance tests...")
         current_frid_specifications, _ = plain_spec.get_specifications_for_frid(
             self.plain_source_tree, self.frid_context.frid
         )
+        has_own_scenarios = bool(current_frid_specifications.get(plain_spec.CONFORMANCE_TESTS))
+        if has_own_scenarios:
+            console.info("Implementing conformance tests...")
+
         self.conformance_tests_running_context = ConformanceTestsRunningContext(
             current_testing_module_name=self.module_name,
             current_testing_frid=self.frid_context.frid,
@@ -327,6 +333,30 @@ class RenderContext:
             should_prepare_testing_environment=True,
             frid_being_implemented=self.frid_context.frid,
         )
+
+        if has_own_scenarios:
+            return
+
+        # No scenario was written for this functionality, so no conformance test is rendered or run
+        # for it. The tests of the previous functionalities still run, so a regression it causes is
+        # still caught.
+        functionality = qualified_frid(self.module_name, self.frid_context.frid)
+        if self._has_conformance_tests_to_run_in_regression():
+            console.info(
+                f"No conformance scenario is written for {functionality}. "
+                "Running the conformance tests of the previous functionalities."
+            )
+            self._start_regression_phase()
+        else:
+            console.info(f"No conformance scenario is written for {functionality}, and there is none to re-run.")
+            self.conformance_tests_running_context.execution_phase = TestExecutionPhase.COMPLETED
+
+    def _has_conformance_tests_to_run_in_regression(self) -> bool:
+        """Whether any functionality rendered before this one has conformance tests to re-run."""
+        for module in self.required_modules or []:
+            if self.conformance_tests.get_conformance_tests_json(module.module_name):
+                return True
+        return bool(self.conformance_tests.get_conformance_tests_json(self.module_name))
 
     def finish_conformance_tests_processing(self):
         self.conformance_tests_running_context = None
@@ -402,7 +432,10 @@ class RenderContext:
         """Handle regeneration of conformance tests after too many failures."""
         ctx = self.conformance_tests_running_context
 
-        console.info(f"Recreating conformance tests for functionality {ctx.current_testing_frid}.")
+        console.info(
+            f"Recreating conformance tests for functionality "
+            f"{qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}."
+        )
 
         existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(ctx.current_testing_frid)
         file_utils.delete_folder(existing_folder["folder_name"])
@@ -410,6 +443,12 @@ class RenderContext:
         ctx.conformance_tests_render_attempts += 1
         ctx.fix_attempts = 0
         ctx.regenerating_conformance_tests = False
+
+        # The folder held the acceptance tests of the functionality as well, so they are gone with
+        # it. The functionality writes all of its tests again, from the first scenario.
+        ctx.acceptance_test_phase = AcceptanceTestPhase.NOT_STARTED
+        ctx.acceptance_tests_completed = 0
+        ctx.rendered_acceptance_scenarios = []
 
     def _handle_retry_after_code_change(self):
         """Re-run the test that failed and triggered a code change."""
@@ -425,11 +464,20 @@ class RenderContext:
         """Called when a test passes after being retried due to code changes."""
         ctx = self.conformance_tests_running_context
 
-        if ctx.execution_phase == TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
-            # Test passed after code change - mark that code changed and restart regression
-            ctx.code_changed_during_regression = True
-            ctx.test_that_triggered_code_change = None
-            self._start_regression_phase()
+        if ctx.execution_phase != TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE:
+            return
+
+        # Test passed after code change - mark that code changed
+        ctx.code_changed_during_regression = True
+        ctx.test_that_triggered_code_change = None
+
+        if self._has_more_acceptance_test_phases():
+            # The functionality still has acceptance scenarios with no test. Go back to its own testing
+            # phase, so that the scenarios that remain still get one. Regression starts after them.
+            ctx.execution_phase = TestExecutionPhase.TESTING_CURRENT_FRID
+            return
+
+        self._start_regression_phase()
 
     def _handle_current_frid_testing(self):
         """Handle incremental testing of the current FRID being implemented."""
@@ -467,16 +515,7 @@ class RenderContext:
         if ctx.acceptance_test_phase == AcceptanceTestPhase.IN_PROGRESS:
             if self._has_more_acceptance_test_phases():
                 # Run next phase
-                if ctx.acceptance_tests_completed == 0:
-                    ctx.current_testing_frid_high_level_implementation_plan = None
-
                 ctx.acceptance_tests_completed += 1
-                acceptance_tests = self.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-                    : ctx.acceptance_tests_completed
-                ]
-                ctx.get_conformance_tests_json(ctx.current_testing_module_name)[ctx.current_testing_frid][
-                    plain_spec.ACCEPTANCE_TESTS
-                ] = acceptance_tests
                 return
             else:
                 # All phases done - move to regression

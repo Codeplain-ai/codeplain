@@ -1,3 +1,5 @@
+from typing import Optional
+
 from plain_parser.loaders import MAX_BASE64_BLOB_LENGTH, find_large_base64_blob  # noqa: F401
 
 
@@ -27,3 +29,15 @@ AMBIGUITY_CAUSES = {
     "functional_requirement_ambiguity": "Ambiguity is in the functionality",
     "other": "Ambiguity in the other parts of the specification",
 }
+
+
+def qualified_frid(module_name: Optional[str], frid: Optional[str]) -> Optional[str]:
+    """A functionality named as `<module>:<func-id>`.
+
+    A func-id is unique only within its module, so this is the form to use wherever the
+    module is not already named next to it. Returns the func-id alone when the module is
+    unknown, and None when there is no functionality to name.
+    """
+    if frid is None:
+        return None
+    return f"{module_name}:{frid}" if module_name else frid

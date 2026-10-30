@@ -98,7 +98,7 @@ def test_capture_crash_sends_event_with_tags(transport):
 
     run_state = RunState(spec_filename="test.plain")
     run_state.current_module = "my_module"
-    run_state.current_frid = "2.1"
+    run_state.current_frid = "add-task"
     run_state.current_render_state = "IMPLEMENTING_FRID"
     run_state.user_email = "user@codeplain.ai"
 
@@ -110,7 +110,7 @@ def test_capture_crash_sends_event_with_tags(transport):
     tags = event["tags"]
     assert tags["render_id"] == run_state.render_id
     assert tags["current_module"] == "my_module"
-    assert tags["current_frid"] == "2.1"
+    assert tags["current_frid"] == "my_module:add-task"
     assert tags["render_state"] == "IMPLEMENTING_FRID"
     assert tags["headless"] is True
     assert tags["unittests_script_provided"] is True

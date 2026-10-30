@@ -109,9 +109,7 @@ class RenderConformanceTests(BaseAction):
             style=console.INPUT_STYLE,
         )
 
-        all_acceptance_tests = render_context.frid_context.specifications.get(plain_spec.ACCEPTANCE_TESTS, [])
-
-        response_files, implementation_plan_summary = render_context.codeplain_api.render_conformance_tests(
+        response_files, traceability = render_context.codeplain_api.render_conformance_tests(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
             render_context.plain_source_tree,
@@ -124,13 +122,10 @@ class RenderConformanceTests(BaseAction):
             render_context.conformance_tests_running_context.get_conformance_tests_json(
                 render_context.conformance_tests_running_context.current_testing_module_name
             ),
-            all_acceptance_tests,
             run_state=render_context.run_state,
         )
 
-        render_context.conformance_tests_running_context.current_testing_frid_high_level_implementation_plan = (
-            implementation_plan_summary
-        )
+        self._warn_about_untraced_scenarios(render_context, traceability)
 
         file_utils.store_response_files(conformance_tests_folder_name, response_files, [])
 
@@ -143,9 +138,49 @@ class RenderConformanceTests(BaseAction):
 
         return self.SUCCESSFUL_OUTCOME, None
 
+    @staticmethod
+    def _warn_about_untraced_scenarios(render_context: RenderContext, traceability: dict) -> None:
+        """Warn about a scenario with no test, a test that implements no scenario, and a scenario
+        with more than one test.
+
+        Both test renders report the same traceability, so both are checked the same way. A render
+        that writes a test the specification did not ask for, or leaves one it did ask for unwritten,
+        must say so instead of reporting success.
+        """
+        frid = render_context.conformance_tests_running_context.current_testing_frid
+
+        missing = traceability.get("missing") or []
+        if missing:
+            console.warning(f"No conformance test was generated for {frid} scenarios: {', '.join(missing)}.")
+
+        extra = traceability.get("extra") or []
+        if extra:
+            console.warning(f"Conformance tests of {frid} that implement no scenario: {', '.join(extra)}.")
+
+        duplicated = traceability.get("duplicated") or []
+        if duplicated:
+            console.warning(
+                f"More than one conformance test of {frid} implements the scenarios: {', '.join(duplicated)}."
+            )
+
     def _render_acceptance_test(self, render_context: RenderContext):
         if plain_spec.ACCEPTANCE_TESTS not in render_context.frid_context.specifications:
             # If there are no acceptance tests defined, continue.
+            return self.SUCCESSFUL_OUTCOME, None
+
+        ctx = render_context.conformance_tests_running_context
+
+        # Get the current acceptance scenario being rendered (completed count is 1-based)
+        scenario = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
+            ctx.acceptance_tests_completed - 1
+        ]
+
+        # This action is entered through more than one path, and the counter above belongs to the
+        # state machine, not to the action. A path that enters it again without the counter moving
+        # asks for a scenario that already has a test. Rendering it again costs a call and lets the
+        # render write a second test for the one scenario.
+        if scenario["id"] in ctx.rendered_acceptance_scenarios:
+            console.warning(f"The acceptance scenario {scenario['id']} already has a test. It is not rendered again.")
             return self.SUCCESSFUL_OUTCOME, None
 
         _, existing_files_content = ImplementationCodeHelpers.fetch_existing_files(render_context.build_folder)
@@ -156,18 +191,13 @@ class RenderConformanceTests(BaseAction):
         ) = render_context.conformance_tests.fetch_existing_conformance_test_files(
             render_context.module_name,
             render_context.required_modules,
-            render_context.conformance_tests_running_context.current_testing_module_name,
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name(),
+            ctx.current_testing_module_name,
+            ctx.get_current_conformance_test_folder_name(),
         )
 
-        # Get the current acceptance test being rendered (completed count is 1-based)
-        acceptance_test = render_context.frid_context.specifications[plain_spec.ACCEPTANCE_TESTS][
-            render_context.conformance_tests_running_context.acceptance_tests_completed - 1
-        ]
+        console.info(f"Generating acceptance test for scenario {scenario['id']}.")
 
-        console.info(f"Generating acceptance test:\n  {acceptance_test}")
-
-        response_files = render_context.codeplain_api.render_acceptance_tests(
+        response_files, traceability = render_context.codeplain_api.render_acceptance_tests(
             render_context.frid_context.frid,
             render_context.plain_source_tree,
             render_context.frid_context.linked_resources,
@@ -176,12 +206,14 @@ class RenderConformanceTests(BaseAction):
             conformance_tests_files_content,
             render_context.module_name,
             render_context.get_required_modules_functionalities(),
-            acceptance_test,
+            scenario["id"],
             run_state=render_context.run_state,
         )
-        conformance_tests_folder_name = (
-            render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
-        )
+
+        self._warn_about_untraced_scenarios(render_context, traceability)
+        ctx.rendered_acceptance_scenarios.append(scenario["id"])
+
+        conformance_tests_folder_name = ctx.get_current_conformance_test_folder_name()
 
         file_utils.store_response_files(conformance_tests_folder_name, response_files, conformance_tests_files)
         console.print_files(
