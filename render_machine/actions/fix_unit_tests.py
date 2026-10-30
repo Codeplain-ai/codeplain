@@ -233,7 +233,8 @@ class FixUnitTests(BaseAction):
         sections = []
         for module_name, functionalities in render_context.get_required_modules_functionalities().items():
             sections.append(
-                f"### Module: {module_name} (Already Implemented, for context)\n" + "\n".join(functionalities)
+                f"### Module: {module_name} (Already Implemented, for context)\n"
+                + "\n".join(functionality["markdown"] for functionality in functionalities)
             )
         current = specifications.get(plain_spec.FUNCTIONAL_REQUIREMENTS, [])
         if len(current) > 1:
