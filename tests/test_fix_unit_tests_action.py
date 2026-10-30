@@ -65,7 +65,7 @@ def render_context(tmp_path, monkeypatch):
         unit_tests_running_context=UnitTestsRunningContext(fix_attempts=1),
         conformance_tests_running_context=None,
         script_execution_history=ScriptExecutionHistory(),
-        get_required_modules_functionalities=lambda: {"base": ["- Base feature."]},
+        get_required_modules_functionalities=lambda: {"base": [{"id": "base-feature", "markdown": "- Base feature."}]},
     )
 
 
