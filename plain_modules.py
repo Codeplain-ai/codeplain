@@ -153,7 +153,7 @@ class PlainModule:
         filename: str,
         build_folder: str,
         template_dirs: list[str],
-        test_dirs: list[str] | None = None,
+        tests_folders: list[str] | None = None,
         conformance_tests_enabled: bool = False,
     ):
         self.filename = filename
@@ -183,18 +183,18 @@ class PlainModule:
                 )
                 for module_name in required_modules_names
             ]
-        if test_dirs is not None:
-            self._bind_test_scenarios(test_dirs, conformance_tests_enabled)
+        if tests_folders is not None:
+            self._bind_test_scenarios(tests_folders, conformance_tests_enabled)
 
-    def _bind_test_scenarios(self, test_dirs: list[str], conformance_tests_enabled: bool) -> None:
-        """Add the scenarios of the test plain files under ``test_dirs`` to the functionalities of the chain.
+    def _bind_test_scenarios(self, tests_folders: list[str], conformance_tests_enabled: bool) -> None:
+        """Add the scenarios of the test plain files under ``tests_folders`` to the functionalities of the chain.
 
         With conformance tests enabled, a functionality with no test plain file stops the run here. A
         functionality whose test plain file holds no scenario is recorded instead, so the run can warn
         about it and go on without conformance tests for it.
         """
         chain = self._unique_chain()
-        bound = project.bind_test_plain_files(chain, test_dirs, self.template_dirs, self.template_dirs[0])
+        bound = project.bind_test_plain_files(chain, tests_folders, self.template_dirs, self.template_dirs[0])
         if conformance_tests_enabled:
             project.check_test_plain_files(chain, bound)
             self.functionalities_without_scenarios = _functionalities_without_scenarios(chain)

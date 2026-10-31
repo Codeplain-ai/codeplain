@@ -1,4 +1,4 @@
-"""The test folders: where they come from, and what the client does with the scenarios it finds there."""
+"""The tests folders: where they come from, and what the client does with the scenarios it finds there."""
 
 import os
 
@@ -29,13 +29,13 @@ def _parse(tmp_path, *extra_args):
     return parse_arguments([str(plain_file), *extra_args])
 
 
-def test_there_is_no_default_test_dir(tmp_path):
+def test_there_is_no_default_tests_folder(tmp_path):
     args = _parse(tmp_path)
 
-    assert args.test_dir is None
+    assert args.tests_folder is None
 
 
-def test_a_conformance_tests_script_without_a_test_dir_is_a_usage_error(tmp_path):
+def test_a_conformance_tests_script_without_a_tests_folder_is_a_usage_error(tmp_path):
     script = tmp_path / "run_conformance_tests.sh"
     script.write_text("#!/bin/sh\n")
 
@@ -43,28 +43,28 @@ def test_a_conformance_tests_script_without_a_test_dir_is_a_usage_error(tmp_path
         _parse(tmp_path, "--conformance-tests-script", str(script))
 
 
-def test_a_conformance_tests_script_with_a_test_dir_is_accepted(tmp_path, monkeypatch):
+def test_a_conformance_tests_script_with_a_tests_folder_is_accepted(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     script = tmp_path / "run_conformance_tests.sh"
     script.write_text("#!/bin/sh\n")
 
-    args = _parse(tmp_path, "--conformance-tests-script", str(script), "--test-dir", "scenarios")
+    args = _parse(tmp_path, "--conformance-tests-script", str(script), "--tests-folder", "scenarios")
 
-    assert args.test_dir == [str(tmp_path / "scenarios")]
+    assert args.tests_folder == [str(tmp_path / "scenarios")]
 
 
-def test_test_dir_can_be_given_more_than_once(tmp_path, monkeypatch):
+def test_tests_folder_can_be_given_more_than_once(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    args = _parse(tmp_path, "--test-dir", "scenarios", "--test-dir", "extra")
+    args = _parse(tmp_path, "--tests-folder", "scenarios", "--tests-folder", "extra")
 
-    assert args.test_dir == [str(tmp_path / "scenarios"), str(tmp_path / "extra")]
+    assert args.tests_folder == [str(tmp_path / "scenarios"), str(tmp_path / "extra")]
 
 
-def test_test_dir_from_the_config_file_resolves_against_the_config_folder(tmp_path):
-    (tmp_path / "config.yaml").write_text("test-dir: scenarios\n")
+def test_tests_folder_from_the_config_file_resolves_against_the_config_folder(tmp_path):
+    (tmp_path / "config.yaml").write_text("tests-folder: scenarios\n")
     args = _parse(tmp_path)
 
-    assert args.test_dir == [str(tmp_path / "scenarios")]
+    assert args.tests_folder == [str(tmp_path / "scenarios")]
 
 
 def test_scenarios_of_a_test_plain_file_reach_the_functionality(tmp_path, fixtures_dir, scenarios_dir):

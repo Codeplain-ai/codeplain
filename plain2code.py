@@ -513,7 +513,7 @@ def main():  # noqa: C901
             os.path.basename(args.filename),
             args.build_folder,
             template_dirs,
-            args.test_dir,
+            args.tests_folder,
             args.render_conformance_tests,
         )
     except Exception as e:

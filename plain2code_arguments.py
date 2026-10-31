@@ -441,11 +441,11 @@ def create_parser():
     )
     _add_arg(
         parser,
-        "--test-dir",
+        "--tests-folder",
         action="append",
         default=None,
         help="Folder scanned for test plain files; repeat the option for more than one. "
-        "There is no default: without this option and without the 'test-dir' config key, no test "
+        "There is no default: without this option and without the 'tests-folder' config key, no test "
         "plain file is read. Required when a conformance tests script is configured.",
         path_list=True,
     )
@@ -572,10 +572,10 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
 
     args.render_conformance_tests = args.conformance_tests_script is not None
 
-    if args.render_conformance_tests and not args.test_dir:
+    if args.render_conformance_tests and not args.tests_folder:
         parser.error(
-            "A conformance tests script is configured, but no test directory is given. "
-            "Pass --test-dir or set test-dir in the config file."
+            "A conformance tests script is configured, but no tests folder is given. "
+            "Pass --tests-folder or set tests-folder in the config file."
         )
 
     if not args.render_conformance_tests and args.copy_conformance_tests:
