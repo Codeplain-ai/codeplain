@@ -29,18 +29,18 @@ def _parse(tmp_path, *extra_args):
     return parse_arguments([str(plain_file), *extra_args])
 
 
-def test_there_is_no_default_tests_folder(tmp_path):
+def test_the_default_is_tests_next_to_the_plain_file(tmp_path):
     args = _parse(tmp_path)
 
-    assert args.tests_folder is None
+    assert args.tests_folder == [str(tmp_path / "tests")]
 
 
-def test_a_conformance_tests_script_without_a_tests_folder_is_a_usage_error(tmp_path):
-    script = tmp_path / "run_conformance_tests.sh"
-    script.write_text("#!/bin/sh\n")
+def test_the_default_holds_when_a_config_file_names_no_tests_folder(tmp_path):
+    (tmp_path / "config.yaml").write_text("verbose: true\n")
 
-    with pytest.raises(SystemExit):
-        _parse(tmp_path, "--conformance-tests-script", str(script))
+    args = _parse(tmp_path)
+
+    assert args.tests_folder == [str(tmp_path / "tests")]
 
 
 def test_a_conformance_tests_script_with_a_tests_folder_is_accepted(tmp_path, monkeypatch):

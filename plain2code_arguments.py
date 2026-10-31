@@ -19,6 +19,7 @@ CODEPLAIN_API_KEY = os.getenv("CODEPLAIN_API_KEY")
 
 
 DEFAULT_BUILD_FOLDER = "plain_modules"
+DEFAULT_TESTS_FOLDER = "tests"
 DEFAULT_BUILD_DEST = "dist"
 DEFAULT_CONFORMANCE_TESTS_DEST = "dist_conformance_tests"
 MAX_JOB_TAG_LENGTH = 300
@@ -83,12 +84,15 @@ def _resolve_path_arguments(
     config_dir: Optional[str],
     spec_dir: str,
 ) -> None:
-    """Resolve every path-valued argument on ``args`` in-place and apply the test-folder default."""
+    """Resolve every path-valued argument on ``args`` in-place and apply the tests-folder default."""
     for action in parser._actions:
         if getattr(action, "_is_path", False):
             _resolve_path_arg(action.dest, args, cwd, config_dir, spec_dir)
         elif getattr(action, "_is_path_list", False):
             _resolve_path_list_arg(action.dest, args, cwd, config_dir, spec_dir)
+
+    if args.tests_folder is None:
+        args.tests_folder = [os.path.join(spec_dir, DEFAULT_TESTS_FOLDER)]
 
 
 def _resolve_script_path(
@@ -445,8 +449,7 @@ def create_parser():
         action="append",
         default=None,
         help="Folder scanned for test plain files; repeat the option for more than one. "
-        "There is no default: without this option and without the 'tests-folder' config key, no test "
-        "plain file is read. Required when a conformance tests script is configured.",
+        f"Defaults to '{DEFAULT_TESTS_FOLDER}' next to the plain file.",
         path_list=True,
     )
     _add_arg(
@@ -571,12 +574,6 @@ def parse_arguments(command_line: Optional[Sequence[str]] = None):
         parser.error("--conformance-tests-dest and --build-folder cannot be the same")
 
     args.render_conformance_tests = args.conformance_tests_script is not None
-
-    if args.render_conformance_tests and not args.tests_folder:
-        parser.error(
-            "A conformance tests script is configured, but no tests folder is given. "
-            "Pass --tests-folder or set tests-folder in the config file."
-        )
 
     if not args.render_conformance_tests and args.copy_conformance_tests:
         parser.error("--copy-conformance-tests requires --conformance-tests-script to be set")
