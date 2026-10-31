@@ -92,7 +92,7 @@ def make_args(api_key="test-key", headless=False):
         api="https://api.example.com",
         filename="project.plain",
         template_dir=None,
-        test_dir=[],
+        tests_folder=[],
         build_folder="build",
         render_range=None,
         render_from=None,

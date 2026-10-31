@@ -14,7 +14,7 @@ usage: generate_cli.py [-h] [--verbose] [--base-folder BASE_FOLDER]
                        [--api [API]] [--api-key API_KEY] [--full-plain]
                        [--dry-run] [--replay-with REPLAY_WITH]
                        [--job-tag JOB_TAG] [--template-dir TEMPLATE_DIR]
-                       [--test-dir TEST_DIR] [--copy-build]
+                       [--tests-folder TESTS_FOLDER] [--copy-build]
                        [--build-dest BUILD_DEST] [--copy-conformance-tests]
                        [--conformance-tests-dest CONFORMANCE_TESTS_DEST]
                        [--render-machine-graph]
@@ -102,11 +102,12 @@ options:
                         containing the plain file, 2) Custom template
                         directory (if provided through this argument), 3)
                         Built-in standard_template_library directory
-  --test-dir TEST_DIR   Folder scanned for test plain files; repeat the option
+  --tests-folder TESTS_FOLDER
+                        Folder scanned for test plain files; repeat the option
                         for more than one. There is no default: without this
-                        option and without the 'test-dir' config key, no test
-                        plain file is read. Required when a conformance tests
-                        script is configured.
+                        option and without the 'tests-folder' config key, no
+                        test plain file is read. Required when a conformance
+                        tests script is configured.
   --copy-build          If set, copy the rendered contents of code in `--base-
                         folder` folder to `--build-dest` folder after
                         successful rendering.
