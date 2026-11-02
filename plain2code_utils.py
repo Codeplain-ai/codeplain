@@ -31,6 +31,18 @@ AMBIGUITY_CAUSES = {
 }
 
 
+def functionality_position(frids: list[str], frid: Optional[str]) -> Optional[str]:
+    """Where a functionality stands among the functionalities of its module, as "3/12".
+
+    The count is over every functionality of the module, not over a render range, so the number
+    says where the render is in the specification whatever part of it was asked for.
+    """
+    if frid is None or frid not in frids:
+        return None
+
+    return f"{frids.index(frid) + 1}/{len(frids)}"
+
+
 def qualified_frid(module_name: Optional[str], frid: Optional[str]) -> Optional[str]:
     """A functionality named as `<module>:<func-id>`.
 
