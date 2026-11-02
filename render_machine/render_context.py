@@ -10,7 +10,7 @@ from event_bus import EventBus
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
-from plain2code_utils import qualified_frid
+from plain2code_utils import functionality_position, qualified_frid
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -122,6 +122,13 @@ class RenderContext:
         self.last_error_message = error_message
         self.machine.dispatch(triggers.HANDLE_ERROR)
 
+    def current_functionality_position(self) -> Optional[str]:
+        """Where the functionality being implemented stands among those of its module, as "3/12"."""
+        return functionality_position(
+            list(plain_spec.get_frids(self.plain_source_tree)),
+            self.frid_context.frid if self.frid_context else None,
+        )
+
     def create_snapshot(self) -> RenderContextSnapshot:
         return RenderContextSnapshot(
             frid_context=deepcopy(self.frid_context) if self.frid_context else None,
@@ -133,6 +140,7 @@ class RenderContext:
             ),
             script_execution_history=deepcopy(self.script_execution_history),
             module_name=self.module_name,
+            functionality_position=self.current_functionality_position(),
         )
 
     def get_required_modules_functionalities(self):

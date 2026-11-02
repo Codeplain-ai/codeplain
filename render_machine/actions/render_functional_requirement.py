@@ -19,6 +19,21 @@ class RenderFunctionalRequirement(BaseAction):
     FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME = "functional_requirement_too_complex"
     ITERATION_LIMIT_EXCEEDED_OUTCOME = "frid_iteration_limit_exceeded"
 
+    @staticmethod
+    def functionality_heading(render_context) -> str:
+        """The block logged when a functionality starts: its module, its ID, and where it stands."""
+        msg = "-------------------------------------\n"
+        msg += f"Module: {render_context.module_name}\n"
+        msg += f"Rendering functionality {render_context.frid_context.frid}"
+        position = render_context.current_functionality_position()
+        if position:
+            msg += f" ({position})"
+        if render_context.frid_context.functional_requirement_render_attempts > 1:
+            msg += f", attempt number {render_context.frid_context.functional_requirement_render_attempts}/{MAX_CODE_GENERATION_RETRIES}"
+        msg += f":\n{render_context.frid_context.functional_requirement_text}\n"
+        msg += "-------------------------------------"
+        return msg
+
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if render_context.frid_context.functional_requirement_render_attempts >= MAX_CODE_GENERATION_RETRIES:
             # A render attempt is only restarted once its unit tests used up every fix round.
@@ -49,14 +64,7 @@ class RenderFunctionalRequirement(BaseAction):
         )
         _, memory_files_content = MemoryManager.fetch_memory_files(render_context.memory_manager.memory_folder)
 
-        msg = "-------------------------------------\n"
-        msg += f"Module: {render_context.module_name}\n"
-        msg += f"Rendering functionality {render_context.frid_context.frid}"
-        if render_context.frid_context.functional_requirement_render_attempts > 1:
-            msg += f", attempt number {render_context.frid_context.functional_requirement_render_attempts}/{MAX_CODE_GENERATION_RETRIES}"
-        msg += f":\n{render_context.frid_context.functional_requirement_text}\n"
-        msg += "-------------------------------------"
-        console.info(msg)
+        console.info(self.functionality_heading(render_context))
 
         try:
             render_utils.print_inputs(render_context, existing_files_content, "Files sent as input to code generation:")

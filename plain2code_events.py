@@ -22,6 +22,8 @@ class RenderContextSnapshot:
     unit_tests_running_context: Optional[UnitTestsRunningContext]
     script_execution_history: Optional[ScriptExecutionHistory]
     module_name: str
+    # Where the functionality stands among those of its module, as "3/12". None before one is picked.
+    functionality_position: Optional[str] = None
 
 
 @dataclass

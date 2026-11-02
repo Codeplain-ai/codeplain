@@ -62,8 +62,10 @@ class FridReadyHandler(StateHandler):
         # Update FRID text
 
         functionality = qualified_frid(snapshot.module_name, snapshot.frid_context.frid)
+        # The position says how far the module has come; the func-id alone does not.
+        position = f" ({snapshot.functionality_position})" if snapshot.functionality_position else ""
         rendering_functionality_text = (
-            f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{functionality}: "
+            f"{tui_components.FRIDProgress.RENDERING_FUNCTIONALITY_TEXT}{functionality}{position}: "
             f"{snapshot.frid_context.functional_requirement_text}"
         )
         get_frid_progress(self.tui).update_functionality_text(rendering_functionality_text)
