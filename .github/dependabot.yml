@@ -16,6 +16,15 @@ updates:
       - "dependencies"
     # Routine bumps arrive as one weekly PR; majors stay separate.
     groups:
+      # These change the parsed spec text, so a bump can invalidate partial-render hashes
+      # and the API render cache. Listed first so they never land in the routine group;
+      # merge together with the matching codeplain-api PR.
+      spec-parsing:
+        patterns:
+          - "plain-parser"
+          - "mistletoe"
+          - "python-liquid2"
+          - "python-frontmatter"
       pip-minor-and-patch:
         update-types:
           - "minor"
