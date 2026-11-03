@@ -453,6 +453,7 @@ def render(  # noqa: C901
             enter_pause_event=enter_pause_event,
             on_cancel=run_state.set_render_cancelled,
             default_log_level=default_log_level,
+            exit_when_done=args.exit_when_done,
             css_path="styles.css",
         )
         app.run()
