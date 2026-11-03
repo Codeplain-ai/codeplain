@@ -624,12 +624,20 @@ class StructuredLogView(VerticalScroll):
     async def add_log(
         self, logger_name: str, level: str, message: str, timestamp: str = "", log_color: Optional[str] = None
     ):
-        """Add a new log entry."""
+        """Add a new log entry.
+
+        Log entries are scheduled from the render thread, so one can still be pending when the
+        TUI closes (e.g. with --exit-when-done). Once the view is detached from the DOM the entry
+        is dropped instead of mounted, since mounting into a detached widget raises MountError.
+        The check runs right before each mount because the view can detach while awaiting.
+        """
         # Check if this is a success message that should have spacing before it
         is_success_message = any(keyword in message.lower() for keyword in LogEntry.SUCCESS_KEYWORDS)
 
         # Add empty line before success messages
         if is_success_message:
+            if not self.is_attached:
+                return
             spacer = Static("", classes="log-spacer")
             await self.mount(spacer)
 
@@ -639,6 +647,8 @@ class StructuredLogView(VerticalScroll):
         if not self._should_show_log(level):
             entry.display = False
 
+        if not self.is_attached:
+            return
         await self.mount(entry)
         # Auto-scroll to bottom to show latest logs
         self.scroll_end(animate=False)

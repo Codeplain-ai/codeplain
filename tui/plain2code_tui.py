@@ -356,11 +356,12 @@ class Plain2CodeTUI(App):
         """Close the TUI once rendering has stopped, when --exit-when-done asked for it.
 
         Both render outcomes are reported on the terminal after the TUI closes, so nothing
-        the user needs is lost. The events arrive on the render thread; App.exit() posts the
-        message to the app thread by itself.
+        the user needs is lost. The events arrive on the render thread. The exit is queued
+        behind the log entries the render thread has already scheduled, so those are drawn
+        before the TUI starts shutting down; entries scheduled later are dropped by the log view.
         """
         if self.exit_when_done:
-            self.exit()
+            self.call_later(self.exit)
 
     async def action_copy_selection(self) -> None:
         """Handle ctrl+c: copy selected text if any.
