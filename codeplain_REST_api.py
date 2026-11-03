@@ -405,50 +405,6 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def fix_conformance_tests_issue(
-        self,
-        frid,
-        functional_requirement_id,
-        plain_source_tree,
-        linked_resources,
-        existing_files_content,
-        memory_files_content,
-        module_name: str,
-        conformance_tests_module_name: str,
-        required_modules,
-        code_diff,
-        conformance_tests_files,
-        conformance_tests_issue,
-        implementation_fix_count,
-        conformance_tests_folder_name,
-        conflicting_requirements_count: int,
-        fix_attempts_journal: list,
-        run_state: RunState,
-    ):
-        endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "functional_requirement_id": functional_requirement_id,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "memory_files_content": memory_files_content,
-            "module_name": module_name,
-            "conformance_tests_module_name": conformance_tests_module_name,
-            "required_modules": required_modules,
-            "code_diff": code_diff,
-            "conformance_tests_files": conformance_tests_files,
-            "conformance_tests_issue": conformance_tests_issue,
-            "implementation_fix_count": implementation_fix_count,
-            "conformance_tests_folder_name": conformance_tests_folder_name,
-            "conflicting_requirements_count": conflicting_requirements_count,
-            "fix_attempts_journal": fix_attempts_journal,
-        }
-
-        return self.post_request(endpoint_url, headers, payload, run_state)
-
     def render_acceptance_tests(
         self,
         frid,
@@ -575,6 +531,34 @@ class CodeplainAPI:
             "required_modules": required_modules,
         }
 
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
+    def report_conflicting_requirements(
+        self,
+        frid: str,
+        functional_requirement_id: str,
+        plain_source_tree: dict,
+        module_name: str,
+        conformance_tests_module_name: str,
+        required_modules,
+        failing_reason: str,
+        conflict_reason: str,
+        run_state: RunState,
+    ):
+        """Report a conflict the conformance tests fixer and its reviewer agreed on after it had been declared
+        once. The server always answers with the ConflictingRequirements error, raised here, ending the render."""
+        endpoint_url = f"{self.api_url}/report_conflicting_requirements"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "frid": frid,
+            "functional_requirement_id": functional_requirement_id,
+            "plain_source_tree": plain_source_tree,
+            "module_name": module_name,
+            "conformance_tests_module_name": conformance_tests_module_name,
+            "required_modules": required_modules,
+            "failing_reason": failing_reason,
+            "conflict_reason": conflict_reason,
+        }
         return self.post_request(endpoint_url, headers, payload, run_state)
 
     def agent_start(self, task_type: str, task_params: dict, frid: str, module_name: str, run_state: RunState):

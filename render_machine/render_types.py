@@ -81,6 +81,61 @@ class UnitTestsAgentSession:
 
 
 @dataclass
+class AgentSessionState:
+    """One server-side agent session of the conformance tests fixing conversation, and the call it still owes an
+    answer to (the submit call its last attempt ended with, answered when the conversation continues)."""
+
+    session_id: Optional[str] = None
+    pending_call_id: Optional[str] = None
+    # Results of tool calls made in the same turn as the pending call; sent along with its answer.
+    pending_tool_results: list[dict] = field(default_factory=list)
+    # The session this one is to take over from; the next session starts with a digest of it.
+    previous_session_id: Optional[str] = None
+
+    def reset(self) -> None:
+        """Drop the session (keeping its id as the previous one) so the next turn starts a new one."""
+        if self.session_id is not None:
+            self.previous_session_id = self.session_id
+        self.session_id, self.pending_call_id, self.pending_tool_results = None, None, []
+
+
+@dataclass
+class ConformanceFixAgents:
+    """The fixer and the reviewer fixing the conformance tests of one functionality. The reviewer lives alongside
+    the fixer: both are started, reset and dropped together. Dropped when that functionality's tests pass."""
+
+    # (module name, functionality ID) of the conformance tests being fixed.
+    tested: tuple[str, str]
+    # The writable folder of those conformance tests (a copy in the current module for a required module's tests).
+    conformance_tests_folder: str
+    fixer: AgentSessionState = field(default_factory=AgentSessionState)
+    reviewer: AgentSessionState = field(default_factory=AgentSessionState)
+    # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix
+    # can be shown as a diff and reverted.
+    snapshot: dict[str, Optional[str]] = field(default_factory=dict)
+    # Consecutive rejections of the current fix.
+    rejections: int = 0
+    # The previous fixer session's last fix was rejected too often and reverted (the new session is told so).
+    previous_changes_reverted: bool = False
+    # Whether the reviewer's pending verdict was an approval whose fix was tested (it is told the outcome).
+    approved_fix_tested: bool = False
+    # Full test logs the agents were pointed to.
+    readable_log_paths: set[str] = field(default_factory=set)
+    # Each agent's read-only tool results (an agent is pointed to its own earlier results); cleared on any change.
+    fixer_tool_result_cache: dict[str, str] = field(default_factory=dict)
+    reviewer_tool_result_cache: dict[str, str] = field(default_factory=dict)
+
+    def reset_sessions(self) -> None:
+        self.fixer.reset()
+        self.reviewer.reset()
+        self.clear_tool_result_caches()
+
+    def clear_tool_result_caches(self) -> None:
+        self.fixer_tool_result_cache.clear()
+        self.reviewer_tool_result_cache.clear()
+
+
+@dataclass
 class UnitTestsRunningContext:
     fix_attempts: int
     changed_files: set[str] = field(default_factory=set)
@@ -142,6 +197,8 @@ class ConformanceTestsRunningContext:
         self.implementation_code_fixes: list[dict] = []
         # The unit-test fixing agent session, shared by every unit-test loop of this conformance phase.
         self.unit_tests_agent_session = UnitTestsAgentSession()
+        # The fixer and reviewer of the conformance tests currently failing; None when no fix is in progress.
+        self.conformance_fix_agents: Optional[ConformanceFixAgents] = None
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]

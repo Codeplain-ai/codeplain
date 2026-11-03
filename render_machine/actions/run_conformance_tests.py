@@ -56,6 +56,10 @@ class RunConformanceTests(BaseAction):
         render_context.script_execution_history.should_update_script_outputs = True
 
         if exit_code == 0:
+            agents = ctx.conformance_fix_agents
+            if agents is not None and agents.tested == (ctx.current_testing_module_name, str(ctx.current_testing_frid)):
+                # The fix is approved and the tests pass: the fixer and the reviewer are done.
+                ctx.conformance_fix_agents = None
             render_context.memory_manager.journal.record_result(
                 render_context.conformance_tests_running_context.current_testing_module_name,
                 render_context.conformance_tests_running_context.current_testing_frid,
