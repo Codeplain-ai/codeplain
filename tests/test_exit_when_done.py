@@ -6,7 +6,7 @@ import threading
 import pytest
 
 from event_bus import EventBus
-from plain2code_arguments import create_parser
+from plain2code_arguments import create_parser, parse_arguments
 from plain2code_events import LogMessageEmitted, RenderCompleted, RenderFailed
 from plain2code_state import RunState
 from tui.plain2code_tui import Plain2CodeTUI
@@ -48,6 +48,21 @@ def test_tui_closes_itself_when_rendering_completes():
 
 def test_tui_closes_itself_when_rendering_fails():
     assert _run(True, RenderFailed(error_message="Conformance tests failed")) is True
+
+
+def test_tui_keeps_the_failure_reason_for_the_summary():
+    """The TUI closes right away, so the reason it showed must survive on the run state."""
+
+    async def scenario() -> RunState:
+        event_bus = EventBus()
+        run_state = RunState(spec_filename="x.plain")
+        app = _make_app(run_state, event_bus, True)
+        async with app.run_test() as pilot:
+            event_bus.publish(RenderFailed(error_message="Conformance tests failed"))
+            await pilot.pause()
+        return run_state
+
+    assert asyncio.run(scenario()).render_error_message == "Conformance tests failed"
 
 
 def test_tui_waits_for_the_user_without_the_option():
@@ -120,3 +135,17 @@ def test_option_is_off_by_default():
 def test_option_turns_on_from_the_command_line():
     args = create_parser().parse_args(["x.plain", "--exit-when-done"])
     assert args.exit_when_done is True
+
+
+def test_option_turns_off_from_the_command_line():
+    args = create_parser().parse_args(["x.plain", "--no-exit-when-done"])
+    assert args.exit_when_done is False
+
+
+def test_command_line_turns_off_an_exit_configured_in_config_yaml(tmp_path, monkeypatch):
+    (tmp_path / "x.plain").write_text("")
+    (tmp_path / "config.yaml").write_text("exit-when-done: true\n")
+    monkeypatch.chdir(tmp_path)
+
+    assert parse_arguments([str(tmp_path / "x.plain")]).exit_when_done is True
+    assert parse_arguments([str(tmp_path / "x.plain"), "--no-exit-when-done"]).exit_when_done is False

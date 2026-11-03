@@ -592,7 +592,7 @@ def main():  # noqa: C901
         print_exit_summary(
             run_state,
             args.filename,
-            error_message=error_message,
+            error_message=error_message or run_state.render_error_message,
         )
         # Remove any scratch extractions created for archive-only ("<module>.module") modules.
         for module in plain_module.all_required_modules + [plain_module]:

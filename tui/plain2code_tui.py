@@ -343,6 +343,9 @@ class Plain2CodeTUI(App):
     def on_render_failed(self, event: RenderFailed):
         """Handle render failure."""
         self._render_error_handler.handle(event.error_message)
+        # A failure inside the render machine is not raised, so main() has no error message of
+        # its own; keep the reason so the summary printed after the TUI closes can show it.
+        self.run_state.set_render_error_message(event.error_message)
         self._render_finished = True
         self._finalize_usage_summary()
         try:

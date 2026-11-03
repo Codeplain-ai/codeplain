@@ -19,7 +19,8 @@ usage: generate_cli.py [-h] [--verbose] [--base-folder BASE_FOLDER]
                        [--conformance-tests-dest CONFORMANCE_TESTS_DEST]
                        [--render-machine-graph]
                        [--logging-config-path LOGGING_CONFIG_PATH]
-                       [--headless] [--exit-when-done] [--status] [--version]
+                       [--headless] [--exit-when-done | --no-exit-when-done]
+                       [--status] [--version]
                        [filename]
 
 Render plain code to target code. Path arguments resolve based on where they
@@ -131,11 +132,14 @@ options:
                         specification text itself stays in the log file only.
                         Used automatically when stdin, stdout or stderr is not
                         a terminal.
-  --exit-when-done      Close the terminal interface as soon as rendering
+  --exit-when-done, --no-exit-when-done
+                        Close the terminal interface as soon as rendering
                         stops, instead of keeping it open until you press
                         Enter. The render summary is printed to the terminal
-                        as usual. Headless rendering always ends by itself, so
-                        the option changes nothing there.
+                        as usual. Use --no-exit-when-done to keep the
+                        interface open when config.yaml turns this on.
+                        Headless rendering always ends by itself, so the
+                        option changes nothing there.
   --status              Display account status including user information, API
                         key label, and rendering credits. Does not render any
                         code.
