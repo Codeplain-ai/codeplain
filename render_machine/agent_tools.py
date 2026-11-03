@@ -8,10 +8,11 @@ was pointed to), what it may write (by default the build folder) and which tools
 given a RenderContext instead works in the unit-test fixing agent's workspace.
 """
 
+import fnmatch
 import glob
 import json
 import os
-import subprocess
+import re
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Union
@@ -170,33 +171,80 @@ def read_file(args: dict, scope: Target) -> str:
 
 
 def grep(args: dict, scope: Target) -> str:
+    """Search a file, or the files under a directory, for a Python regular expression. Matching lines come back
+    as `path:line:text`, context lines as `path-line-text`, with `--` between non-adjacent groups."""
     workspace = _workspace(scope)
     pattern = args.get("pattern", "")
     if not pattern:
         return "Error: pattern is required."
+    try:
+        regex = re.compile(pattern)
+    except re.error as e:
+        return (
+            f"Error: invalid regular expression '{pattern}': {e}. The pattern uses Python regex syntax; "
+            "escape special characters such as ( [ . * + ? with a backslash to match them literally."
+        )
     target = _resolve(args.get("file_path") or ".", workspace)
     if not _readable(target, workspace):
         return f"Error: read access denied for '{target}'."
     if not os.path.exists(target):
         return f"Error: path not found: '{target}'."
-    # Run from the build folder so matches inside it come back as build-relative paths, which
-    # is the form the other tools accept; a test log outside it is passed by absolute path.
-    cwd = _build_folder(workspace)
-    options = [f"--exclude-dir={d}" for d in GREP_EXCLUDED_DIRS]
     context_lines = min(max(int(args.get("context_lines") or 0), 0), MAX_GREP_CONTEXT_LINES)
-    if context_lines:
-        options.append(f"-C{context_lines}")
-    if args.get("include"):
-        options.append(f"--include={args['include']}")
-    command = ["grep", "-rnI", *options, "-e", pattern, "--"]
-    command.append(os.path.relpath(target, cwd) if _within(target, cwd) else target)
-    result = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
-    if result.returncode == 1:
+    # Paths inside the build folder come back build-relative, the form the other tools accept; a test log
+    # outside it keeps its absolute path.
+    build_folder = _build_folder(workspace)
+    output: list[str] = []
+    for path in _grep_files(target, args.get("include") or ""):
+        display = os.path.relpath(path, build_folder) if _within(path, build_folder) else path
+        output.extend(_grep_file(path, display, regex, context_lines, output_has_groups=bool(output)))
+        if sum(len(line) + 1 for line in output) > MAX_OUTPUT_CHARS:
+            break
+    if not output:
         return f"No matches for '{pattern}' in '{target}'."
-    if result.returncode != 0:
-        return f"Error: grep failed: {result.stderr.strip()}"
-    lines = [line[2:] if line.startswith("./") else line for line in result.stdout.rstrip("\n").split("\n")]
-    return _bound("\n".join(lines))
+    return _bound("\n".join(output))
+
+
+def _grep_files(target: str, include: str):
+    """The text files grep searches: `target` itself, or the files under it (skipping GREP_EXCLUDED_DIRS) whose
+    name matches the `include` glob."""
+    if os.path.isfile(target):
+        yield target
+        return
+    for root, dirs, files in os.walk(target):
+        dirs[:] = sorted(d for d in dirs if d not in GREP_EXCLUDED_DIRS)
+        for name in sorted(files):
+            if not include or fnmatch.fnmatch(name, include):
+                yield os.path.join(root, name)
+
+
+def _grep_file(path: str, display: str, regex: re.Pattern, context_lines: int, output_has_groups: bool) -> list[str]:
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return []
+    if b"\0" in data[:8192]:
+        return []  # binary
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    matches = [i for i, line in enumerate(lines) if regex.search(line)]
+    if not matches:
+        return []
+    shown: list[tuple[int, int]] = []  # merged [first, last] line ranges, matches plus their context
+    for i in matches:
+        first, last = max(i - context_lines, 0), min(i + context_lines, len(lines) - 1)
+        if shown and first <= shown[-1][1] + 1:
+            shown[-1] = (shown[-1][0], max(shown[-1][1], last))
+        else:
+            shown.append((first, last))
+    matched = set(matches)
+    result: list[str] = []
+    for first, last in shown:
+        if context_lines and (result or output_has_groups):
+            result.append("--")
+        for i in range(first, last + 1):
+            separator = ":" if i in matched else "-"
+            result.append(f"{display}{separator}{i + 1}{separator}{lines[i]}")
+    return result
 
 
 def ls_files(args: dict, scope: Target) -> str:

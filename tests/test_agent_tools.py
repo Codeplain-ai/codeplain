@@ -164,3 +164,30 @@ def test_bound_truncates_long_lines_and_large_output():
     bounded = agent_tools._bound("a" * (agent_tools.MAX_LINE_CHARS + 5) + "\n" + "b\n" * 40_000)
     assert "[line truncated]" in bounded and "[truncated" in bounded
     assert len(bounded) < agent_tools.MAX_OUTPUT_CHARS + 200
+
+
+def test_grep_takes_python_regex_syntax(project):
+    log = project.build / "conformance.script_output"
+    log.write_text("Master password: ***\nName: alice\nnoise\nFAILED test_add\nTests run: 12\n")
+    out = agent_tools.grep(
+        {"pattern": r"Master password|Name:|FAILED|run: \d+", "file_path": str(log)}, project.rc
+    ).splitlines()
+    assert out == [
+        "conformance.script_output:1:Master password: ***",
+        "conformance.script_output:2:Name: alice",
+        "conformance.script_output:4:FAILED test_add",
+        "conformance.script_output:5:Tests run: 12",
+    ]
+    assert agent_tools.grep({"pattern": "(?i)failed", "file_path": str(log)}, project.rc).endswith("FAILED test_add")
+    assert agent_tools.grep({"pattern": "foo(", "file_path": str(log)}, project.rc).startswith(
+        "Error: invalid regular expression"
+    )
+
+
+def test_grep_separates_context_groups_and_skips_binary_and_excluded_files(project):
+    (project.build / "long.py").write_text("\n".join(["hit"] + ["x"] * 10 + ["hit"]) + "\n")
+    (project.build / "blob.bin").write_bytes(b"hit\0\0")
+    (project.build / "node_modules").mkdir()
+    (project.build / "node_modules" / "dep.py").write_text("hit\n")
+    out = agent_tools.grep({"pattern": "^hit$", "context_lines": 1}, project.rc).splitlines()
+    assert out == ["long.py:1:hit", "long.py-2-x", "--", "long.py-11-x", "long.py:12:hit"]
