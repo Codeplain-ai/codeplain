@@ -375,10 +375,11 @@ def render(  # noqa: C901
             render_choices = get_render_choices(plain_module, plain_module_render_state, args.force_render)
             ask_user = True
             render_choice = None
-            if len(render_choices) <= 2:
-                # Last choice is Quit, first choice is the only other actionable choice
+            if args.force_render or len(render_choices) <= 2:
+                # With --force-render there is a single choice. Otherwise the last choice is Quit,
+                # so the first choice is the only other actionable one.
                 render_choice = render_choices[list(render_choices.keys())[0]]
-                ask_user = render_choice.is_destructive
+                ask_user = render_choice.is_destructive and not args.force_render
 
             if ask_user and not args.headless:
                 app = PlainModuleRenderChoiceTUI(

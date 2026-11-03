@@ -352,7 +352,8 @@ def create_parser():
         "--force-render",
         action="store_true",
         default=False,
-        help="Force re-render of all the required modules.",
+        help="Render every module of the project again, from the first one. "
+        "The client does not ask where to start and the code rendered before is replaced.",
     )
 
     _add_arg(

@@ -62,7 +62,9 @@ options:
                         with this ID will be included in the output. The
                         functionality ID must match one of the functionalities
                         in your plain file.
-  --force-render        Force re-render of all the required modules.
+  --force-render        Render every module of the project again, from the
+                        first one. The client does not ask where to start and
+                        the code rendered before is replaced.
   --unittests-script UNITTESTS_SCRIPT
                         Shell script to run unit tests on generated code.
                         Receives the module's code folder path as its first

@@ -569,6 +569,50 @@ def test_render_choices_always_ends_with_quit():
     assert choices[last_key].module is None
 
 
+# --- Block 3: --force-render leaves nothing to choose ---
+
+
+def test_render_choices_force_render_rerenders_whole_chain_without_a_choice():
+    """--force-render renders the whole chain again from the first module, so a single,
+    non-interactive choice is returned (no Quit, because the user is never asked)."""
+    root, _, leaf = _build_choices_tree(fully_rendered=True)
+    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="fr-e")
+
+    choices = get_render_choices(root, pr, force_render=True)
+
+    assert _choice_types(choices) == ["rerender_from_first"]
+    assert choices["1"].module is leaf
+    assert choices["1"].render_range is None
+    assert choices["1"].wipe_later_modules is True
+
+
+def test_render_choices_force_render_ignores_a_detected_change(monkeypatch):
+    """A change that would otherwise be offered as a partial render is ignored: the chain is
+    rendered again from the first module."""
+    root, middle, leaf = _build_choices_tree(fully_rendered=True)
+    monkeypatch.setattr(
+        partial_rendering, "determine_partial_render_start", lambda pm: PartialRenderStart(module=middle, frid="fr-c")
+    )
+    pr = PlainModuleRenderState(
+        last_render_module=root, last_render_frid="fr-e", change=middle, change_type="spec_change"
+    )
+
+    choices = get_render_choices(root, pr, force_render=True)
+
+    assert _choice_types(choices) == ["rerender_from_first"]
+    assert choices["1"].module is leaf
+
+
+def test_render_choices_force_render_on_a_module_without_required_modules():
+    root = FakeModule("root", fully_rendered=True)
+    pr = PlainModuleRenderState(last_render_module=root, last_render_frid="fr-e")
+
+    choices = get_render_choices(root, pr, force_render=True)
+
+    assert _choice_types(choices) == ["rerender_from_first"]
+    assert choices["1"].module is root
+
+
 # -------------------------
 # change_is_only_future_work
 # -------------------------

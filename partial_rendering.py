@@ -237,7 +237,6 @@ def change_is_only_future_work(
 def _resume_render_choice(
     plain_module: PlainModule,
     plain_module_render_state: PlainModuleRenderState,
-    force_render: bool,
 ) -> RenderChoice:
     """The natural next step from the last-rendered position when no decision is needed:
     start an unrendered module, continue a partially-rendered one, or advance to the next.
@@ -261,8 +260,7 @@ def _resume_render_choice(
         render_range = plain_spec.get_render_range_from(next_frid, next_module.plain_source)
         return RenderChoice(
             module=next_module,
-            render_range=None if force_render else render_range,
-            wipe_later_modules=force_render,
+            render_range=render_range,
             choice_type="continue_from_frid",
         )
 
@@ -280,6 +278,21 @@ def get_render_choices(
     plain_module_render_state: PlainModuleRenderState,
     force_render: bool = False,
 ) -> dict[str, RenderChoice]:
+    if force_render:
+        # --force-render re-renders the whole chain from the first module, whatever changed and
+        # wherever the last render stopped. There is nothing to decide, so a single choice is
+        # returned and the user is not asked.
+        first_module = plain_module.all_required_modules[0] if plain_module.all_required_modules else plain_module
+        return {
+            "1": RenderChoice(
+                module=first_module,
+                render_range=None,
+                choice_type="rerender_from_first",
+                wipe_later_modules=True,
+                is_destructive=True,
+            )
+        }
+
     render_choices = list[RenderChoice]()
     module_start_points = list[str]()
 
@@ -298,7 +311,7 @@ def get_render_choices(
         # Continue / resume from the last-rendered position. The change-driven blocks below decide
         # the start otherwise — once a change touches already-rendered work, resuming from the old
         # position would build on stale code.
-        render_choices.append(_resume_render_choice(plain_module, plain_module_render_state, force_render))
+        render_choices.append(_resume_render_choice(plain_module, plain_module_render_state))
 
     else:
         # change is set here (otherwise treat_as_continue would be True), so change_type is always
