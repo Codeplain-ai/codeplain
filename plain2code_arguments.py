@@ -511,6 +511,17 @@ def create_parser():
         "Used automatically when stdin, stdout or stderr is not a terminal.",
     )
 
+    _add_arg(
+        parser,
+        "--exit-when-done",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Close the terminal interface as soon as rendering stops, instead of keeping it open "
+        "until you press Enter. The render summary is printed to the terminal as usual. "
+        "Use --no-exit-when-done to keep the interface open when config.yaml turns this on. "
+        "Headless rendering always ends by itself, so the option changes nothing there.",
+    )
+
     parser.add_argument(
         "--status",
         action="store_true",

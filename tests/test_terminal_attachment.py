@@ -84,6 +84,7 @@ def make_args():
         render_from=None,
         force_render=False,
         headless=False,
+        exit_when_done=False,
         replay_with=None,
         job_tag=None,
         log_to_file=False,

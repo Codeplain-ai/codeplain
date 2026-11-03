@@ -12,6 +12,8 @@ class RunState:
         self.replay: bool = replay_with is not None
         self.render_succeeded: bool = False
         self.render_cancelled: bool = False
+        # Why the render failed, as the TUI showed it; printed in the summary after the TUI closes.
+        self.render_error_message: Optional[str] = None
         self.render_generated_code_path: Optional[str] = None
         self.rendered_functionalities: int = 0
         if replay_with:
@@ -38,6 +40,9 @@ class RunState:
 
     def set_render_succeeded(self, succeeded: bool):
         self.render_succeeded = succeeded
+
+    def set_render_error_message(self, error_message: str):
+        self.render_error_message = error_message
 
     def set_render_cancelled(self):
         self.render_cancelled = True

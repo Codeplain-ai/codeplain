@@ -108,7 +108,7 @@ def make_args(api_key="test-key", headless=False):
     )
 
 
-def run_main(render_side_effect=None, api_key="test-key"):
+def run_main(render_side_effect=None, api_key="test-key", print_exit_summary=None):
     """Drive main() with everything but the reporting path stubbed out.
 
     render() is replaced, so the stub is what decides how the render "ended" -
@@ -134,7 +134,7 @@ def run_main(render_side_effect=None, api_key="test-key"):
         patch("plain2code.setup_logging", return_value="INFO"),
         patch("plain2code.initialize_telemetry"),
         patch("plain2code.stop_narrating"),
-        patch("plain2code.print_exit_summary"),
+        patch("plain2code.print_exit_summary", print_exit_summary or MagicMock()),
         patch("plain2code.dump_crash_logs"),
         patch("plain2code.capture_crash"),
         patch("plain2code.codeplain_api.CodeplainAPI", return_value=api),
@@ -204,3 +204,38 @@ class TestMainReportsEveryEnding:
         api = run_main(api_key=None)
 
         api.render_finished.assert_not_called()
+
+
+class TestSummaryShowsWhyTheRenderFailed:
+    """A failure inside the render machine reaches main() only through the run state.
+
+    The state machine publishes RenderFailed without raising, so render() returns normally
+    and main() has no error of its own. The TUI keeps the reason on the run state; with
+    --exit-when-done the summary is the only place the user still sees it.
+    """
+
+    def test_the_reason_the_tui_kept_is_printed(self):
+        def fail_inside_the_render_machine(run_state):
+            run_state.set_render_succeeded(False)
+            run_state.set_render_error_message("Conformance tests still fail after 20 attempts.")
+
+        summary = MagicMock()
+        run_main(fail_inside_the_render_machine, print_exit_summary=summary)
+
+        assert summary.call_args.kwargs["error_message"] == "Conformance tests still fail after 20 attempts."
+
+    def test_a_raised_error_still_wins(self):
+        def fail(run_state):
+            run_state.set_render_error_message("reason the TUI kept")
+            raise Exception("rendering blew up")
+
+        summary = MagicMock()
+        run_main(fail, print_exit_summary=summary)
+
+        assert summary.call_args.kwargs["error_message"] == "rendering blew up"
+
+    def test_a_successful_render_has_no_error_message(self):
+        summary = MagicMock()
+        run_main(lambda run_state: run_state.set_render_succeeded(True), print_exit_summary=summary)
+
+        assert summary.call_args.kwargs["error_message"] is None

@@ -84,6 +84,7 @@ class Plain2CodeTUI(App):
         enter_pause_event: threading.Event | None = None,
         on_cancel: Callable[[], None] | None = None,
         default_log_level: str = "INFO",
+        exit_when_done: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -104,6 +105,7 @@ class Plain2CodeTUI(App):
         self.enter_pause_event = enter_pause_event
         self._on_cancel = on_cancel
         self.default_log_level = default_log_level
+        self.exit_when_done = exit_when_done
         self._render_finished = False
 
         # Initialize state handlers
@@ -336,10 +338,14 @@ class Plain2CodeTUI(App):
             footer.update_footer_state("finished")
         except NoMatches:
             pass
+        self._exit_when_done()
 
     def on_render_failed(self, event: RenderFailed):
         """Handle render failure."""
         self._render_error_handler.handle(event.error_message)
+        # A failure inside the render machine is not raised, so main() has no error message of
+        # its own; keep the reason so the summary printed after the TUI closes can show it.
+        self.run_state.set_render_error_message(event.error_message)
         self._render_finished = True
         self._finalize_usage_summary()
         try:
@@ -347,6 +353,18 @@ class Plain2CodeTUI(App):
             footer.update_footer_state("finished")
         except NoMatches:
             pass
+        self._exit_when_done()
+
+    def _exit_when_done(self) -> None:
+        """Close the TUI once rendering has stopped, when --exit-when-done asked for it.
+
+        Both render outcomes are reported on the terminal after the TUI closes, so nothing
+        the user needs is lost. The events arrive on the render thread. The exit is queued
+        behind the log entries the render thread has already scheduled, so those are drawn
+        before the TUI starts shutting down; entries scheduled later are dropped by the log view.
+        """
+        if self.exit_when_done:
+            self.call_later(self.exit)
 
     async def action_copy_selection(self) -> None:
         """Handle ctrl+c: copy selected text if any.

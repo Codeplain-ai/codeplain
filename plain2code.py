@@ -453,6 +453,7 @@ def render(  # noqa: C901
             enter_pause_event=enter_pause_event,
             on_cancel=run_state.set_render_cancelled,
             default_log_level=default_log_level,
+            exit_when_done=args.exit_when_done,
             css_path="styles.css",
         )
         app.run()
@@ -591,7 +592,7 @@ def main():  # noqa: C901
         print_exit_summary(
             run_state,
             args.filename,
-            error_message=error_message,
+            error_message=error_message or run_state.render_error_message,
         )
         # Remove any scratch extractions created for archive-only ("<module>.module") modules.
         for module in plain_module.all_required_modules + [plain_module]:
