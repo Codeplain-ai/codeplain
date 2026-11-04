@@ -13,6 +13,11 @@ from render_machine.render_types import UnitTestsRunningContext
 class FakeRenderContext(SimpleNamespace):
     unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
+    @property
+    def plain_module(self):
+        # The rendered modules folder is the build folder's parent, as in plain_modules/<module>.
+        return SimpleNamespace(build_folder=os.path.dirname(self.build_folder), all_required_modules=[])
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -209,3 +214,14 @@ def test_edit_names_the_lines_it_removed(project):
         {"file_path": "pom.xml", "search": "  <build/>\n", "replace": "  <build/>\n</project>\n"}, project.rc
     )
     assert "removed these lines" not in kept
+
+
+def test_unit_tests_agent_reads_and_greps_other_modules_but_writes_only_its_build_folder(project):
+    other = project.build.parent / "base" / "code" / "lib.py"
+    other.parent.mkdir(parents=True)
+    other.write_text("def helper():\n    return 1\n")
+    assert agent_tools.read_file({"file_path": str(other)}, project.rc).startswith("1: def helper")
+    hits = agent_tools.grep({"pattern": "def (helper|sub)", "file_path": str(project.build.parent)}, project.rc)
+    assert "base/code/lib.py:1:def helper():" in hits and "def sub(a, b):" in hits
+    denied = agent_tools.write_file({"file_path": str(other), "content": "x\n"}, project.rc)
+    assert denied.startswith("Error: write access denied") and other.read_text().startswith("def helper")

@@ -1,3 +1,5 @@
+import os
+
 """Tests for the agentic FixUnitTests action driving a scripted fake API."""
 
 from types import SimpleNamespace
@@ -16,6 +18,11 @@ class FakeRenderContext(SimpleNamespace):
     """A render context with just the attributes FixUnitTests uses, and the real session lookup."""
 
     unit_tests_agent_session = RenderContext.unit_tests_agent_session
+
+    @property
+    def plain_module(self):
+        # The rendered modules folder is the build folder's parent, as in plain_modules/<module>.
+        return SimpleNamespace(build_folder=os.path.dirname(self.build_folder), all_required_modules=[])
 
 
 class FakeAPI:

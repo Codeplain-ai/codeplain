@@ -47,6 +47,11 @@ class FakeCodeplainAPI:
 class FakeRenderContext(SimpleNamespace):
     unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
+    @property
+    def plain_module(self):
+        # The rendered modules folder is the build folder's parent, as in plain_modules/<module>.
+        return SimpleNamespace(build_folder=os.path.dirname(self.build_folder), all_required_modules=[])
+
 
 class FakeConformanceTests:
     def fetch_existing_conformance_test_files(self, *args):

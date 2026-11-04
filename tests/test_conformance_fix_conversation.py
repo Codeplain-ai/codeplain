@@ -127,7 +127,8 @@ def make_render_context(project, api, testing_frid="1", frid="1", testing_module
         memory_manager=MemoryManager(api, str(project.memory)),
         conformance_tests=FakeConformanceTests(project.root),
         plain_module=SimpleNamespace(
-            all_required_modules=[SimpleNamespace(module_name=name) for name in required_module_names]
+            build_folder=str(project.root / "plain_modules"),
+            all_required_modules=[SimpleNamespace(module_name=name) for name in required_module_names],
         ),
         conformance_tests_running_context=ctx,
         plain_source_tree={},
@@ -424,6 +425,27 @@ def test_agents_read_the_tests_of_other_functionalities_and_required_modules_but
         str(project.root / "conformance"),
         str(project.root / "conformance_base"),
     ]
+
+
+def test_agents_read_every_rendered_module_and_are_told_the_layout(project):
+    other = project.root / "plain_modules" / "base" / "code" / "lib.py"
+    other.parent.mkdir(parents=True)
+    other.write_text("BASE CODE\n")
+    api = ScriptedAgentAPI(
+        fixer_turns=[[read(str(other)), write(str(other), "x\n"), write("app.py", "v1\n")], [submit_fix()]],
+        reviewer_turns=[[read(str(other))], [review("approve")]],
+    )
+    render_context = make_render_context(project, api, required_module_names=["base"])
+
+    run_fix(render_context)
+
+    fixer_results = [r["output"] for r in api.of("continue", conversation.FIXER_TASK)[0][3]]
+    assert "BASE CODE" in fixer_results[0] and fixer_results[1].startswith("Error: write access denied")
+    assert other.read_text() == "BASE CODE\n"
+    assert "BASE CODE" in api.of("continue", conversation.REVIEWER_TASK)[0][3][0]["output"]
+    [(_, _, _, start_params)] = api.of("start", conversation.FIXER_TASK)
+    assert start_params["plain_modules_folder"] == str(project.root / "plain_modules")
+    assert start_params["required_module_names"] == ["base"]
 
 
 def test_reviewer_last_verdict_counts_and_the_next_review_starts_a_new_session(project):
