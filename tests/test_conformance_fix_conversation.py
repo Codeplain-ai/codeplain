@@ -467,6 +467,29 @@ def test_agents_read_every_rendered_module_and_are_told_the_layout(project):
     assert start_params["required_module_names"] == ["base"]
 
 
+@pytest.mark.parametrize("regression", [True, False])
+def test_a_regression_fixer_may_fix_the_other_earlier_tests_of_the_module(project, regression):
+    sibling = project.root / "conformance" / "login" / "test_login.py"
+    sibling.parent.mkdir()
+    sibling.write_text("OLD SETUP\n")
+    api = ScriptedAgentAPI(
+        fixer_turns=[[write(str(sibling), "NEW SETUP\n"), write("app.py", "v1\n")], [submit_fix()]],
+        reviewer_turns=[[review("approve")]],
+    )
+    render_context = make_render_context(project, api, testing_frid="1", frid="2" if regression else "1")
+
+    run_fix(render_context)
+
+    result = api.of("continue", conversation.FIXER_TASK)[0][3][0]["output"]
+    [(_, _, _, start_params)] = api.of("start", conversation.FIXER_TASK)
+    if regression:
+        assert sibling.read_text() == "NEW SETUP\n"
+        assert start_params["writable_module_tests_folder"] == str(project.root / "conformance")
+    else:
+        assert result.startswith("Error: write access denied") and sibling.read_text() == "OLD SETUP\n"
+        assert start_params["writable_module_tests_folder"] == ""
+
+
 def test_reviewer_last_verdict_counts_and_the_next_review_starts_a_new_session(project):
     api = ScriptedAgentAPI(
         fixer_turns=[[write("app.py", "v1\n")], [submit_fix()], [write("app.py", "v2\n")], [submit_fix()]],

@@ -86,7 +86,11 @@ class ConformanceFixConversation:
         self.build_folder = os.path.normpath(os.path.abspath(render_context.build_folder))
         self.fixer_workspace = agent_tools.AgentWorkspace(
             build_folder=self.build_folder,
-            writable_folders=[self.build_folder, agents.conformance_tests_folder],
+            writable_folders=[
+                self.build_folder,
+                agents.conformance_tests_folder,
+                *([agents.writable_module_tests_folder] if agents.writable_module_tests_folder else []),
+            ],
             readable_folders=[agents.plain_modules_folder, *agents.readable_tests_folders],
             readable_log_paths=agents.readable_log_paths,
             tool_result_cache=agents.fixer_tool_result_cache,

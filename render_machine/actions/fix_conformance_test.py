@@ -180,6 +180,17 @@ class FixConformanceTest(BaseAction):
                 conformance_tests_folder=FixConformanceTest._writable_conformance_tests_folder(render_context),
                 readable_tests_folders=FixConformanceTest._readable_conformance_tests_folders(render_context),
                 plain_modules_folder=agent_tools.rendered_modules_folder(render_context),
+                writable_module_tests_folder=(
+                    os.path.normpath(
+                        os.path.abspath(
+                            render_context.conformance_tests.get_module_conformance_tests_folder(
+                                render_context.module_name
+                            )
+                        )
+                    )
+                    if FixConformanceTest._is_regression(render_context)
+                    else ""
+                ),
             )
         return ctx.conformance_fix_agents
 
@@ -248,6 +259,7 @@ class FixConformanceTest(BaseAction):
             "build_folder": os.path.normpath(os.path.abspath(render_context.build_folder)),
             "conformance_tests_folder": agents.conformance_tests_folder,
             **agent_tools.modules_layout_params(render_context),
+            "writable_module_tests_folder": agents.writable_module_tests_folder,
             "readable_conformance_tests_folders": agents.readable_tests_folders,
             "conformance_tests_script_content": FixUnitTests._read_script(render_context.conformance_tests_script),
             "prepare_environment_script_content": FixUnitTests._read_script(render_context.prepare_environment_script),

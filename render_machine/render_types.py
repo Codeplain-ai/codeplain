@@ -113,6 +113,9 @@ class ConformanceFixAgents:
     readable_tests_folders: list[str] = field(default_factory=list)
     # The rendered modules folder (plain_modules): both agents may read every module's code and tests.
     plain_modules_folder: str = ""
+    # For a regression (earlier tests broken by the current functionality): the current module's conformance tests
+    # folder, which the fixer may write so it fixes the other earlier tests that share the cause in the same fix.
+    writable_module_tests_folder: str = ""
     fixer: AgentSessionState = field(default_factory=AgentSessionState)
     reviewer: AgentSessionState = field(default_factory=AgentSessionState)
     # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix
