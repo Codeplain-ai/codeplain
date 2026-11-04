@@ -273,7 +273,7 @@ def ls_files(args: dict, scope: Target) -> str:
         entries = sorted(os.listdir(target))
         listing = [entry + "/" if os.path.isdir(os.path.join(target, entry)) else entry for entry in entries]
         return f"{target}:\n" + ("\n".join(listing) if listing else "(empty)")
-    matches = sorted(glob.glob(target, recursive=True))
+    matches = sorted(glob.glob(target, recursive=True, include_hidden=True))
     return _bound("\n".join(matches)) if matches else f"No files match '{target}'."
 
 

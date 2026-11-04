@@ -192,6 +192,10 @@ class FixConformanceTest(BaseAction):
                     else ""
                 ),
             )
+            if FixConformanceTest._is_regression(render_context):
+                ctx.conformance_fix_agents.other_tests_folders = FixConformanceTest._other_tests_folders(
+                    render_context, ctx.conformance_fix_agents.conformance_tests_folder
+                )
         return ctx.conformance_fix_agents
 
     @staticmethod
@@ -239,6 +243,25 @@ class FixConformanceTest(BaseAction):
         return os.path.normpath(os.path.abspath(writable))
 
     @staticmethod
+    def _other_tests_folders(render_context: RenderContext, tests_folder: str) -> list[str]:
+        """The existing folders of the other functionalities' conformance tests the failing tests' module has, where
+        a regression fix runs them from: the current module's own folders, or a required module's copies in it."""
+        ctx = render_context.conformance_tests_running_context
+        testing_module = ctx.current_testing_module_name
+        if testing_module == render_context.module_name:
+            folders = [entry.get("folder_name") for entry in ctx.get_conformance_tests_json(testing_module).values()]
+        else:
+            folders = [
+                render_context.conformance_tests.get_source_conformance_test_folder_name(
+                    render_context.module_name, render_context.required_modules, testing_module, entry["folder_name"]
+                )[1]
+                for entry in render_context.conformance_tests.get_conformance_tests_json(testing_module).values()
+                if entry.get("folder_name")
+            ]
+        normalized = [os.path.normpath(os.path.abspath(f)) for f in folders if f]
+        return sorted({f for f in normalized if os.path.isdir(f) and f != tests_folder})
+
+    @staticmethod
     def _is_regression(render_context: RenderContext) -> bool:
         """Whether the failing tests belong to a functionality implemented before the current one."""
         ctx = render_context.conformance_tests_running_context
@@ -269,6 +292,7 @@ class FixConformanceTest(BaseAction):
             "conformance_tests_folder": agents.conformance_tests_folder,
             **agent_tools.modules_layout_params(render_context),
             "writable_module_tests_folder": agents.writable_module_tests_folder,
+            "other_conformance_tests_folders": agents.other_tests_folders,
             "readable_conformance_tests_folders": agents.readable_tests_folders,
             "conformance_tests_script_content": FixUnitTests._read_script(render_context.conformance_tests_script),
             "prepare_environment_script_content": FixUnitTests._read_script(render_context.prepare_environment_script),
