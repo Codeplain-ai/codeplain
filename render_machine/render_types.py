@@ -116,6 +116,9 @@ class ConformanceFixAgents:
     # For a regression (earlier tests broken by the current functionality): the current module's conformance tests
     # folder, which the fixer may write so it fixes the other earlier tests that share the cause in the same fix.
     writable_module_tests_folder: str = ""
+    # For a regression: the folders of the module's other earlier functionalities' tests (copies, for a required
+    # module), named to the fixer so it finds them (a required module's copies are in a hidden folder).
+    other_tests_folders: list[str] = field(default_factory=list)
     fixer: AgentSessionState = field(default_factory=AgentSessionState)
     reviewer: AgentSessionState = field(default_factory=AgentSessionState)
     # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix
