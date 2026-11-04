@@ -80,6 +80,9 @@ class FakeConformanceTests:
     def get_source_conformance_test_folder_name(self, module_name, required_modules, testing_module, folder):
         return folder, folder + "_copy"
 
+    def get_conformance_tests_json(self, module_name):
+        return getattr(self, "tests_json", {}).get(module_name, {})
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -490,6 +493,24 @@ def test_a_regression_fixer_may_fix_the_other_earlier_tests_of_the_module(projec
     else:
         assert result.startswith("Error: write access denied") and sibling.read_text() == "OLD SETUP\n"
         assert start_params["writable_module_tests_folder"] == ""
+
+
+def test_failing_tests_of_a_required_module_get_their_siblings_copied_for_the_same_fix(project):
+    sibling = project.root / "base_tests" / "health"
+    sibling.mkdir(parents=True)
+    (sibling / "test_health.py").write_text("SETUP\n")
+    api = ScriptedAgentAPI(
+        fixer_turns=[[write("app.py", "v1\n")], [submit_fix()]], reviewer_turns=[[review("approve")]]
+    )
+    render_context = make_render_context(project, api, testing_module="base")
+    render_context.conformance_tests.tests_json = {
+        "base": {"1": {"folder_name": str(project.tests_folder)}, "2": {"folder_name": str(sibling)}}
+    }
+
+    run_fix(render_context)
+
+    assert (project.root / "base_tests" / "health_copy" / "test_health.py").read_text() == "SETUP\n"
+    assert os.path.isdir(str(project.tests_folder) + "_copy")
 
 
 def test_reviewer_last_verdict_counts_and_the_next_review_starts_a_new_session(project):

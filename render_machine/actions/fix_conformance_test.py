@@ -211,20 +211,29 @@ class FixConformanceTest(BaseAction):
     @staticmethod
     def _writable_conformance_tests_folder(render_context: RenderContext) -> str:
         """The folder of the failing conformance tests. A required module's tests are fixed in their copy inside
-        the current module (made here if missing), which is the copy the conformance tests then run from."""
+        the current module (made here if missing), which is the copy the conformance tests then run from. The copies
+        of that module's other functionalities' tests are made too, so a fix of a cause they share can reach them
+        (they run from their copies later)."""
         ctx = render_context.conformance_tests_running_context
         folder = ctx.get_current_conformance_test_folder_name()
-        if render_context.module_name != ctx.current_testing_module_name:
+        if render_context.module_name == ctx.current_testing_module_name:
+            return os.path.normpath(os.path.abspath(folder))
+        testing_module = ctx.current_testing_module_name
+        other_folders = [
+            entry.get("folder_name")
+            for entry in render_context.conformance_tests.get_conformance_tests_json(testing_module).values()
+            if entry.get("folder_name")
+        ]
+        writable = folder
+        for tests_folder in [folder, *other_folders]:
             source, copy = render_context.conformance_tests.get_source_conformance_test_folder_name(
-                render_context.module_name,
-                render_context.required_modules,
-                ctx.current_testing_module_name,
-                folder,
+                render_context.module_name, render_context.required_modules, testing_module, tests_folder
             )
-            if not os.path.exists(copy):
+            if not os.path.exists(copy) and os.path.isdir(source):
                 file_utils.copy_folder_content(source, copy)
-            folder = copy
-        return os.path.normpath(os.path.abspath(folder))
+            if tests_folder == folder:
+                writable = copy
+        return os.path.normpath(os.path.abspath(writable))
 
     @staticmethod
     def _is_regression(render_context: RenderContext) -> bool:
