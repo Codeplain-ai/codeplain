@@ -109,6 +109,7 @@ def execute_script(  # noqa: C901
     start_time = time.time()
     proc = subprocess.Popen(
         cmd,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
