@@ -124,7 +124,6 @@ class ConformanceFixConversation:
                     return None
                 sessions_started += 1
                 response = self._start(agents.fixer, FIXER_TASK, self._fixer_task_params(issue, log_path))
-                agents.previous_changes_reverted = False
 
             submission = self._drive(agents.fixer, response, self.fixer_workspace, SUBMIT_FIX, MAX_FIXER_TURNS_PER_FIX)
             if submission is None:
@@ -138,37 +137,32 @@ class ConformanceFixConversation:
             console.info(f"The conformance tests fixer submitted a fix: {args.get('changes_made', '')}")
             changed_files = self._changed_files()
             if not changed_files and args.get("failing_reason") != CONFLICTING_REQUIREMENTS:
-                verdict, comments = "reject", None
-                agents.rejections += 1
-            else:
-                verdict, comments = self._review(args, changed_files, issue, log_path)
+                response = self._answer(agents.fixer, {"output": EMPTY_FIX_MESSAGE})
+                continue
+            verdict, comments, objected_files = self._review(args, changed_files, issue, log_path)
             if verdict == "approve":
                 console.info(f"The reviewer approved the fix: {comments or ''}")
                 agents.approved_fix_tested = True
                 return ApprovedFix(args, changed_files)
 
-            if comments is not None:
-                console.info(f"The reviewer rejected the fix: {comments}")
-                agents.rejections += 1
-            if agents.rejections >= MAX_REJECTIONS:
-                console.warning(
-                    f"The reviewer rejected the fix {agents.rejections} times; reverting it and starting over with "
-                    "fresh fixer and reviewer sessions."
-                )
-                self._revert()
-                agents.reset_sessions()
-                agents.previous_changes_reverted, agents.rejections = True, 0
-                response = None
-                continue
-            result = (
-                {"output": EMPTY_FIX_MESSAGE}
-                if comments is None
-                else {"output": REJECTED_MESSAGE, "review": {"comments": comments}}
-            )
-            response = self._answer(agents.fixer, result)
+            console.info(f"The reviewer rejected the fix: {comments}")
+            agents.rejections += 1
+            review: dict = {"comments": comments}
+            if agents.rejections % MAX_REJECTIONS == 0:
+                # The sessions go on (both keep their history); only the changes the reviewer objected to go.
+                reverted = self._revert_objected(objected_files, changed_files)
+                if reverted:
+                    console.warning(
+                        f"The reviewer rejected {agents.rejections} fixes in a row; reverting the changes it objected "
+                        f"to: {', '.join(reverted)}."
+                    )
+                    review["reverted_files"] = reverted
+            response = self._answer(agents.fixer, {"output": REJECTED_MESSAGE, "review": review})
 
-    def _review(self, args: dict, changed_files: dict, issue: str, log_path: Optional[str]) -> tuple[str, str]:
-        """The reviewer's verdict on the submitted fix: ("approve" | "reject", comments)."""
+    def _review(
+        self, args: dict, changed_files: dict, issue: str, log_path: Optional[str]
+    ) -> tuple[str, str, list[str]]:
+        """The reviewer's verdict on the submitted fix: ("approve" | "reject", comments, objected files)."""
         agents = self.agents
         fix_submission = {
             "root_cause": args.get("root_cause", ""),
@@ -177,6 +171,7 @@ class ConformanceFixConversation:
             "review_response": args.get("review_response", ""),
             "conflict_reason": args.get("conflict_reason", ""),
             "code_diff": self.diff(changed_files),
+            "consecutive_rejections": agents.rejections,
         }
         for _ in range(2):
             response = None
@@ -205,9 +200,9 @@ class ConformanceFixConversation:
                 agents.reviewer.reset()
             review_args = submission["args"]
             verdict = "approve" if review_args.get("verdict") == "approve" else "reject"
-            return verdict, review_args.get("comments") or ""
+            return verdict, review_args.get("comments") or "", list(review_args.get("objected_files") or [])
         console.warning("The reviewer did not reach a verdict.")
-        return "reject", NO_VERDICT_COMMENTS
+        return "reject", NO_VERDICT_COMMENTS, []
 
     # ---------------------------------------------------------------------------------------------------------
     # Sessions
@@ -289,8 +284,15 @@ class ConformanceFixConversation:
         """Files the current fix changed, with their content from before it."""
         return {path: before for path, before in self.agents.snapshot.items() if _read(path) != before}
 
-    def _revert(self) -> None:
-        for path, before in self.agents.snapshot.items():
+    def _revert_objected(self, objected_files: list[str], changed_files: dict[str, Optional[str]]) -> list[str]:
+        """Restore the changed files the reviewer objected to (named as in the diff, or by full path) to their
+        content from before the fix; returns their names as the diff shows them."""
+        objected = {name.strip().removeprefix("a/").removeprefix("b/") for name in objected_files}
+        reverted = []
+        for path, before in sorted(changed_files.items()):
+            name = self.display_name(path)
+            if name not in objected and path not in objected:
+                continue
             if before is None:
                 if os.path.isfile(path):
                     os.remove(path)
@@ -298,7 +300,8 @@ class ConformanceFixConversation:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(before)
-        self.agents.snapshot = {}
+            reverted.append(name)
+        return reverted
 
     def display_name(self, full_path: str) -> str:
         """Build-folder files by their relative path (as the agents address them), others by their full path."""
@@ -335,10 +338,7 @@ class ConformanceFixConversation:
         return params
 
     def _fixer_task_params(self, issue: str, log_path: Optional[str]) -> dict:
-        params = {**self.fixer_params, **self._issue_params(issue, log_path)}
-        if self.agents.previous_changes_reverted:
-            params["previous_changes_reverted"] = True
-        return params
+        return {**self.fixer_params, **self._issue_params(issue, log_path)}
 
 
 def response_ended(submission: dict) -> bool:
