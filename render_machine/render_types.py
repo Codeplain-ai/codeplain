@@ -108,6 +108,9 @@ class ConformanceFixAgents:
     tested: tuple[str, str]
     # The writable folder of those conformance tests (a copy in the current module for a required module's tests).
     conformance_tests_folder: str
+    # Conformance tests folders of the current module and its required modules, which both agents may read: the
+    # tests of other functionalities that already pass show what works (e.g. how they build and start the app).
+    readable_tests_folders: list[str] = field(default_factory=list)
     fixer: AgentSessionState = field(default_factory=AgentSessionState)
     reviewer: AgentSessionState = field(default_factory=AgentSessionState)
     # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix

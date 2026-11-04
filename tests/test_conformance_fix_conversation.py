@@ -68,6 +68,12 @@ class ScriptedAgentAPI:
 
 
 class FakeConformanceTests:
+    def __init__(self, base):
+        self.base = base
+
+    def get_module_conformance_tests_folder(self, module_name):
+        return str(self.base / "conformance") if module_name == "mod" else str(self.base / f"conformance_{module_name}")
+
     def get_source_conformance_test_folder_name(self, module_name, required_modules, testing_module, folder):
         return folder, folder + "_copy"
 
@@ -95,10 +101,10 @@ def project(tmp_path, monkeypatch):
             None,
         ),
     )
-    return SimpleNamespace(build=build, tests_folder=tests_folder, memory=memory)
+    return SimpleNamespace(root=tmp_path, build=build, tests_folder=tests_folder, memory=memory)
 
 
-def make_render_context(project, api, testing_frid="1", frid="1", testing_module="mod"):
+def make_render_context(project, api, testing_frid="1", frid="1", testing_module="mod", required_module_names=()):
     ctx = ConformanceTestsRunningContext(
         current_testing_module_name=testing_module,
         current_testing_frid=testing_frid,
@@ -116,7 +122,10 @@ def make_render_context(project, api, testing_frid="1", frid="1", testing_module
         codeplain_api=api,
         build_folder=str(project.build),
         memory_manager=MemoryManager(api, str(project.memory)),
-        conformance_tests=FakeConformanceTests(),
+        conformance_tests=FakeConformanceTests(project.root),
+        plain_module=SimpleNamespace(
+            all_required_modules=[SimpleNamespace(module_name=name) for name in required_module_names]
+        ),
         conformance_tests_running_context=ctx,
         plain_source_tree={},
         module_name="mod",
@@ -381,6 +390,40 @@ def test_reviewer_cannot_change_files_and_fixer_cannot_write_outside_its_folders
     [(_, _, _, reviewer_results)] = api.of("continue", conversation.REVIEWER_TASK)
     assert reviewer_results[0]["output"].startswith("Error: unknown tool")
     assert (project.build / "app.py").read_text() == "v1\n" and not os.path.exists(outside)
+
+
+def read(path):
+    return {"name": "read_file", "args": {"file_path": path}}
+
+
+def test_agents_read_the_tests_of_other_functionalities_and_required_modules_but_only_write_their_own(project):
+    sibling = project.root / "conformance" / "login" / "test_login.py"
+    sibling.parent.mkdir()
+    sibling.write_text("WORKING HARNESS\n")
+    required = project.root / "conformance_base" / "health" / "test_health.py"
+    required.parent.mkdir(parents=True)
+    required.write_text("BASE HARNESS\n")
+    api = ScriptedAgentAPI(
+        fixer_turns=[
+            [read(str(sibling)), read(str(required)), write(str(sibling), "x\n"), write("app.py", "v1\n")],
+            [submit_fix()],
+        ],
+        reviewer_turns=[[read(str(sibling)), read(str(required))], [review("approve")]],
+    )
+    render_context = make_render_context(project, api, required_module_names=["base"])
+
+    run_fix(render_context)
+
+    fixer_results = [r["output"] for r in api.of("continue", conversation.FIXER_TASK)[0][3]]
+    assert "WORKING HARNESS" in fixer_results[0] and "BASE HARNESS" in fixer_results[1]
+    assert fixer_results[2].startswith("Error: write access denied") and sibling.read_text() == "WORKING HARNESS\n"
+    reviewer_results = [r["output"] for r in api.of("continue", conversation.REVIEWER_TASK)[0][3]]
+    assert "WORKING HARNESS" in reviewer_results[0] and "BASE HARNESS" in reviewer_results[1]
+    [(_, _, _, start_params)] = api.of("start", conversation.FIXER_TASK)
+    assert start_params["readable_conformance_tests_folders"] == [
+        str(project.root / "conformance"),
+        str(project.root / "conformance_base"),
+    ]
 
 
 def test_reviewer_last_verdict_counts_and_the_next_review_starts_a_new_session(project):
