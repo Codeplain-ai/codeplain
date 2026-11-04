@@ -7,6 +7,7 @@ from memory_management import MemoryManager
 from plain2code_console import RETRY_COLOR, console
 from plain2code_exceptions import InternalClientError
 from plain2code_utils import qualified_frid
+from render_machine import agent_tools
 from render_machine.actions.base_action import BaseAction
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.conformance_fix_conversation import (
@@ -178,12 +179,15 @@ class FixConformanceTest(BaseAction):
                 tested=tested,
                 conformance_tests_folder=FixConformanceTest._writable_conformance_tests_folder(render_context),
                 readable_tests_folders=FixConformanceTest._readable_conformance_tests_folders(render_context),
+                plain_modules_folder=agent_tools.rendered_modules_folder(render_context),
             )
         return ctx.conformance_fix_agents
 
     @staticmethod
     def _readable_conformance_tests_folders(render_context: RenderContext) -> list[str]:
-        """The existing conformance tests folders of the current module and of every module it requires."""
+        """The existing conformance tests folders of the current module and of every module it requires that lie
+        outside the rendered modules folder (those inside it are readable with it)."""
+        root = agent_tools.rendered_modules_folder(render_context)
         module_names = [render_context.module_name] + [
             module.module_name for module in render_context.plain_module.all_required_modules
         ]
@@ -192,7 +196,7 @@ class FixConformanceTest(BaseAction):
             folder = os.path.normpath(
                 os.path.abspath(render_context.conformance_tests.get_module_conformance_tests_folder(module_name))
             )
-            if os.path.isdir(folder) and folder not in folders:
+            if os.path.isdir(folder) and folder not in folders and not folder.startswith(root + os.sep):
                 folders.append(folder)
         return folders
 
@@ -243,6 +247,7 @@ class FixConformanceTest(BaseAction):
             "module_name": render_context.module_name,
             "build_folder": os.path.normpath(os.path.abspath(render_context.build_folder)),
             "conformance_tests_folder": agents.conformance_tests_folder,
+            **agent_tools.modules_layout_params(render_context),
             "readable_conformance_tests_folders": agents.readable_tests_folders,
             "conformance_tests_script_content": FixUnitTests._read_script(render_context.conformance_tests_script),
             "prepare_environment_script_content": FixUnitTests._read_script(render_context.prepare_environment_script),
