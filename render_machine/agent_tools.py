@@ -70,12 +70,28 @@ def _absolute(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
+def rendered_modules_folder(render_context: RenderContext) -> str:
+    """The folder holding every rendered module's folder (plain_modules), which the agents may read."""
+    return os.path.normpath(os.path.abspath(render_context.plain_module.build_folder))
+
+
+def modules_layout_params(render_context: RenderContext) -> dict:
+    """The task params that tell an agent how the rendered modules are laid out (see the server's
+    modules_layout_line)."""
+    return {
+        "plain_modules_folder": rendered_modules_folder(render_context),
+        "required_module_names": [module.module_name for module in render_context.plain_module.all_required_modules],
+    }
+
+
 def unit_tests_workspace(render_context: RenderContext) -> AgentWorkspace:
-    """The unit-test fixing agent's workspace: the build folder, its test logs, and its loop's change tracking."""
+    """The unit-test fixing agent's workspace: it reads every rendered module and writes the build folder; its test
+    logs, and its loop's change tracking."""
     context = render_context.unit_tests_running_context
     return AgentWorkspace(
         build_folder=render_context.build_folder,
         writable_folders=[render_context.build_folder],
+        readable_folders=[rendered_modules_folder(render_context)],
         readable_log_paths=render_context.unit_tests_agent_session.readable_log_paths,
         tool_result_cache=context.tool_result_cache,
         after_change=lambda full_path: _track_change(full_path, render_context),

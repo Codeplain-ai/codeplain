@@ -50,6 +50,11 @@ class FakeRenderContext(SimpleNamespace):
     def testing_functionality_label(self):
         return self.conformance_tests_running_context.current_testing_frid
 
+    @property
+    def plain_module(self):
+        # The rendered modules folder is the build folder's parent, as in plain_modules/<module>.
+        return SimpleNamespace(build_folder=os.path.dirname(self.build_folder), all_required_modules=[])
+
 
 class FakeConformanceTests:
     def fetch_existing_conformance_test_files(self, *args):

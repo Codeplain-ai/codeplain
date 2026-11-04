@@ -111,6 +111,8 @@ class ConformanceFixAgents:
     # Conformance tests folders of the current module and its required modules, which both agents may read: the
     # tests of other functionalities that already pass show what works (e.g. how they build and start the app).
     readable_tests_folders: list[str] = field(default_factory=list)
+    # The rendered modules folder (plain_modules): both agents may read every module's code and tests.
+    plain_modules_folder: str = ""
     fixer: AgentSessionState = field(default_factory=AgentSessionState)
     reviewer: AgentSessionState = field(default_factory=AgentSessionState)
     # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix

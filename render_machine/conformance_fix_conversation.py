@@ -78,7 +78,7 @@ class ConformanceFixConversation:
         self.fixer_workspace = agent_tools.AgentWorkspace(
             build_folder=self.build_folder,
             writable_folders=[self.build_folder, agents.conformance_tests_folder],
-            readable_folders=agents.readable_tests_folders,
+            readable_folders=[agents.plain_modules_folder, *agents.readable_tests_folders],
             readable_log_paths=agents.readable_log_paths,
             tool_result_cache=agents.fixer_tool_result_cache,
             before_change=self._before_change,
@@ -88,7 +88,11 @@ class ConformanceFixConversation:
         self.reviewer_workspace = agent_tools.AgentWorkspace(
             build_folder=self.build_folder,
             writable_folders=[],
-            readable_folders=[agents.conformance_tests_folder, *agents.readable_tests_folders],
+            readable_folders=[
+                agents.plain_modules_folder,
+                agents.conformance_tests_folder,
+                *agents.readable_tests_folders,
+            ],
             readable_log_paths=agents.readable_log_paths,
             tool_result_cache=agents.reviewer_tool_result_cache,
             allowed_tools=REVIEWER_TOOLS,
