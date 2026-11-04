@@ -26,6 +26,7 @@ MAX_LINE_CHARS = 10_000
 MAX_OUTPUT_CHARS = 30_000
 EDIT_SNIPPET_CONTEXT_LINES = 3
 MAX_EDIT_SNIPPET_LINES = 60
+MAX_REMOVED_LINES_SHOWN = 8
 MAX_GREP_CONTEXT_LINES = 20
 # Tools without side effects; repeating one while no file changed returns a pointer instead.
 READ_ONLY_TOOLS = ("read_file", "grep", "ls_files")
@@ -282,7 +283,26 @@ def edit_file(args: dict, scope: Target) -> str:
     with open(full_path, "w", encoding="utf-8") as f:
         f.write(content.replace(search, replace, 1))
     _changed(full_path, workspace)
-    return f"Edited '{full_path}'. The edited region now reads:\n" + _edit_snippet(content, search, replace)
+    result = f"Edited '{full_path}'. The edited region now reads:\n" + _edit_snippet(content, search, replace)
+    return result + _removed_lines_notice(search, replace)
+
+
+def _removed_lines_notice(search: str, replace: str) -> str:
+    """A note naming the non-blank lines of `search` that no longer appear anywhere in `replace`, so an accidental
+    deletion (a closing tag or brace, an import, an assertion) is noticed right away."""
+    kept = {line.strip() for line in replace.split("\n")}
+    removed = [line.strip() for line in search.split("\n") if line.strip() and line.strip() not in kept]
+    if not removed:
+        return ""
+    shown = removed[:MAX_REMOVED_LINES_SHOWN]
+    more = f" (and {len(removed) - len(shown)} more)" if len(removed) > len(shown) else ""
+    return (
+        "\nThis edit removed these lines"
+        + more
+        + ": "
+        + "; ".join(f"`{line}`" for line in shown)
+        + ". Check that removing them was intended."
+    )
 
 
 def _edit_snippet(content: str, search: str, replace: str) -> str:
