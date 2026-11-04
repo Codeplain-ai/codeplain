@@ -370,9 +370,11 @@ class CodeplainAPI:
         conformance_tests_json,
         run_state: RunState,
         reference_conformance_tests: Optional[dict] = None,
+        conformance_tests_script_content: str = "",
+        prepare_environment_script_content: str = "",
     ):
         """`reference_conformance_tests`: files of an earlier functionality's passing conformance tests, by path, for
-        the new tests to follow in their setup."""
+        the new tests to follow in their setup. The script contents show how the harness runs the new tests."""
         endpoint_url = f"{self.api_url}/render_conformance_tests"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
 
@@ -388,6 +390,8 @@ class CodeplainAPI:
             "conformance_tests_folder_name": conformance_tests_folder_name,
             "conformance_tests_json": conformance_tests_json,
             "reference_conformance_tests": reference_conformance_tests or {},
+            "conformance_tests_script_content": conformance_tests_script_content,
+            "prepare_environment_script_content": prepare_environment_script_content,
         }
 
         response = self.post_request(endpoint_url, headers, payload, run_state)

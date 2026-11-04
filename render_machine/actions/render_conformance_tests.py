@@ -7,6 +7,7 @@ import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
+from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
@@ -162,6 +163,8 @@ class RenderConformanceTests(BaseAction):
             ),
             run_state=render_context.run_state,
             reference_conformance_tests=reference_conformance_tests,
+            conformance_tests_script_content=FixUnitTests._read_script(render_context.conformance_tests_script),
+            prepare_environment_script_content=FixUnitTests._read_script(render_context.prepare_environment_script),
         )
 
         self._warn_about_untraced_scenarios(render_context, traceability)
