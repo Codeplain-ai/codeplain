@@ -306,6 +306,25 @@ def test_tests_still_failing_continue_both_sessions_with_the_new_output(project)
     assert "-v1" in reviewer_results[-1]["fix_submission"]["code_diff"]["app.py"]
 
 
+def test_fixer_is_told_when_runs_after_approved_fixes_keep_failing(project, monkeypatch):
+    monkeypatch.setattr(conversation, "NOT_CONVERGING_AFTER_FAILED_RUNS", 2)
+    fixer_turns, reviewer_turns = [], []
+    for number in range(3):
+        fixer_turns += [[write("app.py", f"v{number}\n")], [submit_fix()]]
+        reviewer_turns.append([review("approve")])
+    api = ScriptedAgentAPI(fixer_turns=fixer_turns, reviewer_turns=reviewer_turns)
+    render_context = make_render_context(project, api)
+
+    for _ in range(3):
+        run_fix(render_context, issue="STILL FAILING")
+
+    answers = [results[-1]["output"] for (_, _, _, results) in api.of("continue", conversation.FIXER_TASK)]
+    still_failing = [a for a in answers if a.startswith(conversation.TESTS_STILL_FAIL_MESSAGE)]
+    assert len(still_failing) == 2
+    assert "not converging" not in still_failing[0]
+    assert "failed 2 times in a row" in still_failing[1] and "not converging" in still_failing[1]
+
+
 def test_passing_tests_end_both_agents(project, monkeypatch):
     api = ScriptedAgentAPI(
         fixer_turns=[[write("app.py", "v1\n")], [submit_fix()]], reviewer_turns=[[review("approve")]]

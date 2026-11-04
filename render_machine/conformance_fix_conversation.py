@@ -41,6 +41,15 @@ TESTS_STILL_FAIL_MESSAGE = (
     "Files may have changed since you last read them: after an implementation change the unit tests are run, and "
     "fixing them may adjust the code."
 )
+# From this many failed runs in a row after approved fixes, the fixer is told its approach is not converging.
+NOT_CONVERGING_AFTER_FAILED_RUNS = 3
+NOT_CONVERGING_MESSAGE = (
+    "\n\nThe tests have now failed {failed_runs} times in a row after approved fixes. If these failures have the same "
+    "cause, the current approach is not converging: do not try another variant of it. Step back and change "
+    "approach - question the assumption the attempts share (e.g. that an artifact, version, API, file or setting "
+    "exists as you assume), satisfy the requirement in a different way, or, if it cannot be met as stated, say so "
+    "in root_cause."
+)
 REJECTED_MESSAGE = "The reviewer rejected your fix."
 EMPTY_FIX_MESSAGE = (
     "Your fix changes no files, so it was not sent to the reviewer: the conformance tests would fail again in the "
@@ -112,13 +121,15 @@ class ConformanceFixConversation:
         # The tests ran (and maybe unit tests were fixed) since the agents last looked at the files.
         agents.clear_tool_result_caches()
 
+        if agents.approved_fix_tested:
+            agents.failed_runs += 1
         response = None
         if agents.fixer.session_id is not None:
             console.info(f"Continuing the conformance tests fixer session {agents.fixer.session_id}.")
-            response = self._answer(
-                agents.fixer,
-                {"output": TESTS_STILL_FAIL_MESSAGE + agent_tools.full_log_pointer(log_path), "test_output": issue},
-            )
+            output = TESTS_STILL_FAIL_MESSAGE + agent_tools.full_log_pointer(log_path)
+            if agents.failed_runs >= NOT_CONVERGING_AFTER_FAILED_RUNS:
+                output += NOT_CONVERGING_MESSAGE.format(failed_runs=agents.failed_runs)
+            response = self._answer(agents.fixer, {"output": output, "test_output": issue})
 
         sessions_started = 0
         while True:
