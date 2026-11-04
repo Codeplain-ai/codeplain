@@ -118,6 +118,8 @@ class ConformanceFixAgents:
     # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix
     # can be shown as a diff and reverted.
     snapshot: dict[str, Optional[str]] = field(default_factory=dict)
+    # Conformance test runs that failed after an approved fix, in a row (the fixer is told once they pile up).
+    failed_runs: int = 0
     # The reviewer's rejections in a row since the tests last ran (the reviewer is told; every MAX_REJECTIONS of them,
     # the changes it objected to are reverted).
     rejections: int = 0
