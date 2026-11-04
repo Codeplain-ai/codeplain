@@ -116,10 +116,9 @@ class ConformanceFixAgents:
     # Content of every file the current fix changed, from before the fix (None: the file did not exist), so the fix
     # can be shown as a diff and reverted.
     snapshot: dict[str, Optional[str]] = field(default_factory=dict)
-    # Consecutive rejections of the current fix.
+    # The reviewer's rejections in a row since the tests last ran (the reviewer is told; every MAX_REJECTIONS of them,
+    # the changes it objected to are reverted).
     rejections: int = 0
-    # The previous fixer session's last fix was rejected too often and reverted (the new session is told so).
-    previous_changes_reverted: bool = False
     # Whether the reviewer's pending verdict was an approval whose fix was tested (it is told the outcome).
     approved_fix_tested: bool = False
     # Full test logs the agents were pointed to.

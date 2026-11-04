@@ -28,8 +28,11 @@ def submit_fix(failing_reason="IMPLEMENTATION_CODE", **args):
     }
 
 
-def review(verdict, comments=""):
-    return {"name": "submit_review", "args": {"verdict": verdict, "comments": comments}}
+def review(verdict, comments="", objected_files=None):
+    args = {"verdict": verdict, "comments": comments}
+    if objected_files is not None:
+        args["objected_files"] = objected_files
+    return {"name": "submit_review", "args": args}
 
 
 class ScriptedAgentAPI:
@@ -234,32 +237,29 @@ def test_rejected_fix_goes_back_to_the_fixer_with_the_comments_and_the_revision_
     assert "return 3" not in revision["fix_submission"]["code_diff"]["app.py"]
 
 
-def test_fix_rejected_too_often_is_reverted_and_both_agents_start_over(project):
+def test_fix_rejected_too_often_loses_only_the_objected_changes_and_the_sessions_go_on(project):
     rejections = conversation.MAX_REJECTIONS
-    fixer_turns = [[write("test_app_extra.py", "x = 1\n")], [submit_fix()]]
-    for _ in range(rejections - 1):
-        fixer_turns.append([submit_fix()])
-    fixer_turns += [[write("app.py", "def add(a, b):\n    return b + a\n")], [submit_fix()]]
-    api = ScriptedAgentAPI(
-        fixer_turns=fixer_turns,
-        reviewer_turns=[[review("reject", f"No {number}.")] for number in range(rejections)] + [[review("approve")]],
-    )
+    fixer_turns = [[write("test_app_extra.py", "x = 1\n"), write("app.py", "def add(a, b):\n    return b + a\n")]]
+    fixer_turns += [[submit_fix()] for _ in range(rejections + 1)]
+    reviewer_turns = [[review("reject", f"No {number}.", ["test_app_extra.py"])] for number in range(rejections)]
+    api = ScriptedAgentAPI(fixer_turns=fixer_turns, reviewer_turns=reviewer_turns + [[review("approve")]])
     render_context = make_render_context(project, api)
 
     outcome, _ = run_fix(render_context)
 
     assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_UPDATED
-    # The rejected fix was reverted: the file it created is gone.
+    # Only the objected file was reverted; the other change stays, and nobody started over.
     assert not (project.build / "test_app_extra.py").exists()
-    fixer_starts = api.of("start", conversation.FIXER_TASK)
-    reviewer_starts = api.of("start", conversation.REVIEWER_TASK)
-    assert len(fixer_starts) == 2 and len(reviewer_starts) == 2
-    restarted_fixer, restarted_reviewer = fixer_starts[1][3], reviewer_starts[1][3]
-    assert restarted_fixer["previous_session_id"] == fixer_starts[0][2]
-    assert restarted_fixer["previous_changes_reverted"] is True
-    assert restarted_reviewer["previous_session_id"] == reviewer_starts[0][2]
-    # The approved fix after the restart is diffed against the reverted state.
-    assert list(restarted_reviewer["fix_submission"]["code_diff"]) == ["app.py"]
+    assert "return b + a" in (project.build / "app.py").read_text()
+    assert len(api.of("start", conversation.FIXER_TASK)) == 1 and len(api.of("start", conversation.REVIEWER_TASK)) == 1
+    answers = [results[-1] for (_, _, _, results) in api.of("continue", conversation.FIXER_TASK)]
+    rejected = [a for a in answers if a.get("review")]
+    assert "reverted_files" not in rejected[rejections - 2]["review"]
+    assert rejected[rejections - 1]["review"]["reverted_files"] == ["test_app_extra.py"]
+    # The reviewer is told how many fixes it rejected in a row.
+    reviews = [results[-1]["fix_submission"] for (_, _, _, results) in api.of("continue", conversation.REVIEWER_TASK)]
+    assert [r["consecutive_rejections"] for r in reviews] == list(range(1, rejections + 1))
+    assert list(reviews[-1]["code_diff"]) == ["app.py"]
 
 
 def test_fix_that_changes_nothing_is_sent_back_without_a_review(project):
@@ -454,7 +454,6 @@ def test_fixer_session_ending_without_a_submission_restarts_both_keeping_the_cha
     assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_UPDATED
     fixer_starts = api.of("start", conversation.FIXER_TASK)
     assert len(fixer_starts) == 2 and fixer_starts[1][3]["previous_session_id"] == fixer_starts[0][2]
-    assert "previous_changes_reverted" not in fixer_starts[1][3]
     assert (project.build / "app.py").read_text() == "v1\n"
 
 
