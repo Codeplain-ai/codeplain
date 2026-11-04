@@ -60,3 +60,22 @@ def test_no_earlier_tests_give_no_reference(tmp_path):
     target = str(tmp_path / "healthcheck/health")
     context = make_render_context(tmp_path, {"health": {"folder_name": target}}, {})
     assert RenderConformanceTests._reference_conformance_tests(context, target) == {}
+
+
+def test_tests_folder_is_named_after_the_functionality_id():
+    from render_machine.actions.render_conformance_tests import tests_folder_name
+
+    assert tests_folder_name("register-account", []) == "register_account"
+    assert tests_folder_name("Fetch Conversation.Messages", ["other"]) == "fetch_conversation_messages"
+
+
+def test_a_taken_tests_folder_name_gets_a_suffix():
+    from render_machine.actions.render_conformance_tests import tests_folder_name
+
+    assert tests_folder_name("login", ["login", "login_2"]) == "login_3"
+
+
+def test_an_id_without_letters_is_left_to_the_server():
+    from render_machine.actions.render_conformance_tests import tests_folder_name
+
+    assert tests_folder_name("1.2.3", []) is None

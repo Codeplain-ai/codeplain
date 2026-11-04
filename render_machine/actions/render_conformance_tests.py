@@ -1,5 +1,6 @@
 import os
-from typing import Any
+import re
+from typing import Any, Optional
 
 import file_utils
 import plain_spec
@@ -77,19 +78,24 @@ class RenderConformanceTests(BaseAction):
                 ],
                 style=console.INFO_STYLE,
             )
-            fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
-                frid=render_context.conformance_tests_running_context.current_testing_frid,
-                module_name=render_context.conformance_tests_running_context.current_testing_module_name,
-                functional_requirement=render_context.conformance_tests_running_context.current_testing_frid_specifications[
-                    plain_spec.FUNCTIONAL_REQUIREMENTS
-                ][
-                    -1
-                ],
-                existing_folder_names=render_context.conformance_tests.fetch_existing_conformance_test_folder_names(
-                    render_context.conformance_tests_running_context.current_testing_module_name
-                ),
-                run_state=render_context.run_state,
+            existing_folder_names = render_context.conformance_tests.fetch_existing_conformance_test_folder_names(
+                render_context.conformance_tests_running_context.current_testing_module_name
             )
+            fr_subfolder_name = tests_folder_name(
+                str(render_context.conformance_tests_running_context.current_testing_frid), existing_folder_names
+            )
+            if fr_subfolder_name is None:
+                fr_subfolder_name = render_context.codeplain_api.generate_folder_name_from_functional_requirement(
+                    frid=render_context.conformance_tests_running_context.current_testing_frid,
+                    module_name=render_context.conformance_tests_running_context.current_testing_module_name,
+                    functional_requirement=render_context.conformance_tests_running_context.current_testing_frid_specifications[
+                        plain_spec.FUNCTIONAL_REQUIREMENTS
+                    ][
+                        -1
+                    ],
+                    existing_folder_names=existing_folder_names,
+                    run_state=render_context.run_state,
+                )
 
             conformance_tests_folder_name = os.path.join(
                 render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
@@ -268,3 +274,17 @@ def _text_files(folder: str, max_chars: int) -> dict[str, str]:
         selected[os.path.join(folder, name)] = contents[name]
         total += len(contents[name])
     return dict(sorted(selected.items()))
+
+
+def tests_folder_name(frid: str, existing_folder_names: list[str]) -> Optional[str]:
+    """The conformance tests folder name of a functionality: its ID in snake_case (func-ids are written to be read,
+    e.g. `register-account`), with a numeric suffix if the name is taken. None for an ID without letters (e.g. a
+    numbered one), whose name the server then generates from the functionality's text."""
+    base = re.sub(r"[^a-z0-9]+", "_", str(frid).lower()).strip("_")
+    if not re.search(r"[a-z]", base):
+        return None
+    taken = {os.path.basename(os.path.normpath(name)) for name in existing_folder_names}
+    name, number = base, 2
+    while name in taken:
+        name, number = f"{base}_{number}", number + 1
+    return name
