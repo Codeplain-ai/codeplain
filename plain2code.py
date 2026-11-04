@@ -581,6 +581,8 @@ def main():  # noqa: C901
             interrupted = True
         else:
             error_message = user_error_message(e)
+            # A module that finished before the error set render_succeeded; the render as a whole did not.
+            run_state.set_render_succeeded(False)
 
             if not isinstance(e, EXPECTED_EXCEPTIONS):
                 exc_info = sys.exc_info()

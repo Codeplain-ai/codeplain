@@ -13,6 +13,10 @@ from plain2code_state import RunState
 
 MAX_RETRIES = 4
 RETRY_DELAY = 3
+# Agent calls carry a whole session: losing one ends a long-running fix, so they retry longer (with the delay
+# capped), which rides out a provider or network outage of several minutes.
+AGENT_MAX_RETRIES = 8
+MAX_RETRY_DELAY = 60
 
 # A report the render does not consume must not be able to hold the process open
 # at exit, and requests waits indefinitely by default.
@@ -135,7 +139,7 @@ class CodeplainAPI:
                 )
             time.sleep(retry_delay)
             # Exponential backoff
-            return retry_delay * 2
+            return min(retry_delay * 2, MAX_RETRY_DELAY)
         else:
             if not silent:
                 self.console.error(f"Max retries ({num_retries}) exceeded. Last error: {error}")
@@ -571,7 +575,7 @@ class CodeplainAPI:
             "frid": frid,
             "module_name": module_name,
         }
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, num_retries=AGENT_MAX_RETRIES)
 
     def agent_continue(
         self, session_id: str, tool_results: list[dict], frid: str, module_name: str, run_state: RunState
@@ -585,4 +589,4 @@ class CodeplainAPI:
             "frid": frid,
             "module_name": module_name,
         }
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, num_retries=AGENT_MAX_RETRIES)
