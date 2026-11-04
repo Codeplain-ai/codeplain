@@ -6,6 +6,7 @@ import file_utils
 import plain_spec
 from memory_management import MemoryManager
 from plain2code_console import console
+from render_machine.actions import prepare_testing_environment
 from render_machine.actions.base_action import BaseAction
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -20,6 +21,7 @@ class RenderConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_test_rendered"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        prepare_testing_environment.start_in_background(render_context)
         if self._should_render_conformance_tests(render_context):
             return self._render_conformance_tests(render_context)
         else:
