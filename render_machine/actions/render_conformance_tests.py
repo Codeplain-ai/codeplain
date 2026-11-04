@@ -10,6 +10,9 @@ from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
 from render_machine.render_types import AcceptanceTestPhase, TestExecutionPhase
 
+# Bound on the reference conformance tests sent for generating new ones (see _reference_conformance_tests).
+MAX_REFERENCE_TESTS_CHARS = 40_000
+
 
 class RenderConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_test_rendered"
@@ -41,6 +44,28 @@ class RenderConformanceTests(BaseAction):
 
         # 3. All other cases (IN_PROGRESS, COMPLETED): Render acceptance tests incrementally
         return False
+
+    @staticmethod
+    def _reference_conformance_tests(render_context: RenderContext, target_folder: str) -> dict[str, str]:
+        """The files of the most recent earlier functionality's conformance tests (they pass, or the render would
+        not have moved on), as a reference for setting up new ones: of the current module if it has any, otherwise
+        of the closest required module. Files by full path, smallest first, within MAX_REFERENCE_TESTS_CHARS."""
+        running = render_context.conformance_tests_running_context
+        candidates: list[dict] = []
+        if running.conformance_tests_json_has_module_populated(render_context.module_name):
+            candidates.append(running.get_conformance_tests_json(render_context.module_name))
+        for module in reversed(render_context.plain_module.all_required_modules):
+            candidates.append(render_context.conformance_tests.get_conformance_tests_json(module.module_name))
+        target = os.path.normpath(os.path.abspath(target_folder))
+        for tests_json in candidates:
+            for entry in reversed(list(tests_json.values())):
+                folder = os.path.normpath(os.path.abspath(entry.get("folder_name") or ""))
+                if folder == target or not os.path.isdir(folder):
+                    continue
+                files = _text_files(folder, MAX_REFERENCE_TESTS_CHARS)
+                if files:
+                    return files
+        return {}
 
     def _render_conformance_tests(self, render_context: RenderContext):
         # Check if tests already exist (e.g., during regression) - if so, skip rendering
@@ -109,6 +134,13 @@ class RenderConformanceTests(BaseAction):
             style=console.INPUT_STYLE,
         )
 
+        reference_conformance_tests = self._reference_conformance_tests(render_context, conformance_tests_folder_name)
+        if reference_conformance_tests:
+            console.debug(
+                "Reference conformance tests sent for generating conformance tests: "
+                + ", ".join(sorted(reference_conformance_tests))
+            )
+
         response_files, traceability = render_context.codeplain_api.render_conformance_tests(
             render_context.frid_context.frid,
             render_context.conformance_tests_running_context.current_testing_frid,
@@ -123,6 +155,7 @@ class RenderConformanceTests(BaseAction):
                 render_context.conformance_tests_running_context.current_testing_module_name
             ),
             run_state=render_context.run_state,
+            reference_conformance_tests=reference_conformance_tests,
         )
 
         self._warn_about_untraced_scenarios(render_context, traceability)
@@ -223,3 +256,15 @@ class RenderConformanceTests(BaseAction):
             style=console.OUTPUT_STYLE,
         )
         return self.SUCCESSFUL_OUTCOME, None
+
+
+def _text_files(folder: str, max_chars: int) -> dict[str, str]:
+    """The text files of `folder` by full path, smallest first, within `max_chars`."""
+    contents = file_utils.get_existing_files_content(folder, file_utils.list_all_text_files(folder))
+    selected, total = {}, 0
+    for name in sorted(contents, key=lambda n: (len(contents[n]), n)):
+        if total + len(contents[name]) > max_chars:
+            break
+        selected[os.path.join(folder, name)] = contents[name]
+        total += len(contents[name])
+    return dict(sorted(selected.items()))
