@@ -191,3 +191,21 @@ def test_grep_separates_context_groups_and_skips_binary_and_excluded_files(proje
     (project.build / "node_modules" / "dep.py").write_text("hit\n")
     out = agent_tools.grep({"pattern": "^hit$", "context_lines": 1}, project.rc).splitlines()
     assert out == ["long.py:1:hit", "long.py-2-x", "--", "long.py-11-x", "long.py:12:hit"]
+
+
+def test_edit_names_the_lines_it_removed(project):
+    pom = project.build / "pom.xml"
+    pom.write_text("<project>\n  <dependencies/>\n</project>\n")
+    out = agent_tools.edit_file(
+        {
+            "file_path": "pom.xml",
+            "search": "  <dependencies/>\n</project>\n",
+            "replace": "  <dependencies/>\n  <build/>\n",
+        },
+        project.rc,
+    )
+    assert "This edit removed these lines: `</project>`" in out
+    kept = agent_tools.edit_file(
+        {"file_path": "pom.xml", "search": "  <build/>\n", "replace": "  <build/>\n</project>\n"}, project.rc
+    )
+    assert "removed these lines" not in kept
