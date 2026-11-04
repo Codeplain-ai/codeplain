@@ -174,8 +174,24 @@ class FixConformanceTest(BaseAction):
             ctx.conformance_fix_agents = ConformanceFixAgents(
                 tested=tested,
                 conformance_tests_folder=FixConformanceTest._writable_conformance_tests_folder(render_context),
+                readable_tests_folders=FixConformanceTest._readable_conformance_tests_folders(render_context),
             )
         return ctx.conformance_fix_agents
+
+    @staticmethod
+    def _readable_conformance_tests_folders(render_context: RenderContext) -> list[str]:
+        """The existing conformance tests folders of the current module and of every module it requires."""
+        module_names = [render_context.module_name] + [
+            module.module_name for module in render_context.plain_module.all_required_modules
+        ]
+        folders: list[str] = []
+        for module_name in module_names:
+            folder = os.path.normpath(
+                os.path.abspath(render_context.conformance_tests.get_module_conformance_tests_folder(module_name))
+            )
+            if os.path.isdir(folder) and folder not in folders:
+                folders.append(folder)
+        return folders
 
     @staticmethod
     def _writable_conformance_tests_folder(render_context: RenderContext) -> str:
@@ -224,6 +240,7 @@ class FixConformanceTest(BaseAction):
             "module_name": render_context.module_name,
             "build_folder": os.path.normpath(os.path.abspath(render_context.build_folder)),
             "conformance_tests_folder": agents.conformance_tests_folder,
+            "readable_conformance_tests_folders": agents.readable_tests_folders,
             "conformance_tests_script_content": FixUnitTests._read_script(render_context.conformance_tests_script),
             "prepare_environment_script_content": FixUnitTests._read_script(render_context.prepare_environment_script),
             "tested_functionality_id": qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid),
