@@ -1,10 +1,10 @@
 name: Notify Slack on Merge to Main
 
-# pull_request_target runs this file from main with secrets, so merged PRs from
-# forks post too. Nothing from the PR is checked out or run; the title only
-# reaches the shell through an env var.
+# pull_request, not pull_request_target: GitHub blocks the latter in public
+# repos by default from December 2026. Fork PRs get no secrets here, so their
+# merges post nothing. The title only reaches the shell through an env var.
 on:
-  pull_request_target:
+  pull_request:
     types: [closed]
     branches:
       - main
@@ -14,7 +14,10 @@ permissions: {}
 jobs:
   notify:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged == true && vars.SLACK_CHANNEL_ID != ''
+    if: >-
+      github.event.pull_request.merged &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.SLACK_CHANNEL_ID != ''
     steps:
       # Slack reads <, > and & as markup: escape them so a PR title cannot
       # mention @channel or rewrite the link.
