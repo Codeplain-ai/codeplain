@@ -177,7 +177,7 @@ jobs:
             thread_ts: ${{ env.THREAD_TS }}
             text: >-
               *Codeplain Client*: `${{ github.ref_name }}` published to PyPI :white_check_mark:.
-              Install with `pip install --upgrade codeplain`.${{ env.RELEASE_URL != '' && format(' <{0}|View release>.', env.RELEASE_URL) || needs.linear-release.outputs.outcome == 'failure' && ' Recording it in Linear failed :warning:.' || '' }}
+              Install with `pip install --upgrade codeplain`.${{ env.RELEASE_URL != '' && format(' <{0}|View release>.', env.RELEASE_URL) || (needs.linear-release.result == 'failure' || needs.linear-release.outputs.outcome == 'failure') && ' Recording it in Linear failed :warning:.' || '' }}
 
       # Success also puts a ✅ on the start notice, so the result shows in the
       # channel without another message. Needs the app's reactions:write scope.
