@@ -110,6 +110,19 @@ def _build_folder(workspace: AgentWorkspace) -> str:
     return workspace.build_folder
 
 
+def _where_to_look(workspace: AgentWorkspace) -> str:
+    """Appended when a path or pattern found nothing or was out of reach: what relative paths resolve against, and
+    which folders can be read, so the next call can be right. Agents often look for a module's tests under its
+    code folder, while they live next to it."""
+    readable = sorted({workspace.build_folder, *workspace.writable_folders, *workspace.readable_folders})
+    return (
+        f" Relative paths resolve against '{workspace.build_folder}'. Readable folders: "
+        + ", ".join(f"'{folder}'" for folder in readable)
+        + ". In the rendered modules folder each module has a `code` folder (its implementation) and a `tests`"
+        " folder (its conformance tests) next to each other."
+    )
+
+
 def _resolve(file_path: str, workspace: AgentWorkspace) -> str:
     if os.path.isabs(file_path):
         return os.path.normpath(file_path)
@@ -203,9 +216,9 @@ def grep(args: dict, scope: Target) -> str:
         )
     target = _resolve(args.get("file_path") or ".", workspace)
     if not _readable(target, workspace):
-        return f"Error: read access denied for '{target}'."
+        return f"Error: read access denied for '{target}'." + _where_to_look(workspace)
     if not os.path.exists(target):
-        return f"Error: path not found: '{target}'."
+        return f"Error: path not found: '{target}'." + _where_to_look(workspace)
     context_lines = min(max(int(args.get("context_lines") or 0), 0), MAX_GREP_CONTEXT_LINES)
     # Paths inside the build folder come back build-relative, the form the other tools accept; a test log
     # outside it keeps its absolute path.
@@ -268,13 +281,13 @@ def ls_files(args: dict, scope: Target) -> str:
     workspace = _workspace(scope)
     target = _resolve(args.get("pattern") or ".", workspace)
     if not _readable(target, workspace):
-        return f"Error: read access denied for '{target}'."
+        return f"Error: read access denied for '{target}'." + _where_to_look(workspace)
     if os.path.isdir(target):
         entries = sorted(os.listdir(target))
         listing = [entry + "/" if os.path.isdir(os.path.join(target, entry)) else entry for entry in entries]
         return f"{target}:\n" + ("\n".join(listing) if listing else "(empty)")
     matches = sorted(glob.glob(target, recursive=True, include_hidden=True))
-    return _bound("\n".join(matches)) if matches else f"No files match '{target}'."
+    return _bound("\n".join(matches)) if matches else f"No files match '{target}'." + _where_to_look(workspace)
 
 
 def edit_file(args: dict, scope: Target) -> str:

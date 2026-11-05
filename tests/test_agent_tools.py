@@ -225,3 +225,9 @@ def test_unit_tests_agent_reads_and_greps_other_modules_but_writes_only_its_buil
     assert "base/code/lib.py:1:def helper():" in hits and "def sub(a, b):" in hits
     denied = agent_tools.write_file({"file_path": str(other), "content": "x\n"}, project.rc)
     assert denied.startswith("Error: write access denied") and other.read_text().startswith("def helper")
+
+
+def test_a_pattern_that_finds_nothing_says_where_to_look(project):
+    result = agent_tools.ls_files({"pattern": "**/tests/**/pom.xml"}, project.rc)
+    assert result.startswith("No files match")
+    assert "Relative paths resolve against" in result and "`tests`" in result
