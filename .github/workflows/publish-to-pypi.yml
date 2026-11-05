@@ -93,7 +93,8 @@ jobs:
   # re-posts without publishing again.
   notify:
     name: Notify Slack
-    needs: [build, publish-to-pypi]
+    # linear-release is skipped for pre-releases and failed publishes; this job still runs.
+    needs: [build, publish-to-pypi, linear-release]
     if: ${{ !cancelled() && vars.SLACK_CHANNEL_ID != '' }}
     runs-on: ubuntu-latest
 
@@ -163,6 +164,9 @@ jobs:
 
       - name: Notify Slack (release published)
         if: ${{ needs.publish-to-pypi.result == 'success' && !github.event.release.prerelease }}
+        env:
+          # Empty while the release step only logs, or when it failed.
+          RELEASE_URL: ${{ needs.linear-release.outputs.release-url }}
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           method: chat.postMessage
@@ -173,7 +177,7 @@ jobs:
             thread_ts: ${{ env.THREAD_TS }}
             text: >-
               *Codeplain Client*: `${{ github.ref_name }}` published to PyPI :white_check_mark:.
-              Install with `pip install --upgrade codeplain`.
+              Install with `pip install --upgrade codeplain`.${{ env.RELEASE_URL != '' && format(' <{0}|View release>.', env.RELEASE_URL) || needs.linear-release.outputs.outcome == 'failure' && ' Recording it in Linear failed :warning:.' || '' }}
 
       # Success also puts a ✅ on the start notice, so the result shows in the
       # channel without another message. Needs the app's reactions:write scope.
@@ -191,51 +195,40 @@ jobs:
             timestamp: ${{ env.THREAD_TS }}
             name: white_check_mark
 
-  # Release pipelines to be turned on only after the rest of the infrastructure
-  # is ready.
-  #
-  # # Runs only after the package is on PyPI. Kept as its own job so the publish job
-  # # keeps its minimal permissions and no checkout.
-  # linear-release:
-  #   name: Record release in Linear
-  #   needs: [build, publish-to-pypi]
-  #   runs-on: ubuntu-latest
-  #
-  #   permissions:
-  #     contents: read
-  #
-  #   steps:
-  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-  #       with:
-  #         # The scan needs full history.
-  #         fetch-depth: 0
-  #
-  #     # Non-fatal: the package is already published.
-  #     - name: Record release in Linear
-  #       id: linear
-  #       continue-on-error: true
-  #       uses: linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205 # v0.16.0
-  #       with:
-  #         access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
-  #         version: ${{ github.ref_name }}
-  #         # Pin the CLI the action downloads, not just the action.
-  #         cli_version: v0.16.0
-  #
-  #     # continue-on-error keeps the job green, so this checks the step's own
-  #     # outcome — `failure()` would never fire.
-  #     - name: Notify Slack (release not recorded)
-  #       if: ${{ steps.linear.outcome == 'failure' && vars.SLACK_CHANNEL_ID != '' }}
-  #       env:
-  #         # See the notify job.
-  #         THREAD_TS: ${{ needs.build.outputs.slack-ts && format('"{0}"', needs.build.outputs.slack-ts) || 'null' }}
-  #       uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-  #       with:
-  #         method: chat.postMessage
-  #         token: ${{ secrets.SLACK_BOT_TOKEN }}
-  #         errors: true
-  #         payload: |
-  #           channel: ${{ vars.SLACK_CHANNEL_ID }}
-  #           thread_ts: ${{ env.THREAD_TS }}
-  #           text: >-
-  #             *Codeplain Client*: `${{ github.ref_name }}` is on PyPI, but recording it in Linear FAILED :warning:.
-  #             See <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|the run log>.
+  # Stable releases only; pre-releases stay out of the Linear pipeline. Its own
+  # job, after the package is on PyPI, so the publish job keeps its minimal
+  # permissions and no checkout.
+  linear-release:
+    name: Record release in Linear
+    needs: publish-to-pypi
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    # pull-requests lets the step look up each commit's PR.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # The notify job links the release, or says recording it failed.
+      release-url: ${{ steps.linear.outputs.release-url }}
+      outcome: ${{ steps.linear.outcome }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The release gets the PRs merged since the previous one, and the GitHub
+      # release text as notes; a re-run updates it. Log-only until
+      # LINEAR_RELEASE_MODE is "live". Non-fatal: the package is already published.
+      - name: Record release in Linear
+        id: linear
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          LINEAR_ACCESS_KEY: ${{ secrets.LINEAR_ACCESS_KEY }}
+          LINEAR_RELEASE_MODE: ${{ vars.LINEAR_RELEASE_MODE }}
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_NOTES: github-release
+        with:
+          script: return require('./.github/scripts/record-linear-release.cjs')({ github, context, core })
