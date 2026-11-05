@@ -346,6 +346,12 @@ def create_parser():
         help="Continue generation starting from this specific functionality (e.g. `add-task`). "
         "The functionality with this ID will be included in the output. The functionality ID must match one of the functionalities in your plain file.",
     )
+    render_range_group.add_argument(
+        "--regenerate",
+        type=frid_string,
+        help="Regenerate a single already-rendered functionality (e.g. `add-task`). "
+        "The functionality ID must match one of the functionalities in your plain file.",
+    )
 
     _add_arg(
         parser,

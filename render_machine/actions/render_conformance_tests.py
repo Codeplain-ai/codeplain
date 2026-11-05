@@ -123,6 +123,7 @@ class RenderConformanceTests(BaseAction):
                 render_context.conformance_tests_running_context.current_testing_module_name
             ),
             run_state=render_context.run_state,
+            is_regeneration=render_context.is_regenerate,
         )
 
         self._warn_about_untraced_scenarios(render_context, traceability)
