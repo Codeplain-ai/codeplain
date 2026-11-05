@@ -8,6 +8,7 @@ was pointed to), what it may write (by default the build folder) and which tools
 given a RenderContext instead works in the unit-test fixing agent's workspace.
 """
 
+import difflib
 import fnmatch
 import glob
 import json
@@ -27,6 +28,9 @@ MAX_OUTPUT_CHARS = 30_000
 EDIT_SNIPPET_CONTEXT_LINES = 3
 MAX_EDIT_SNIPPET_LINES = 60
 MAX_REMOVED_LINES_SHOWN = 8
+# A search text that is not found gets the file lines most like it, when they are at least this alike.
+CLOSEST_LINE_MIN_RATIO = 0.6
+CLOSEST_LINES_SHOWN = 3
 MAX_GREP_CONTEXT_LINES = 20
 # Tools without side effects; repeating one while no file changed returns a pointer instead.
 READ_ONLY_TOOLS = ("read_file", "grep", "ls_files")
@@ -303,6 +307,10 @@ def edit_file(args: dict, scope: Target) -> str:
     with open(full_path, "r", encoding="utf-8") as f:
         content = f.read()
     occurrences = content.count(search)
+    if occurrences == 0:
+        return f"Error: search text found 0 times in '{full_path}'; it must appear exactly once." + _closest_lines(
+            content, search
+        )
     if occurrences != 1:
         return (
             f"Error: search text found {occurrences} times in '{full_path}'; it must appear exactly once. "
@@ -314,6 +322,33 @@ def edit_file(args: dict, scope: Target) -> str:
     _changed(full_path, workspace)
     result = f"Edited '{full_path}'. The edited region now reads:\n" + _edit_snippet(content, search, replace)
     return result + _removed_lines_notice(search, replace)
+
+
+def _closest_lines(content: str, search: str) -> str:
+    """The file lines most like the longest line of a search text that was not found, numbered and exactly as the
+    file has them, so a near miss (escaping, whitespace, a stale line) is fixed without re-reading the file."""
+    needle = max((line.strip() for line in search.split("\n")), key=len, default="")
+    if not needle:
+        return " Read the file and copy the text exactly as it is there."
+    scored = []
+    for number, line in enumerate(content.split("\n"), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        matcher = difflib.SequenceMatcher(None, needle, stripped, autojunk=False)
+        if matcher.real_quick_ratio() < CLOSEST_LINE_MIN_RATIO or matcher.quick_ratio() < CLOSEST_LINE_MIN_RATIO:
+            continue
+        ratio = matcher.ratio()
+        if ratio >= CLOSEST_LINE_MIN_RATIO:
+            scored.append((ratio, number, line))
+    if not scored:
+        return " No line of the file resembles it; read the file and copy the text exactly as it is there."
+    best = sorted(scored, key=lambda item: -item[0])[:CLOSEST_LINES_SHOWN]
+    shown = "\n".join(f"{number}: {line}" for _, number, line in sorted(best, key=lambda item: item[1]))
+    return (
+        " The closest lines in the file are (line number, then the line exactly as the file has it, backslashes"
+        " and quotes included):\n" + shown + "\nCopy the search text from these lines character for character."
+    )
 
 
 def _removed_lines_notice(search: str, replace: str) -> str:

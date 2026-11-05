@@ -231,3 +231,18 @@ def test_a_pattern_that_finds_nothing_says_where_to_look(project):
     result = agent_tools.ls_files({"pattern": "**/tests/**/pom.xml"}, project.rc)
     assert result.startswith("No files match")
     assert "Relative paths resolve against" in result and "`tests`" in result
+
+
+def test_a_search_text_that_is_not_found_gets_the_closest_lines(project):
+    test_file = project.build / "ReaderTest.java"
+    test_file.write_text('class ReaderTest {\n    Path file = writeCsv("id\\\\n7\\\\n");\n}\n')
+    out = agent_tools.edit_file(
+        {"file_path": "ReaderTest.java", "search": 'Path file = writeCsv("id\\n7\\n");', "replace": "x"}, project.rc
+    )
+    assert "found 0 times" in out
+    assert '2:     Path file = writeCsv("id\\\\n7\\\\n");' in out
+    assert "class ReaderTest" not in out
+    unrelated = agent_tools.edit_file(
+        {"file_path": "ReaderTest.java", "search": "completely different text here", "replace": "x"}, project.rc
+    )
+    assert "No line of the file resembles it" in unrelated
