@@ -8,6 +8,7 @@ import pytest
 import plain_spec
 from memory_management import MemoryManager
 from plain2code_exceptions import ConflictingRequirements
+from plain2code_utils import qualified_frid
 from render_machine import conformance_fix_conversation as conversation
 from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.run_conformance_tests import RunConformanceTests
@@ -553,3 +554,45 @@ def test_journal_records_the_approved_fix(project):
     [entry] = render_context.memory_manager.journal.build_digest("mod", "1")
     assert entry["hypothesis"] == "off by one" and entry["target"] == "IMPLEMENTATION_CODE"
     assert entry["files_changed"] == ["app.py"]
+
+
+def test_a_fixer_is_shown_the_fixes_made_for_other_functionalities_tests(project):
+    api = ScriptedAgentAPI(
+        fixer_turns=[[write("app.py", "v1\n")], [submit_fix()], [write("app.py", "v2\n")], [submit_fix()]],
+        reviewer_turns=[[review("approve")], [review("approve")]],
+    )
+    render_context = make_render_context(project, api, testing_frid="2", frid="2")
+    run_fix(render_context)
+    assert "other_functionalities_fixes" not in api.of("start", conversation.FIXER_TASK)[0][3]
+    ctx = render_context.conformance_tests_running_context
+    ctx.current_testing_frid = "1"
+    ctx.set_conformance_tests_json("mod", {"1": {"folder_name": str(project.tests_folder)}})
+
+    run_fix(render_context)
+
+    [other_fix] = api.of("start", conversation.FIXER_TASK)[1][3]["other_functionalities_fixes"]
+    assert other_fix["functionality"] == qualified_frid("mod", "2") and other_fix["approach"] == "add one"
+    assert "+v1" in other_fix["code_diff"]["app.py"]
+
+
+def test_a_conflict_of_a_functionality_without_acceptance_tests_is_with_the_one_an_earlier_fix_was_for(
+    project, monkeypatch
+):
+    monkeypatch.setattr(
+        plain_spec,
+        "get_specifications_for_frid",
+        lambda tree, frid: ({plain_spec.FUNCTIONAL_REQUIREMENTS: ["- Add numbers."]}, None),
+    )
+    conflict = submit_fix("CONFLICTING_REQUIREMENTS", conflict_reason="1 and 2 contradict each other.")
+    api = ScriptedAgentAPI(fixer_turns=[[conflict]], reviewer_turns=[[review("approve")]])
+    render_context = make_render_context(project, api, testing_frid="2", frid="2")
+    ctx = render_context.conformance_tests_running_context
+    ctx.conflicting_requirement_count = 1
+    ctx.conflicting_module_name, ctx.conflicting_frid = "mod", "2"
+    ctx.implementation_code_fixes.append({"hypothesis": "h", "approach": "a", "code_diff": {}, "tested": ("mod", "1")})
+
+    with pytest.raises(ConflictingRequirements):
+        run_fix(render_context)
+
+    [report] = api.conflict_reports
+    assert report[1] == "1" and report[4] == "mod" and report[6] == "CONFLICTING_REQUIREMENTS"

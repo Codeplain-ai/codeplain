@@ -135,7 +135,13 @@ class FixConformanceTest(BaseAction):
         ctx.execution_phase = TestExecutionPhase.RETRYING_AFTER_CODE_CHANGE
         # Remember the change so that the unit tests fixer (which runs next) preserves it instead of reverting
         # it - see FixUnitTests.
-        ctx.implementation_code_fixes.append({**summary, "code_diff": implementation_code_diff})
+        ctx.implementation_code_fixes.append(
+            {
+                **summary,
+                "code_diff": implementation_code_diff,
+                "tested": (ctx.current_testing_module_name, str(ctx.current_testing_frid)),
+            }
+        )
         return self.IMPLEMENTATION_CODE_UPDATED, None
 
     def _handle_conflict(self, render_context: RenderContext, fix: ApprovedFix) -> None:
@@ -143,15 +149,22 @@ class FixConformanceTest(BaseAction):
         failing_reason = (
             "CONFLICTING_REQUIREMENTS" if self._is_regression(render_context) else "CONFLICTING_ACCEPTANCE_TESTS"
         )
+        conflicting_module, conflicting_frid = ctx.current_testing_module_name, str(ctx.current_testing_frid)
+        other_tested = self._other_functionality_of_conflict(render_context)
+        if other_tested is not None:
+            # The functionality has no acceptance tests to conflict with: its tests conflict with the functionality
+            # whose tests an earlier fix of this phase made pass (see _other_functionalities_fixes).
+            failing_reason = "CONFLICTING_REQUIREMENTS"
+            conflicting_module, conflicting_frid = other_tested
         if ctx.conflicting_requirement_count >= 1:
             # Declared before, a fix did not resolve it, and the reviewer agreed again: the server reports it as
             # the ConflictingRequirements error, which ends the render.
             render_context.codeplain_api.report_conflicting_requirements(
                 render_context.frid_context.frid,
-                str(ctx.current_testing_frid),
+                conflicting_frid,
                 render_context.plain_source_tree,
                 render_context.module_name,
-                ctx.current_testing_module_name,
+                conflicting_module,
                 render_context.get_required_modules_functionalities(),
                 failing_reason,
                 fix.args.get("conflict_reason", ""),
@@ -166,6 +179,26 @@ class FixConformanceTest(BaseAction):
             f"for functionality {qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}.",
             color=RETRY_COLOR,
         )
+
+    @staticmethod
+    def _other_functionality_of_conflict(render_context: RenderContext) -> Optional[tuple[str, str]]:
+        """The functionality a conflict declared for the current functionality's own tests is with, when that
+        functionality has no acceptance tests: the one whose tests the most recent fix of this phase for other tests
+        made pass. None for regression tests, with acceptance tests, or without such a fix."""
+        if FixConformanceTest._is_regression(render_context):
+            return None
+        specifications, _ = plain_spec.get_specifications_for_frid(
+            render_context.plain_source_tree, render_context.frid_context.frid
+        )
+        if specifications.get(plain_spec.ACCEPTANCE_TESTS):
+            return None
+        ctx = render_context.conformance_tests_running_context
+        tested = (ctx.current_testing_module_name, str(ctx.current_testing_frid))
+        for fix in reversed(ctx.implementation_code_fixes):
+            if fix.get("tested") and tuple(fix["tested"]) != tested:
+                module_name, frid = fix["tested"]
+                return module_name, frid
+        return None
 
     # ---------------------------------------------------------------------------------------------------------
 
@@ -320,7 +353,28 @@ class FixConformanceTest(BaseAction):
         )
         if ctx.conflicting_requirement_count >= 1:
             params["conflict_already_reported"] = True
+        other_fixes = FixConformanceTest._other_functionalities_fixes(render_context)
+        if other_fixes:
+            params["other_functionalities_fixes"] = other_fixes
         return params
+
+    @staticmethod
+    def _other_functionalities_fixes(render_context: RenderContext) -> list[dict]:
+        """The implementation changes made earlier in this conformance phase to make another functionality's tests
+        pass, oldest first. A fixer that undoes one makes those tests fail again, and the two fixes then alternate,
+        so the fixer is shown them and told to declare the conflict instead."""
+        ctx = render_context.conformance_tests_running_context
+        tested = (ctx.current_testing_module_name, str(ctx.current_testing_frid))
+        return [
+            {
+                "functionality": qualified_frid(*fix["tested"]),
+                "hypothesis": fix.get("hypothesis"),
+                "approach": fix.get("approach"),
+                "code_diff": fix.get("code_diff") or {},
+            }
+            for fix in ctx.implementation_code_fixes
+            if fix.get("tested") and tuple(fix["tested"]) != tested
+        ]
 
     @staticmethod
     def _tested_functionality(specifications: Optional[dict | str]) -> tuple[str, list]:
