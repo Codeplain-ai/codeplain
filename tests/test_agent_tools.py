@@ -246,3 +246,46 @@ def test_a_search_text_that_is_not_found_gets_the_closest_lines(project):
         {"file_path": "ReaderTest.java", "search": "completely different text here", "replace": "x"}, project.rc
     )
     assert "No line of the file resembles it" in unrelated
+
+
+def _script(path, body):
+    path.write_text("#!/bin/bash\n" + body)
+    path.chmod(0o755)
+    return str(path)
+
+
+def test_the_conformance_fixer_runs_the_tests_and_prepares_only_after_a_change(project, tmp_path):
+    prepared = tmp_path / "prepared.txt"
+    tests_folder = tmp_path / "conformance" / "add"
+    tests_folder.mkdir(parents=True)
+    rc = SimpleNamespace(
+        build_folder=str(project.build),
+        prepare_environment_script=_script(tmp_path / "prepare.sh", f'echo x >> "{prepared}"\n'),
+        conformance_tests_script=_script(
+            tmp_path / "run.sh", 'grep -q "a + b" "$1/app.py" || { echo FAIL: test_add; exit 1; }\n'
+        ),
+        test_script_timeout=None,
+        stop_event=None,
+    )
+    workspace = agent_tools.AgentWorkspace(
+        build_folder=str(project.build),
+        writable_folders=[str(project.build)],
+        render_context=rc,
+        conformance_tests_folder=str(tests_folder),
+    )
+
+    failed = agent_tools.run_conformance_tests({}, workspace)
+    assert failed["output"].startswith("The conformance tests failed") and "FAIL: test_add" in failed["test_output"]
+    agent_tools.run_conformance_tests({}, workspace)
+    assert prepared.read_text().count("x") == 1  # nothing changed, so no second preparation
+
+    agent_tools.edit_file(
+        {
+            "file_path": "app.py",
+            "search": "def add(a, b):\n    return a - b",
+            "replace": "def add(a, b):\n    return a + b",
+        },
+        workspace,
+    )
+    assert agent_tools.run_conformance_tests({}, workspace) == {"output": "The conformance tests passed."}
+    assert prepared.read_text().count("x") == 2
