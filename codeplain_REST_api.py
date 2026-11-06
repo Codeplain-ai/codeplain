@@ -90,6 +90,18 @@ ERROR_CODE_EXCEPTIONS = {
 }
 
 
+# Client errors that a retry can fix: a timeout on the server's side and rate limiting.
+RETRYABLE_CLIENT_ERROR_STATUSES = {408, 429}
+
+
+def _is_permanent_client_error(error: Exception) -> bool:
+    """An HTTP 4xx answer other than RETRYABLE_CLIENT_ERROR_STATUSES: asking again gets the same answer."""
+    if not isinstance(error, requests.exceptions.HTTPError) or error.response is None:
+        return False
+    status = error.response.status_code
+    return 400 <= status < 500 and status not in RETRYABLE_CLIENT_ERROR_STATUSES
+
+
 class CodeplainAPI:
 
     def __init__(self, api_key, console):
@@ -218,6 +230,10 @@ class CodeplainAPI:
                 if response_json is not None and "error_code" in response_json:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:
                         raise e
+                if _is_permanent_client_error(e):
+                    # Asking again gets the same answer (e.g. an expired agent session is 404): the caller gets the
+                    # HTTPError itself, right away, to handle it.
+                    raise e
 
                 retry_delay = self._handle_retry_logic(attempt, retry_delay, num_retries, e, silent)
 
