@@ -63,6 +63,8 @@ class AgentWorkspace:
     # run_conformance_tests only: the tests folder it runs, and the build folder signature it last prepared.
     conformance_tests_folder: str = ""
     prepared_signature: Optional[tuple] = None
+    # run_conformance_tests only: the files it last ran the tests on, and the result.
+    last_test_run: Optional[tuple[tuple, dict]] = None
 
     def __post_init__(self):
         self.build_folder = _absolute(self.build_folder)
@@ -441,17 +443,42 @@ def run_unit_tests(_args: dict, scope: Target) -> dict:
     }
 
 
+def test_run_files(render_context, tests_folder: str) -> tuple:
+    """What a conformance tests run depends on: the build folder and the conformance tests folder, file by file."""
+    from render_machine.actions import prepare_testing_environment
+
+    return (
+        prepare_testing_environment._build_folder_signature(render_context.build_folder),
+        prepare_testing_environment._build_folder_signature(tests_folder),
+    )
+
+
 def run_conformance_tests(_args: dict, scope: Target) -> dict:
     """Runs the failing conformance tests (the folder the fixer fixes) on the build folder as it is now, the way the
     harness does: the prepare environment script first, when there is one and the build folder changed since the
     last preparation, then the conformance tests script. Unit tests are not run. Returns a result dict like
     run_unit_tests."""
-    # Imported here: prepare_testing_environment imports render_context, which this module must not import early.
-    from render_machine.actions import prepare_testing_environment
-
     workspace = _workspace(scope)
     render_context = workspace.render_context
     tests_folder = workspace.conformance_tests_folder
+    files = test_run_files(render_context, tests_folder)
+    if workspace.last_test_run is not None and workspace.last_test_run[0] == files:
+        result = dict(workspace.last_test_run[1])
+        result["output"] = (
+            "Nothing changed in the build folder or the conformance tests folder since your last run_conformance_tests,"
+            " so running the tests again would give the same result; it is repeated below. Change something first. "
+            + result["output"]
+        )
+        return result
+    result = _run_conformance_tests(render_context, tests_folder, workspace)
+    workspace.last_test_run = (files, result)
+    return result
+
+
+def _run_conformance_tests(render_context, tests_folder: str, workspace) -> dict:
+    # Imported here: prepare_testing_environment imports render_context, which this module must not import early.
+    from render_machine.actions import prepare_testing_environment
+
     if render_context.prepare_environment_script:
         signature = prepare_testing_environment._build_folder_signature(render_context.build_folder)
         if signature != workspace.prepared_signature:

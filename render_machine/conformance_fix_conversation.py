@@ -140,6 +140,15 @@ class ConformanceFixConversation:
             agent_tools.register_log_path(log_path, self.fixer_workspace)
         # The tests ran (and maybe unit tests were fixed) since the agents last looked at the files.
         agents.clear_tool_result_caches()
+        # The harness has just run the tests on the files as they are, so a run_conformance_tests before any change
+        # would only repeat that run.
+        self.fixer_workspace.last_test_run = (
+            agent_tools.test_run_files(self.render_context, self.agents.conformance_tests_folder),
+            {
+                "output": "The conformance tests failed: this is the failing run whose output you were given."
+                + agent_tools.full_log_pointer(log_path)
+            },
+        )
 
         if agents.approved_fix_tested:
             agents.failed_runs += 1

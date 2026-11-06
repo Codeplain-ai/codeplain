@@ -598,3 +598,18 @@ def test_a_conflict_of_a_functionality_without_acceptance_tests_is_with_the_one_
 
     [report] = api.conflict_reports
     assert report[1] == "1" and report[4] == "mod" and report[6] == "CONFLICTING_REQUIREMENTS"
+
+
+def test_a_test_run_before_any_change_repeats_the_failing_run_instead_of_running_it(project):
+    api = ScriptedAgentAPI(
+        fixer_turns=[[{"name": "run_conformance_tests", "args": {}}], [write("app.py", "v1\n")], [submit_fix()]],
+        reviewer_turns=[[review("approve")]],
+    )
+    render_context = make_render_context(project, api)
+
+    run_fix(render_context)
+
+    [(_, _, _, results)] = [c for c in api.of("continue", conversation.FIXER_TASK)][:1]
+    assert results[0]["output"].startswith("Nothing changed") and "failing run whose output you were given" in (
+        results[0]["output"]
+    )
