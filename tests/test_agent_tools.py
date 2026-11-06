@@ -276,8 +276,11 @@ def test_the_conformance_fixer_runs_the_tests_and_prepares_only_after_a_change(p
 
     failed = agent_tools.run_conformance_tests({}, workspace)
     assert failed["output"].startswith("The conformance tests failed") and "FAIL: test_add" in failed["test_output"]
+    repeated = agent_tools.run_conformance_tests({}, workspace)
+    assert repeated["output"].startswith("Nothing changed") and "FAIL: test_add" in repeated["test_output"]
+    (tests_folder / "debug.txt").write_text("diagnostics\n")
     agent_tools.run_conformance_tests({}, workspace)
-    assert prepared.read_text().count("x") == 1  # nothing changed, so no second preparation
+    assert prepared.read_text().count("x") == 1  # only the tests changed, so no second preparation
 
     agent_tools.edit_file(
         {
