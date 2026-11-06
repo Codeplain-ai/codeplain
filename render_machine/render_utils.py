@@ -19,6 +19,15 @@ from plain2code_utils import with_position
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
+# Told to the fixers with a timed-out run: the run was stopped before it reported, so its output often shows no test
+# result, and guessing at the implementation from it repeats the same timeout.
+TIMEOUT_HINT = (
+    " It was stopped, so the output may show no test result at all. A run that does not finish usually has a test"
+    " that blocks: it waits for input that never comes (a prompt, a terminal, stdin), for a subprocess or server"
+    " that does not exit, or on a lock or a network call. Find the test that blocks and why before changing anything"
+    " else: a timeout on each blocking call in the tests turns the hang into a reported failure whose message shows"
+    " what to fix."
+)
 POLL_INTERVAL_SECONDS = 0.2
 SIGTERM_GRACE_PERIOD_SECONDS = 0.2
 STDOUT_READ_TIMEOUT_SECONDS = 2
@@ -232,6 +241,6 @@ def execute_script(  # noqa: C901
                 partial_output = f"\nPartial test script output:\n{sanitized}"
         return (
             TIMEOUT_ERROR_EXIT_CODE,
-            f"{script_type} script did not finish in {script_timeout} seconds.{partial_output}",
+            f"{script_type} script did not finish in {script_timeout} seconds.{TIMEOUT_HINT}{partial_output}",
             temp_file_path,
         )
