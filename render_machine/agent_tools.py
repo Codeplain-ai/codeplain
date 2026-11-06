@@ -58,8 +58,11 @@ class AgentWorkspace:
     after_change: Callable[[str], None] = _noop
     # The tools the agent may call; None allows every tool in TOOLS.
     allowed_tools: Optional[frozenset[str]] = None
-    # Needed by run_unit_tests only.
+    # Needed by run_unit_tests and run_conformance_tests only.
     render_context: Any = None
+    # run_conformance_tests only: the tests folder it runs, and the build folder signature it last prepared.
+    conformance_tests_folder: str = ""
+    prepared_signature: Optional[tuple] = None
 
     def __post_init__(self):
         self.build_folder = _absolute(self.build_folder)
@@ -438,6 +441,46 @@ def run_unit_tests(_args: dict, scope: Target) -> dict:
     }
 
 
+def run_conformance_tests(_args: dict, scope: Target) -> dict:
+    """Runs the failing conformance tests (the folder the fixer fixes) on the build folder as it is now, the way the
+    harness does: the prepare environment script first, when there is one and the build folder changed since the
+    last preparation, then the conformance tests script. Unit tests are not run. Returns a result dict like
+    run_unit_tests."""
+    # Imported here: prepare_testing_environment imports render_context, which this module must not import early.
+    from render_machine.actions import prepare_testing_environment
+
+    workspace = _workspace(scope)
+    render_context = workspace.render_context
+    tests_folder = workspace.conformance_tests_folder
+    if render_context.prepare_environment_script:
+        signature = prepare_testing_environment._build_folder_signature(render_context.build_folder)
+        if signature != workspace.prepared_signature:
+            exit_code, output, log_file_path = prepare_testing_environment._run_script(render_context)
+            if exit_code != 0:
+                return _failed_run("Preparing the test environment failed", exit_code, output, log_file_path, workspace)
+            workspace.prepared_signature = signature
+    exit_code, output, log_file_path = render_utils.execute_script(
+        os.path.normpath(render_context.conformance_tests_script),
+        [render_context.build_folder, tests_folder],
+        "Conformance Tests",
+        timeout=render_context.test_script_timeout,
+        stop_event=render_context.stop_event,
+    )
+    if exit_code == 0:
+        return {"output": "The conformance tests passed."}
+    return _failed_run("The conformance tests failed", exit_code, output, log_file_path, workspace)
+
+
+def _failed_run(header: str, exit_code: int, output: str, log_file_path: Optional[str], workspace) -> dict:
+    if not log_file_path and output:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".script_output") as f:
+            f.write(output)
+            log_file_path = f.name
+    if log_file_path:
+        register_log_path(log_file_path, workspace)
+    return {"output": f"{header} (exit code {exit_code}).{full_log_pointer(log_file_path)}", "test_output": output}
+
+
 TOOLS: dict[str, Callable[[dict, Target], str | dict]] = {
     "read_file": read_file,
     "grep": grep,
@@ -446,6 +489,7 @@ TOOLS: dict[str, Callable[[dict, Target], str | dict]] = {
     "write_file": write_file,
     "delete_file": delete_file,
     "run_unit_tests": run_unit_tests,
+    "run_conformance_tests": run_conformance_tests,
 }
 
 

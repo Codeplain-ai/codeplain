@@ -26,7 +26,9 @@ REVIEWER_TASK = "review_conformance_tests_fix"
 SUBMIT_FIX = "submit_fix"
 SUBMIT_REVIEW = "submit_review"
 CONFLICTING_REQUIREMENTS = "CONFLICTING_REQUIREMENTS"
-FIXER_TOOLS = frozenset({"read_file", "grep", "ls_files", "edit_file", "write_file", "delete_file"})
+FIXER_TOOLS = frozenset(
+    {"read_file", "grep", "ls_files", "edit_file", "write_file", "delete_file", "run_conformance_tests"}
+)
 REVIEWER_TOOLS = frozenset({"read_file", "grep", "ls_files"})
 # Upper bounds on LLM turns per fix and per review; the server forces the submission earlier (40 and 15).
 MAX_FIXER_TURNS_PER_FIX = 50
@@ -97,6 +99,9 @@ class ConformanceFixConversation:
             before_change=self._before_change,
             after_change=lambda _path: agents.reviewer_tool_result_cache.clear(),
             allowed_tools=FIXER_TOOLS,
+            render_context=render_context,
+            conformance_tests_folder=agents.conformance_tests_folder,
+            prepared_signature=self._prepared_signature(render_context),
         )
         self.reviewer_workspace = agent_tools.AgentWorkspace(
             build_folder=self.build_folder,
@@ -110,6 +115,17 @@ class ConformanceFixConversation:
             tool_result_cache=agents.reviewer_tool_result_cache,
             allowed_tools=REVIEWER_TOOLS,
         )
+
+    @staticmethod
+    def _prepared_signature(render_context) -> Optional[tuple]:
+        """The build folder as the test environment was last prepared for, when that is the build folder as it is
+        now (no implementation change since the failing run): run_conformance_tests then needs no preparation."""
+        ctx = render_context.conformance_tests_running_context
+        if not getattr(render_context, "prepare_environment_script", None) or ctx.should_prepare_testing_environment:
+            return None
+        from render_machine.actions import prepare_testing_environment
+
+        return prepare_testing_environment._build_folder_signature(render_context.build_folder)
 
     # ---------------------------------------------------------------------------------------------------------
     # The conversation
