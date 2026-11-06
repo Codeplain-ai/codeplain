@@ -292,3 +292,20 @@ def test_the_conformance_fixer_runs_the_tests_and_prepares_only_after_a_change(p
     )
     assert agent_tools.run_conformance_tests({}, workspace) == {"output": "The conformance tests passed."}
     assert prepared.read_text().count("x") == 2
+
+
+def test_writing_under_a_spelling_that_differs_only_in_case_renames_the_existing_folder(project):
+    old_folder = project.build / "com" / "incodeSmile"
+    old_folder.mkdir(parents=True)
+    (old_folder / "Other.java").write_text("class Other {}\n")
+    case_insensitive = os.path.exists(str(project.build / "com" / "INCODESMILE"))
+
+    out = agent_tools.write_file({"file_path": "com/incodesmile/Dto.java", "content": "class Dto {}\n"}, project.rc)
+
+    entries = os.listdir(project.build / "com")
+    if case_insensitive:
+        assert entries == ["incodesmile"] and "was renamed to" in out
+        assert sorted(os.listdir(project.build / "com" / "incodesmile")) == ["Dto.java", "Other.java"]
+    else:
+        # On a case-sensitive file system the two spellings are two folders, and nothing is renamed.
+        assert sorted(entries) == ["incodeSmile", "incodesmile"] and "renamed" not in out

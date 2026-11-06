@@ -390,12 +390,54 @@ def write_file(args: dict, scope: Target) -> str:
     full_path = _resolve(args.get("file_path", ""), workspace)
     if not _writable(full_path, workspace):
         return _write_denied(full_path, workspace)
+    renamed = _match_letter_case(full_path, workspace)
     workspace.before_change(full_path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, "w", encoding="utf-8") as f:
         f.write(args.get("content", ""))
     _changed(full_path, workspace)
-    return f"Wrote '{full_path}'."
+    note = "".join(
+        f" '{old}' was renamed to '{new}': the file system ignores letter case, so writing under the new spelling"
+        " would otherwise have kept the old one."
+        for old, new in renamed
+    )
+    return f"Wrote '{full_path}'.{note}"
+
+
+def _match_letter_case(full_path: str, workspace: AgentWorkspace) -> list[tuple[str, str]]:
+    """On a file system that ignores letter case, a file or folder named differently only in case is the same entry,
+    and writing under the new spelling keeps the old one: a package folder or a class file could then never get its
+    case right. Renames every existing part of `full_path` below its writable folder whose spelling on disk differs
+    from `full_path` only in case, and returns the (old, new) paths."""
+    roots = [folder for folder in workspace.writable_folders if _within(full_path, folder)]
+    if not roots:
+        return []
+    root = max(roots, key=len)
+    renamed = []
+    current = root
+    for part in os.path.relpath(full_path, root).split(os.sep):
+        on_disk = next(
+            (e for e in (os.listdir(current) if os.path.isdir(current) else []) if e.lower() == part.lower()), None
+        )
+        target = os.path.join(current, part)
+        if on_disk is not None and on_disk != part:
+            source = os.path.join(current, on_disk)
+            moved = (
+                [os.path.join(d, f) for d, _, files in os.walk(source) for f in files]
+                if os.path.isdir(source)
+                else [source]
+            )
+            for path in moved:
+                workspace.before_change(path)
+            # Two steps: a direct rename to a name that differs only in case is a no-op on some file systems.
+            temporary = os.path.join(current, f".{part}.case-rename")
+            os.rename(source, temporary)
+            os.rename(temporary, target)
+            for path in moved:
+                _changed(target + path[len(source) :], workspace)
+            renamed.append((source, target))
+        current = target
+    return renamed
 
 
 def delete_file(args: dict, scope: Target) -> str:
