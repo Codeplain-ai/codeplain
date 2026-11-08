@@ -138,6 +138,8 @@ def test_file_change_invalidates_verified_pass_and_read_cache(project):
     repeat = agent_tools.execute_calls([{"id": "2", "name": "read_file", "args": {"file_path": "app.py"}}], project.rc)
     assert first[0]["output"].startswith("1: def add")
     assert repeat[0]["output"].startswith("Same call as an earlier one")
+    # the earlier result is repeated in full: compaction may have removed it from the conversation
+    assert repeat[0]["output"] == agent_tools.REPEATED_CALL_NOTE + first[0]["output"]
 
     agent_tools.write_file({"file_path": "other.py", "content": "y = 1\n"}, project.rc)
     assert context.verified_passing is False
