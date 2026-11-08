@@ -32,8 +32,11 @@ MAX_REMOVED_LINES_SHOWN = 8
 CLOSEST_LINE_MIN_RATIO = 0.6
 CLOSEST_LINES_SHOWN = 3
 MAX_GREP_CONTEXT_LINES = 20
-# Tools without side effects; repeating one while no file changed returns a pointer instead.
+# Tools without side effects. Repeating one while no file changed returns the earlier result again with a note:
+# the server's compaction may have removed that result from the conversation, so a bare pointer to it would send
+# the agent into a loop of identical calls.
 READ_ONLY_TOOLS = ("read_file", "grep", "ls_files")
+REPEATED_CALL_NOTE = "Same call as an earlier one and no file has changed since, so the result is the same:\n"
 GREP_EXCLUDED_DIRS = (".git", "__pycache__", "node_modules", ".venv", "target", "dist", "build")
 
 
@@ -566,7 +569,7 @@ def execute_calls(calls: list[dict], scope: Target) -> list[dict]:
     """Execute the agent's tool calls in order; every call gets a result, errors included.
 
     A repeated read-only call (same tool and arguments, no file changed in between) is not
-    re-executed: its result is already in the conversation, so a short pointer is returned."""
+    re-executed: the earlier result is returned again with a note saying so."""
     workspace = _workspace(scope)
     cache = workspace.tool_result_cache
     results = []
@@ -578,10 +581,7 @@ def execute_calls(calls: list[dict], scope: Target) -> list[dict]:
         if tool is None:
             result = {"output": f"Error: unknown tool '{call['name']}'."}
         elif call["name"] in READ_ONLY_TOOLS and cache_key in cache:
-            result = {
-                "output": "Same call as an earlier one and no file has changed since; "
-                "its result is unchanged (see the earlier result above)."
-            }
+            result = {"output": REPEATED_CALL_NOTE + cache[cache_key]}
         else:
             try:
                 output = tool(call.get("args") or {}, workspace)
