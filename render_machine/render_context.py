@@ -425,10 +425,7 @@ class RenderContext:
         ):
             return False
 
-        terminal_frid = (
-            list(plain_spec.get_frids(self.plain_source_tree))[-1] if self.is_regenerate else ctx.frid_being_implemented
-        )
-        return ctx.current_testing_frid is None or ctx.current_testing_frid == terminal_frid
+        return ctx.current_testing_frid is None or ctx.current_testing_frid == ctx.frid_being_implemented
 
     def _setup_test_specifications(self):
         """Load specifications for the current test."""
@@ -553,30 +550,26 @@ class RenderContext:
         # Get reference to the updated context
         ctx = self.conformance_tests_running_context
 
-        # Set up specs and run test
-        self._setup_test_specifications()
-
-        if not ctx.current_conformance_tests_exist():
-            self._end_regression_run()
-            return
-
         if (
             self.is_regenerate
             and ctx.current_testing_module_name == self.module_name
             and ctx.current_testing_frid == ctx.frid_being_implemented
-            and not self._has_reached_implementation_frid()
         ):
             # The regenerated functionality was already tested in the initial phase, so move past it.
+            # The functionalities after it keep their code, so the run continues to the end of the spec
+            # file. Past the last functionality the frid is None, and the run ends below.
             self.conformance_tests_running_context = self._get_next_test_to_run()
             ctx = self.conformance_tests_running_context
-            self._setup_test_specifications()
 
-            if not ctx.current_conformance_tests_exist():
-                self._end_regression_run()
-                return
+        if ctx.current_testing_frid is None or not ctx.current_conformance_tests_exist():
+            self._end_regression_run()
+            return
+
+        # Set up specs and run test
+        self._setup_test_specifications()
 
         # Check if this is the implementation FRID (last test to run)
-        if self._has_reached_implementation_frid():
+        if not self.is_regenerate and self._has_reached_implementation_frid():
             # Reached implementation FRID - only re-run it if code changed during regression
             if ctx.code_changed_during_regression:
                 # Code changed - run the implementation FRID again to verify no regression
@@ -591,7 +584,8 @@ class RenderContext:
         self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
     def _end_regression_run(self):
-        """End the regression run when the next functionality has no conformance tests.
+        """End the regression run when the next functionality has no conformance tests, or when a
+        regeneration has walked past the last functionality.
 
         The functionalities of this module are walked through the spec file, so the walk can reach a
         functionality that has none. A project that was rendered only in part has such
