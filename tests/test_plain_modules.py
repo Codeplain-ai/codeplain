@@ -60,6 +60,11 @@ def _stored(*frids: str) -> list[dict[str, str]]:
     return [{"id": frid, "markdown": f"{frid} markdown."} for frid in frids]
 
 
+def _stale(*frids: str) -> list[dict[str, str]]:
+    """Metadata entries holding an older markdown than the one the spec file now carries."""
+    return [{"id": frid, "markdown": f"old {frid}."} for frid in frids]
+
+
 def _write_metadata(module: PlainModule, metadata: dict) -> None:
     folder = module.get_codeplain_folder()
     os.makedirs(folder, exist_ok=True)
@@ -367,12 +372,13 @@ def test_update_frid_leaves_other_functionalities_untouched(solo_module):
     """Regenerating one functionality must not restate the spec of the others. Their code was not
     regenerated, so their metadata entries have to keep the spec the code implements."""
     current = solo_module._get_module_functional_requirements()
-    _write_metadata(solo_module, {"functionalities": ["old one", "old two", "old three"]})
+    stale = _stale("solo-one", "solo-two", "solo-three")
+    _write_metadata(solo_module, {"functionalities": stale})
 
-    solo_module.update_frid_in_module_metadata("2")
+    solo_module.update_frid_in_module_metadata("solo-two")
 
     metadata = solo_module.load_module_metadata()
-    assert metadata["functionalities"] == ["old one", current[1], "old three"]
+    assert metadata["functionalities"] == [stale[0], current[1], stale[2]]
 
 
 def test_update_frid_keeps_source_hash_while_another_frid_differs(solo_module):
@@ -383,11 +389,11 @@ def test_update_frid_keeps_source_hash_while_another_frid_differs(solo_module):
         {
             "source_hash": "stale",
             "non_functional_source_hash": solo_module.get_module_non_functional_source_hash(),
-            "functionalities": ["old one", "old two", "old three"],
+            "functionalities": _stale("solo-one", "solo-two", "solo-three"),
         },
     )
 
-    solo_module.update_frid_in_module_metadata("2")
+    solo_module.update_frid_in_module_metadata("solo-two")
 
     assert solo_module.load_module_metadata()["source_hash"] == "stale"
 
@@ -401,11 +407,11 @@ def test_update_frid_refreshes_source_hash_when_module_matches_spec(solo_module)
         {
             "source_hash": "stale",
             "non_functional_source_hash": solo_module.get_module_non_functional_source_hash(),
-            "functionalities": [current[0], "old two", current[2]],
+            "functionalities": [current[0], _stale("solo-two")[0], current[2]],
         },
     )
 
-    solo_module.update_frid_in_module_metadata("2")
+    solo_module.update_frid_in_module_metadata("solo-two")
 
     metadata = solo_module.load_module_metadata()
     assert metadata["functionalities"] == current
@@ -421,11 +427,11 @@ def test_update_frid_keeps_source_hash_when_non_functional_content_changed(solo_
         {
             "source_hash": "stale",
             "non_functional_source_hash": "different",
-            "functionalities": [current[0], "old two", current[2]],
+            "functionalities": [current[0], _stale("solo-two")[0], current[2]],
         },
     )
 
-    solo_module.update_frid_in_module_metadata("2")
+    solo_module.update_frid_in_module_metadata("solo-two")
 
     metadata = solo_module.load_module_metadata()
     assert metadata["functionalities"] == current
