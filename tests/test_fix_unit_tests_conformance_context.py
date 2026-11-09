@@ -13,6 +13,7 @@ import pytest
 
 import plain_spec
 from memory_management import MemoryManager
+from render_machine.actions.fix_conformance_test import MAX_CONFORMANCE_TEST_FIX_ATTEMPTS, FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -228,3 +229,39 @@ def test_unit_tests_fix_in_conformance_phase_without_implementation_changes_send
     run_unit_tests_fix(render_context)
 
     assert "conformance_tests_fixes" not in api.agent_calls[0][1]
+
+
+def run_conformance_fix(render_context):
+    return FixConformanceTest().execute(render_context, {"previous_conformance_tests_issue": "tests failed"})
+
+
+def _context_at_the_fix_limit(testing_module_name):
+    ctx = make_conformance_context()
+    ctx.current_testing_module_name = testing_module_name
+    ctx.fix_attempts = MAX_CONFORMANCE_TEST_FIX_ATTEMPTS - 1
+    return ctx
+
+
+def test_at_the_fix_limit_a_test_of_this_module_is_written_again(build_folder, memory_folder):
+    render_context = make_render_context(
+        FakeCodeplainAPI(), build_folder, memory_folder, _context_at_the_fix_limit("mod")
+    )
+
+    outcome, _ = run_conformance_fix(render_context)
+
+    assert outcome == FixConformanceTest.REGENERATE_CONFORMANCE_TESTS_OUTCOME
+
+
+def test_at_the_fix_limit_a_test_of_an_earlier_module_ends_the_render_with_the_reason(build_folder, memory_folder):
+    """shrinq render 435dd19e: a regression test of an earlier module failed once the current functionality had used
+    its fix attempts. Writing that module's tests again from here crashed the render (its specification is a plain
+    string in conformance_tests.json), and the render was then reported as completed."""
+    render_context = make_render_context(
+        FakeCodeplainAPI(), build_folder, memory_folder, _context_at_the_fix_limit("earlier_module")
+    )
+
+    outcome, payload = run_conformance_fix(render_context)
+
+    assert outcome == FixConformanceTest.LIMIT_EXCEEDED_OUTCOME
+    assert "earlier_module:1" in render_context.last_error_message
+    assert render_context.conformance_tests_running_context.regenerating_conformance_tests is False

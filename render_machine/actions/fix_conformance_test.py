@@ -54,6 +54,23 @@ class FixConformanceTest(BaseAction):
                     self.LIMIT_EXCEEDED_OUTCOME,
                     RenderError.encode(message=error_msg).to_payload(),
                 )
+            if ctx.current_testing_module_name != render_context.module_name:
+                # The failing test belongs to an earlier module. Its tests can't be written again from here: this
+                # module's context holds neither that functionality's specification nor its tests folder (doing it
+                # anyway crashed the render). Stop with the reason instead.
+                error_msg = (
+                    f"The conformance tests of functionality "
+                    f"'{qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}' of an earlier "
+                    f"module fail after the changes made for functionality "
+                    f"'{qualified_frid(render_context.module_name, render_context.frid_context.frid)}', and the "
+                    f"attempts to fix them are used up. Please review both specifications. "
+                    f"(Render ID: {render_context.run_state.render_id})"
+                )
+                render_context.last_error_message = error_msg
+                return (
+                    self.LIMIT_EXCEEDED_OUTCOME,
+                    RenderError.encode(message=error_msg).to_payload(),
+                )
             else:
                 ctx.regenerating_conformance_tests = True
                 return self.REGENERATE_CONFORMANCE_TESTS_OUTCOME, None
