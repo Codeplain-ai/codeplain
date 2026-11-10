@@ -2,7 +2,6 @@ from typing import Any
 
 import file_utils
 from plain2code_console import console
-from plain2code_utils import qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -23,7 +22,7 @@ class RefactorCode(BaseAction):
         render_context.frid_context.refactoring_iteration += 1
 
         if render_context.frid_context.refactoring_iteration >= MAX_REFACTORING_ITERATIONS:
-            functionality = qualified_frid(render_context.module_name, render_context.frid_context.frid)
+            functionality = render_context.functionality_label()
             error_message = (
                 f"Refactoring iterations limit of {MAX_REFACTORING_ITERATIONS} reached "
                 f"for functionality {functionality}."

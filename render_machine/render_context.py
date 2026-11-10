@@ -10,7 +10,7 @@ from event_bus import EventBus
 from plain2code_console import RETRY_COLOR, console
 from plain2code_events import RenderContextSnapshot
 from plain2code_state import RunState
-from plain2code_utils import functionality_position, qualified_frid
+from plain2code_utils import functionality_position, qualified_frid, with_position
 from plain_modules import PlainModule
 from render_machine import triggers
 from render_machine.conformance_tests import CONFORMANCE_TESTS_DEFINITION_FILE_NAME, ConformanceTests
@@ -127,6 +127,37 @@ class RenderContext:
         return functionality_position(
             list(plain_spec.get_frids(self.plain_source_tree)),
             self.frid_context.frid if self.frid_context else None,
+        )
+
+    def testing_functionality_position(self) -> Optional[str]:
+        """Where the functionality under conformance test stands among those of its module, as "3/12"."""
+        ctx = self.conformance_tests_running_context
+        if ctx.current_testing_module_name == self.module_name:
+            plain_source_tree = self.plain_source_tree
+        else:
+            plain_source_tree = next(
+                module.plain_source
+                for module in self.required_modules
+                if module.module_name == ctx.current_testing_module_name
+            )
+        return functionality_position(list(plain_spec.get_frids(plain_source_tree)), ctx.current_testing_frid)
+
+    def functionality_label(self, frid: Optional[str] = None) -> Optional[str]:
+        """A functionality of this module named for the logs, as "module:func-id (3/12)".
+
+        Without a frid, it is the functionality being implemented.
+        """
+        if frid is None:
+            frid = self.frid_context.frid
+        position = functionality_position(list(plain_spec.get_frids(self.plain_source_tree)), frid)
+        return with_position(qualified_frid(self.module_name, frid), position)
+
+    def testing_functionality_label(self) -> Optional[str]:
+        """The functionality under conformance test named for the logs, as "module:func-id (3/12)"."""
+        ctx = self.conformance_tests_running_context
+        return with_position(
+            qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid),
+            self.testing_functionality_position(),
         )
 
     def create_snapshot(self) -> RenderContextSnapshot:
@@ -306,11 +337,11 @@ class RenderContext:
             self.functional_requirements_render_attempts_failed_unit_during_conformance_tests
             >= MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS
         ):
-            functionality = qualified_frid(self.module_name, self.frid_context.frid)
+            functionality = self.functionality_label()
             error_msg = f"Failed to adjust the unit tests after implementation code was update while fixing the conformance tests for functionality {functionality} for the {MAX_FUNCTIONAL_REQUIREMENT_RENDER_ATTEMPTS_FAILED_UNIT_DURING_CONFORMANCE_TESTS} times."
             self.dispatch_error(error_msg)
         else:
-            functionality = qualified_frid(self.module_name, self.frid_context.frid)
+            functionality = self.functionality_label()
             console.info(
                 f"↻ Failed to adjust the unit tests after implementation code was updated while fixing the "
                 f"conformance tests for functionality {functionality}. "
@@ -348,7 +379,7 @@ class RenderContext:
         # No scenario was written for this functionality, so no conformance test is rendered or run
         # for it. The tests of the previous functionalities still run, so a regression it causes is
         # still caught.
-        functionality = qualified_frid(self.module_name, self.frid_context.frid)
+        functionality = self.functionality_label()
         if self._has_conformance_tests_to_run_in_regression():
             console.info(
                 f"No conformance scenario is written for {functionality}. "
@@ -440,10 +471,7 @@ class RenderContext:
         """Handle regeneration of conformance tests after too many failures."""
         ctx = self.conformance_tests_running_context
 
-        console.info(
-            f"Recreating conformance tests for functionality "
-            f"{qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}."
-        )
+        console.info(f"Recreating conformance tests for functionality " f"{self.testing_functionality_label()}.")
 
         existing_folder = ctx.get_conformance_tests_json(ctx.current_testing_module_name).pop(ctx.current_testing_frid)
         file_utils.delete_folder(existing_folder["folder_name"])

@@ -51,6 +51,9 @@ class FakeCodeplainAPI:
 class FakeRenderContext(SimpleNamespace):
     unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
+    def testing_functionality_label(self):
+        return self.conformance_tests_running_context.current_testing_frid
+
 
 class FakeConformanceTests:
     def fetch_existing_conformance_test_files(self, *args):

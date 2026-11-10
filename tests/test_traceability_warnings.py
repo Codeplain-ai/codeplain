@@ -11,7 +11,7 @@ from render_machine.actions.render_conformance_tests import RenderConformanceTes
 
 def _render_context(frid: str = "add-task"):
     return SimpleNamespace(
-        conformance_tests_running_context=SimpleNamespace(current_testing_frid=frid),
+        testing_functionality_label=lambda: frid,
     )
 
 

@@ -15,6 +15,7 @@ import file_utils
 import plain_spec
 from plain2code_console import MUTED_COLOR, RETRY_COLOR, SUCCESS_COLOR, console
 from plain2code_exceptions import RenderCancelledError
+from plain2code_utils import with_position
 
 SCRIPT_EXECUTION_TIMEOUT = 120
 TIMEOUT_ERROR_EXIT_CODE = 124
@@ -92,6 +93,7 @@ def execute_script(  # noqa: C901
     script_type: str,
     frid: Optional[str] = None,
     module: Optional[str] = None,
+    frid_position: Optional[str] = None,
     timeout: Optional[int] = None,
     stop_event: Optional[threading.Event] = None,
 ) -> tuple[int, str, Optional[str]]:
@@ -179,10 +181,11 @@ def execute_script(  # noqa: C901
 
         console.debug(f"{script_type} script output stored in: {temp_file_path.strip()}", color=MUTED_COLOR)
 
+        frid_label = with_position(frid, frid_position)
         if proc.returncode != 0:
             if frid is not None:
                 console.info(
-                    f"↻ The {script_type} script for functionality ID {frid} of module {module} has failed. "
+                    f"↻ The {script_type} script for functionality ID {frid_label} of module {module} has failed. "
                     f"Initiating the patching mode to automatically correct the discrepancies.",
                     color=RETRY_COLOR,
                 )
@@ -195,7 +198,7 @@ def execute_script(  # noqa: C901
         else:
             if frid is not None:
                 console.info(
-                    f"✓ The {script_type} script for functionality ID {frid} of module {module} "
+                    f"✓ The {script_type} script for functionality ID {frid_label} of module {module} "
                     f"has passed successfully.",
                     color=SUCCESS_COLOR,
                 )

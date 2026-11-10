@@ -47,6 +47,7 @@ def make_render_context(api, memory_folder, build_folder):
         frid_context=SimpleNamespace(frid="1", linked_resources={}),
         get_required_modules_functionalities=lambda: {},
         run_state=SimpleNamespace(render_id="test-render-id"),
+        functionality_label=lambda: "mod:1",
     )
 
 

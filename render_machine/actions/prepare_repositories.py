@@ -22,7 +22,9 @@ class PrepareRepositories(BaseAction):
 
             previous_frid = plain_spec.get_previous_frid(render_context.plain_source_tree, frid)
 
-            console.debug(f"Reverting code to version implemented for {previous_frid}.")
+            console.debug(
+                f"Reverting code to version implemented for {render_context.functionality_label(previous_frid)}."
+            )
 
             render_context.plain_module.revert_code_to_frid(previous_frid)
             # conformance tests are still not fully implemented

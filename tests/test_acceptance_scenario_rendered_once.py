@@ -56,6 +56,7 @@ def render_context(tmp_path):
             frid=FRID, linked_resources={}, specifications={plain_spec.ACCEPTANCE_TESTS: SCENARIOS}
         ),
         get_required_modules_functionalities=lambda: {},
+        testing_functionality_label=lambda: FRID,
     )
 
 
@@ -127,6 +128,7 @@ class TestRegeneratedConformanceTests:
 
         render_context = RenderContext.__new__(RenderContext)
         render_context.module_name = MODULE
+        render_context.plain_source_tree = {}
         folder = tmp_path / "tests_folder"
         folder.mkdir()
 

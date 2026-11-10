@@ -43,6 +43,11 @@ def functionality_position(frids: list[str], frid: Optional[str]) -> Optional[st
     return f"{frids.index(frid) + 1}/{len(frids)}"
 
 
+def with_position(name: Optional[str], position: Optional[str]) -> Optional[str]:
+    """A functionality name followed by its position, as "list-expenses (1/3)"."""
+    return f"{name} ({position})" if position else name
+
+
 def qualified_frid(module_name: Optional[str], frid: Optional[str]) -> Optional[str]:
     """A functionality named as `<module>:<func-id>`.
 

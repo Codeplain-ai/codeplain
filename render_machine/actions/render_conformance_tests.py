@@ -147,7 +147,7 @@ class RenderConformanceTests(BaseAction):
         that writes a test the specification did not ask for, or leaves one it did ask for unwritten,
         must say so instead of reporting success.
         """
-        frid = render_context.conformance_tests_running_context.current_testing_frid
+        frid = render_context.testing_functionality_label()
 
         missing = traceability.get("missing") or []
         if missing:
