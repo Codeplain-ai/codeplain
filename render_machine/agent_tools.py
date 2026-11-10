@@ -419,12 +419,13 @@ def _match_letter_case(full_path: str, workspace: AgentWorkspace) -> list[tuple[
     renamed = []
     current = root
     for part in os.path.relpath(full_path, root).split(os.sep):
-        on_disk = next(
-            (e for e in (os.listdir(current) if os.path.isdir(current) else []) if e.lower() == part.lower()), None
-        )
+        entries = os.listdir(current) if os.path.isdir(current) else []
+        on_disk = None if part in entries else next((e for e in entries if e.lower() == part.lower()), None)
         target = os.path.join(current, part)
-        if on_disk is not None and on_disk != part:
-            source = os.path.join(current, on_disk)
+        source = os.path.join(current, on_disk) if on_disk is not None else ""
+        # Only a file system that ignores letter case resolves the new spelling to the old entry; on one that
+        # respects case the two spellings are two separate entries and nothing is renamed.
+        if on_disk is not None and os.path.exists(target) and os.path.samefile(source, target):
             moved = (
                 [os.path.join(d, f) for d, _, files in os.walk(source) for f in files]
                 if os.path.isdir(source)
