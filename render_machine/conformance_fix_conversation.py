@@ -345,6 +345,9 @@ class ConformanceFixConversation:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(before)
             reverted.append(name)
+        if reverted:
+            # Written here, not through a tool: a repeated read must not return the content from before the revert.
+            self.agents.clear_tool_result_caches()
         return reverted
 
     def display_name(self, full_path: str) -> str:

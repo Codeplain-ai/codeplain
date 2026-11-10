@@ -269,6 +269,26 @@ def test_fix_rejected_too_often_loses_only_the_objected_changes_and_the_sessions
     assert list(reviews[-1]["code_diff"]) == ["app.py"]
 
 
+def test_a_file_read_again_after_it_was_reverted_is_read_from_disk(project):
+    rejections = conversation.MAX_REJECTIONS
+    read_extra = {"name": "read_file", "args": {"file_path": "test_app_extra.py"}}
+    fixer_turns = [[write("test_app_extra.py", "x = 1\n"), write("app.py", "v1\n")], [read_extra]]
+    fixer_turns += [[submit_fix()] for _ in range(rejections)] + [[read_extra], [submit_fix()]]
+    reviewer_turns = [[review("reject", "No.", ["test_app_extra.py"])] for _ in range(rejections)]
+    api = ScriptedAgentAPI(fixer_turns=fixer_turns, reviewer_turns=reviewer_turns + [[review("approve")]])
+
+    run_fix(make_render_context(project, api))
+
+    first_read, second_read = [
+        results
+        for (_, _, _, results) in api.of("continue", conversation.FIXER_TASK)
+        if len(results) == 1 and "review" not in results[0]
+    ]
+    assert "x = 1" in str(first_read)
+    # Not the cached content from before the revert: the file is gone.
+    assert "x = 1" not in str(second_read) and "not found" in str(second_read).lower()
+
+
 def test_fix_that_changes_nothing_is_sent_back_without_a_review(project):
     api = ScriptedAgentAPI(
         fixer_turns=[[submit_fix()], [write("app.py", "def add(a, b):\n    return a + b  # ok\n")], [submit_fix()]],
