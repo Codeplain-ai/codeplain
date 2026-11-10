@@ -296,6 +296,39 @@ def test_the_conformance_fixer_runs_the_tests_and_prepares_only_after_a_change(p
     assert prepared.read_text().count("x") == 2
 
 
+def test_files_the_scripts_write_themselves_are_no_change(project, tmp_path):
+    # Preparation scripts write build output into the build folder, and test runs write caches (__pycache__) into
+    # both folders; none of that is a change that needs another preparation or another run.
+    prepared = tmp_path / "prepared.txt"
+    tests_folder = tmp_path / "conformance" / "add"
+    tests_folder.mkdir(parents=True)
+    rc = SimpleNamespace(
+        build_folder=str(project.build),
+        prepare_environment_script=_script(
+            tmp_path / "prepare.sh", f'echo x >> "{prepared}"\nmkdir -p "$1/target"\necho built > "$1/target/app"\n'
+        ),
+        conformance_tests_script=_script(
+            tmp_path / "run.sh",
+            'mkdir -p "$2/__pycache__"\necho pyc > "$2/__pycache__/test_add.pyc"\necho log > "$1/.test-cache"\n'
+            "echo FAIL: test_add\nexit 1\n",
+        ),
+        test_script_timeout=None,
+        stop_event=None,
+    )
+    workspace = agent_tools.AgentWorkspace(
+        build_folder=str(project.build),
+        writable_folders=[str(project.build)],
+        render_context=rc,
+        conformance_tests_folder=str(tests_folder),
+    )
+
+    assert agent_tools.run_conformance_tests({}, workspace)["output"].startswith("The conformance tests failed")
+    assert agent_tools.run_conformance_tests({}, workspace)["output"].startswith("Nothing changed")
+    (tests_folder / "debug.txt").write_text("diagnostics\n")
+    assert agent_tools.run_conformance_tests({}, workspace)["output"].startswith("The conformance tests failed")
+    assert prepared.read_text().count("x") == 1
+
+
 def test_writing_under_a_spelling_that_differs_only_in_case_renames_the_existing_folder(project):
     old_folder = project.build / "com" / "incodeSmile"
     old_folder.mkdir(parents=True)

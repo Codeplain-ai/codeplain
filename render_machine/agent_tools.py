@@ -517,7 +517,9 @@ def run_conformance_tests(_args: dict, scope: Target) -> dict:
         )
         return result
     result = _run_conformance_tests(render_context, tests_folder, workspace)
-    workspace.last_test_run = (files, result)
+    # The scripts may write into the folders (__pycache__, build output): key the result on the files as the run
+    # left them, or the next call would always see a change.
+    workspace.last_test_run = (test_run_files(render_context, tests_folder), result)
     return result
 
 
@@ -531,7 +533,6 @@ def _run_conformance_tests(render_context, tests_folder: str, workspace) -> dict
             exit_code, output, log_file_path = prepare_testing_environment._run_script(render_context)
             if exit_code != 0:
                 return _failed_run("Preparing the test environment failed", exit_code, output, log_file_path, workspace)
-            workspace.prepared_signature = signature
     exit_code, output, log_file_path = render_utils.execute_script(
         os.path.normpath(render_context.conformance_tests_script),
         [render_context.build_folder, tests_folder],
@@ -539,6 +540,10 @@ def _run_conformance_tests(render_context, tests_folder: str, workspace) -> dict
         timeout=render_context.test_script_timeout,
         stop_event=render_context.stop_event,
     )
+    if render_context.prepare_environment_script:
+        # The environment is prepared for the build folder as the scripts left it: what they wrote there themselves
+        # (build output, caches) is no change that needs another preparation.
+        workspace.prepared_signature = prepare_testing_environment._build_folder_signature(render_context.build_folder)
     if exit_code == 0:
         return {"output": "The conformance tests passed."}
     return _failed_run("The conformance tests failed", exit_code, output, log_file_path, workspace)
