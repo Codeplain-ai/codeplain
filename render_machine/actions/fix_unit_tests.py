@@ -245,7 +245,26 @@ class FixUnitTests(BaseAction):
             )
         if current:
             sections.append(f"### Module: {render_context.module_name} (Currently Being Implemented)\n{current[-1]}")
+        later = FixUnitTests._functionalities_after_regenerated_one(render_context)
+        if later:
+            sections.append(
+                f"### Module: {render_context.module_name} (Already Implemented, for context)\n" + "\n".join(later)
+            )
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _functionalities_after_regenerated_one(render_context: RenderContext) -> list[str]:
+        """The specs of the functionalities after the regenerated one, as their code implements them.
+
+        A regeneration renders one functionality again, and the functionalities after it keep their
+        code. Without their specs, the agent can change their code to agree with a wrong unit test.
+        """
+        if not render_context.is_regenerate:
+            return []
+        stored = render_context.plain_module.load_module_metadata()["functionalities"]
+        stored_frids = [functionality["id"] for functionality in stored]
+        position = stored_frids.index(render_context.frid_context.frid)
+        return [functionality["markdown"] for functionality in stored[position + 1 :]]
 
     @staticmethod
     def _read_script(script: str | None) -> str:

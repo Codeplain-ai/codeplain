@@ -56,6 +56,7 @@ def render_context(tmp_path, monkeypatch):
         codeplain_api=None,
         build_folder=str(build),
         module_name="m",
+        is_regenerate=False,
         run_state=object(),
         plain_source_tree=plain_source_tree,
         unittests_script=None,
@@ -237,3 +238,36 @@ def test_other_http_errors_on_continue_are_not_swallowed(render_context):
     render_context.codeplain_api = FakeAPI([requests.exceptions.HTTPError(response=SimpleNamespace(status_code=500))])
     with pytest.raises(requests.exceptions.HTTPError):
         FixUnitTests().execute(render_context, {"previous_unittests_issue": "FAILED"})
+
+
+def test_a_regeneration_shows_the_functionalities_after_the_regenerated_one(render_context):
+    """The functionalities after the regenerated one keep their code. The agent must see their specs, as
+    their code implements them, or it can change that code to agree with a wrong unit test."""
+    render_context.is_regenerate = True
+    render_context.plain_module = SimpleNamespace(
+        load_module_metadata=lambda: {
+            "functionalities": [
+                {"id": "1", "markdown": "- Old feature."},
+                {"id": "2", "markdown": "- New feature, as it was before."},
+                {"id": "3", "markdown": "- Later feature."},
+                {"id": "4", "markdown": "- Last feature."},
+            ]
+        }
+    )
+    specifications = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, "2")[0]
+
+    section = FixUnitTests._functional_requirements_section(render_context, specifications)
+
+    assert section.endswith(
+        "### Module: m (Currently Being Implemented)\n- New feature.\n\n"
+        "### Module: m (Already Implemented, for context)\n- Later feature.\n- Last feature."
+    )
+    assert "as it was before" not in section
+
+
+def test_a_normal_render_shows_no_functionality_after_the_current_one(render_context):
+    specifications = plain_spec.get_specifications_for_frid(render_context.plain_source_tree, "2")[0]
+
+    section = FixUnitTests._functional_requirements_section(render_context, specifications)
+
+    assert section.endswith("### Module: m (Currently Being Implemented)\n- New feature.")
