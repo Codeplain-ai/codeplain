@@ -31,6 +31,7 @@ from metadata_utils import (
     REQUIRED_MODULES_FUNCTIONALITIES,
 )
 from plain2code_console import console
+from plain2code_utils import functionality_position, with_position
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 
 CODEPLAIN_MEMORY_SUBFOLDER = ".memory"
@@ -516,17 +517,21 @@ class PlainModule:
 
         if not os.path.exists(self.module_build_folder):
             raise MissingPreviousFunctionalitiesError(
-                f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the source code folder does not exist.\n\n"
+                f"Cannot start rendering from functionality {self._frid_label(first_render_frid)} for module '{self.module_name}' because the source code folder does not exist.\n\n"
                 f"To fix this, please render the module from the beginning by running:\n"
                 f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
             )
 
         if not os.path.exists(self.module_conformance_tests_folder) and render_conformance_tests:
             raise MissingPreviousFunctionalitiesError(
-                f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the conformance tests folder does not exist.\n\n"
+                f"Cannot start rendering from functionality {self._frid_label(first_render_frid)} for module '{self.module_name}' because the conformance tests folder does not exist.\n\n"
                 f"To fix this, please render the module from the beginning by running:\n"
                 f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
             )
+
+    def _frid_label(self, frid: str) -> str | None:
+        """A functionality of this module named for the logs, as "func-id (3/12)"."""
+        return with_position(frid, functionality_position(list(plain_spec.get_frids(self.plain_source)), frid))
 
     def _ensure_frid_commit_exists(
         self,
@@ -548,8 +553,8 @@ class PlainModule:
         # Check in build folder
         if not git_utils.has_commit_for_frid(self.module_build_folder, frid, self.module_name):
             raise MissingPreviousFunctionalitiesError(
-                f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the implementation of the previous functionality ({frid}) hasn't been completed yet.\n\n"
-                f"To fix this, please render the missing functionality ({frid}) first by running:\n"
+                f"Cannot start rendering from functionality {self._frid_label(first_render_frid)} for module '{self.module_name}' because the implementation of the previous functionality ({self._frid_label(frid)}) hasn't been completed yet.\n\n"
+                f"To fix this, please render the missing functionality ({self._frid_label(frid)}) first by running:\n"
                 f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
             )
 
@@ -557,8 +562,8 @@ class PlainModule:
         if render_conformance_tests:
             if not git_utils.has_commit_for_frid(self.module_conformance_tests_folder, frid, self.module_name):
                 raise MissingPreviousFunctionalitiesError(
-                    f"Cannot start rendering from functionality {first_render_frid} for module '{self.module_name}' because the conformance tests for the previous functionality ({frid}) haven't been completed yet.\n\n"
-                    f"To fix this, please render the missing functionality ({frid}) first by running:\n"
+                    f"Cannot start rendering from functionality {self._frid_label(first_render_frid)} for module '{self.module_name}' because the conformance tests for the previous functionality ({self._frid_label(frid)}) haven't been completed yet.\n\n"
+                    f"To fix this, please render the missing functionality ({self._frid_label(frid)}) first by running:\n"
                     f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
                 )
 

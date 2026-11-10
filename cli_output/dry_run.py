@@ -4,10 +4,12 @@ from typing import Optional
 
 import plain_spec
 from plain2code_console import console
+from plain2code_utils import functionality_position, with_position
 
 
 def print_dry_run_output(plain_source_tree: dict, render_range: Optional[list[str]]):
     """Print dry run output showing what would be rendered."""
+    frids = list(plain_spec.get_frids(plain_source_tree))
     frid = plain_spec.get_first_frid(plain_source_tree)
 
     while frid is not None:
@@ -18,7 +20,7 @@ def print_dry_run_output(plain_source_tree: dict, render_range: Optional[list[st
             functional_requirement_text = specifications[plain_spec.FUNCTIONAL_REQUIREMENTS][-1]
             console.info(
                 "-------------------------------------\n"
-                f"Rendering functionality {frid}:\n"
+                f"Rendering functionality {with_position(frid, functionality_position(frids, frid))}:\n"
                 f"{functional_requirement_text}\n"
                 "-------------------------------------\n"
             )
@@ -32,7 +34,7 @@ def print_dry_run_output(plain_source_tree: dict, render_range: Optional[list[st
         else:
             console.info(
                 "-------------------------------------\n"
-                f"Skipping rendering iteration: {frid}\n"
+                f"Skipping rendering iteration: {with_position(frid, functionality_position(frids, frid))}\n"
                 "-------------------------------------"
             )
 

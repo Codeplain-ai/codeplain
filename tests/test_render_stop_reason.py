@@ -118,7 +118,7 @@ def test_unit_tests_failing_after_the_last_attempt_name_the_cause(workspace, fix
     assert last_output_path is not None and os.path.exists(last_output_path)
 
     expected_message = (
-        f"Functionality pr_solo:solo-one: unit tests still fail after {MAX_CODE_GENERATION_RETRIES} render attempts, "
+        f"Functionality pr_solo:solo-one (1/3): unit tests still fail after {MAX_CODE_GENERATION_RETRIES} render attempts, "
         f"{MAX_UNITTEST_FIX_ATTEMPTS} fix rounds each. Last unit tests output: {last_output_path}"
     )
     assert error_log_messages(caplog) == [expected_message]

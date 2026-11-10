@@ -1,7 +1,6 @@
 from typing import Any
 
 from plain2code_console import console
-from plain2code_utils import qualified_frid
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
 
@@ -10,7 +9,7 @@ class SummarizeConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_tests_summarized"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
-        functionality = qualified_frid(render_context.module_name, render_context.frid_context.frid)
+        functionality = render_context.functionality_label()
         console.info(f"Summarizing conformance tests for functionality {functionality}.")
 
         _, existing_conformance_test_files_content = (
