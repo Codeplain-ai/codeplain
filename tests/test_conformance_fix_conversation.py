@@ -215,6 +215,48 @@ def test_conformance_tests_fix_runs_the_conformance_tests_next(project):
     assert list(reviewer_params["fix_submission"]["code_diff"]) == [test_file]
 
 
+def _sessions_ending_without_an_approved_fix(first_turn):
+    ended = {"status": "completed", "result": "handoff"}
+    return [first_turn, ended] + [ended] * (conversation.MAX_FIXER_SESSIONS_PER_FIX - 1)
+
+
+def test_unapproved_implementation_changes_are_kept_and_tested_after_the_unit_tests(project):
+    # The fixer never got a fix approved: its changes stay, and like an approved implementation change they are
+    # tested after the unit tests and a fresh preparation, never on the environment prepared for the older code.
+    api = ScriptedAgentAPI(
+        fixer_turns=_sessions_ending_without_an_approved_fix([write("app.py", "def add(a, b):\n    return 3\n")])
+    )
+    render_context = make_render_context(project, api)
+
+    outcome, _ = run_fix(render_context)
+
+    ctx = render_context.conformance_tests_running_context
+    assert len(api.of("start", conversation.FIXER_TASK)) == conversation.MAX_FIXER_SESSIONS_PER_FIX
+    assert not api.of("start", conversation.REVIEWER_TASK)
+    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_UPDATED
+    assert "return 3" in (project.build / "app.py").read_text()
+    assert ctx.should_prepare_testing_environment and ctx.test_that_triggered_code_change == ("mod", "1")
+    # Handed to the unit tests fixer, so it keeps the change instead of reverting it.
+    [recorded] = ctx.implementation_code_fixes
+    assert "without getting them approved" in recorded["approach"]
+    assert "+    return 3" in recorded["code_diff"]["app.py"]
+
+
+def test_unapproved_changes_to_the_conformance_tests_only_run_the_conformance_tests_again(project):
+    test_file = str(project.tests_folder / "test_app.py")
+    api = ScriptedAgentAPI(
+        fixer_turns=_sessions_ending_without_an_approved_fix([write(test_file, "def test_add():\n    pass\n")])
+    )
+    render_context = make_render_context(project, api)
+
+    outcome, _ = run_fix(render_context)
+
+    ctx = render_context.conformance_tests_running_context
+    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED
+    assert "pass" in open(test_file).read()
+    assert not ctx.should_prepare_testing_environment and ctx.implementation_code_fixes == []
+
+
 def test_rejected_fix_goes_back_to_the_fixer_with_the_comments_and_the_revision_is_reviewed(project):
     api = ScriptedAgentAPI(
         fixer_turns=[

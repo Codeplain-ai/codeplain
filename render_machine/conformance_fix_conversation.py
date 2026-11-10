@@ -133,7 +133,12 @@ class ConformanceFixConversation:
 
     def fix(self, issue: str, log_path: Optional[str]) -> Optional[ApprovedFix]:
         """Run the conversation until the reviewer approves a fix for `issue` (the raw conformance tests output).
-        Returns None if no fix was approved within the session budget; its changes are then left in place."""
+        Returns None if no fix was approved within the session budget.
+
+        The changes of an unapproved fix are deliberately left in place (see unapproved_changes), not reverted: a
+        fixer that keeps failing to convince the reviewer usually disagrees with it, or the specification is
+        ambiguous, and an endless fixer-reviewer loop used to crash the render. The tests decide instead. Reverting
+        would also confuse the fixer, whose next session gets a digest of the changes it made."""
         agents = self.agents
         agents.snapshot, agents.rejections = {}, 0
         if log_path:
@@ -323,6 +328,11 @@ class ConformanceFixConversation:
     def _before_change(self, full_path: str) -> None:
         if full_path not in self.agents.snapshot:
             self.agents.snapshot[full_path] = _read(full_path)
+
+    def unapproved_changes(self) -> dict[str, Optional[str]]:
+        """After fix() returned None: the files the fixer changed without getting the change approved, with their
+        content from before it (None: the file did not exist)."""
+        return self._changed_files()
 
     def _changed_files(self) -> dict[str, Optional[str]]:
         """Files the current fix changed, with their content from before it."""

@@ -12,7 +12,6 @@ from render_machine.actions.base_action import BaseAction
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.conformance_fix_conversation import (
     CONFLICTING_REQUIREMENTS,
-    ApprovedFix,
     ConformanceFixConversation,
 )
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -21,6 +20,11 @@ from render_machine.render_types import ConformanceFixAgents, RenderError, TestE
 
 MAX_CONFORMANCE_TEST_FIX_ATTEMPTS = 20
 MAX_CONFORMANCE_TEST_RERENDER_ATTEMPTS = 1
+# What is recorded for the changes of a fix the reviewer did not approve (see FixConformanceTest.execute).
+UNAPPROVED_FIX_ARGS = {
+    "root_cause": None,
+    "changes_made": "Changes the conformance tests fixer made without getting them approved by the reviewer.",
+}
 # Bound on the conformance tests files a new session is seeded with.
 MAX_CONFORMANCE_TESTS_FILES_CHARS = 60_000
 
@@ -82,35 +86,52 @@ class FixConformanceTest(BaseAction):
         )
         log_path = render_context.script_execution_history.latest_conformance_test_output_path
         fix = conversation.fix(issue, log_path)
-        if fix is None:
-            journal.record_fix(
-                ctx.current_testing_module_name, ctx.current_testing_frid, None, [], "IMPLEMENTATION_CODE", None, None
-            )
-            return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
+        if fix is not None:
+            return self._apply_outcome(render_context, conversation, fix.args, fix.changed_files)
 
-        return self._apply_outcome(render_context, conversation, fix)
+        # No fix was approved. Its changes stay (see ConformanceFixConversation.fix) and the tests decide; changed
+        # implementation code is then tested like an approved change, after the unit tests and a fresh preparation,
+        # so it cannot be committed with broken unit tests or tested on an environment prepared for older code.
+        changed_files = conversation.unapproved_changes()
+        if any(path.startswith(conversation.build_folder + os.sep) for path in changed_files):
+            console.warning(
+                "No fix was approved; the implementation code the fixer changed is kept and tested: the unit tests "
+                "first, then the conformance tests."
+            )
+            return self._apply_outcome(render_context, conversation, UNAPPROVED_FIX_ARGS, changed_files)
+        journal.record_fix(
+            ctx.current_testing_module_name, ctx.current_testing_frid, None, [], "IMPLEMENTATION_CODE", None, None
+        )
+        return self.IMPLEMENTATION_CODE_NOT_UPDATED, None
 
     # ---------------------------------------------------------------------------------------------------------
 
-    def _apply_outcome(self, render_context: RenderContext, conversation: ConformanceFixConversation, fix: ApprovedFix):
-        """Record the approved fix and pick the next step: the unit tests when the implementation code changed,
-        otherwise the conformance tests right away. A conflict confirmed a second time ends the render."""
+    def _apply_outcome(
+        self,
+        render_context: RenderContext,
+        conversation: ConformanceFixConversation,
+        args: dict,
+        changed_files: dict[str, Optional[str]],
+    ):
+        """Record the fix (the fixer's submit_fix `args` and the files it changed) and pick the next step: the unit
+        tests when the implementation code changed, otherwise the conformance tests right away. A conflict confirmed
+        a second time ends the render."""
         ctx = render_context.conformance_tests_running_context
         build_folder = conversation.build_folder
-        implementation_files = {path for path in fix.changed_files if path.startswith(build_folder + os.sep)}
-        code_diff = conversation.diff(fix.changed_files)
+        implementation_files = {path for path in changed_files if path.startswith(build_folder + os.sep)}
+        code_diff = conversation.diff(changed_files)
         implementation_code_diff = {
             name: diff for name, diff in code_diff.items() if os.path.join(build_folder, name) in implementation_files
         }
-        summary = {"hypothesis": fix.args.get("root_cause"), "approach": fix.args.get("changes_made")}
+        summary = {"hypothesis": args.get("root_cause"), "approach": args.get("changes_made")}
 
-        if fix.args.get("failing_reason") == CONFLICTING_REQUIREMENTS:
-            self._handle_conflict(render_context, fix)
+        if args.get("failing_reason") == CONFLICTING_REQUIREMENTS:
+            self._handle_conflict(render_context, args)
 
         console.print_files(
             "Files changed while fixing conformance tests:",
             build_folder,
-            {conversation.display_name(path): "" for path in sorted(fix.changed_files)},
+            {conversation.display_name(path): "" for path in sorted(changed_files)},
             style=console.OUTPUT_STYLE,
         )
         target = "IMPLEMENTATION_CODE" if implementation_files else "CONFORMANCE_TESTS"
@@ -118,7 +139,7 @@ class FixConformanceTest(BaseAction):
             ctx.current_testing_module_name,
             ctx.current_testing_frid,
             summary,
-            sorted(conversation.display_name(path) for path in fix.changed_files),
+            sorted(conversation.display_name(path) for path in changed_files),
             target,
             code_diff,
             None,
@@ -141,7 +162,7 @@ class FixConformanceTest(BaseAction):
         )
         return self.IMPLEMENTATION_CODE_UPDATED, None
 
-    def _handle_conflict(self, render_context: RenderContext, fix: ApprovedFix) -> None:
+    def _handle_conflict(self, render_context: RenderContext, args: dict) -> None:
         ctx = render_context.conformance_tests_running_context
         failing_reason = (
             "CONFLICTING_REQUIREMENTS" if self._is_regression(render_context) else "CONFLICTING_ACCEPTANCE_TESTS"
@@ -164,7 +185,7 @@ class FixConformanceTest(BaseAction):
                 conflicting_module,
                 render_context.get_required_modules_functionalities(),
                 failing_reason,
-                fix.args.get("conflict_reason", ""),
+                args.get("conflict_reason", ""),
                 run_state=render_context.run_state,
             )
             raise InternalClientError("The server did not report the confirmed conflict.")
