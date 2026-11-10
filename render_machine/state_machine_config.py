@@ -70,6 +70,7 @@ class StateMachineConfig:
         """Get the mapping of action outcomes to state machine triggers."""
         return {
             PrepareRepositories.SUCCESSFUL_OUTCOME: triggers.START_RENDER,
+            PrepareRepositories.REGENERATE_NOT_POSSIBLE_OUTCOME: triggers.HANDLE_ERROR,
             RenderFunctionalRequirement.SUCCESSFUL_OUTCOME: triggers.RENDER_FUNCTIONAL_REQUIREMENT,
             RenderFunctionalRequirement.FUNCTIONAL_REQUIREMENT_TOO_COMPLEX_OUTCOME: triggers.HANDLE_ERROR,
             RenderFunctionalRequirement.ITERATION_LIMIT_EXCEEDED_OUTCOME: triggers.HANDLE_ERROR,

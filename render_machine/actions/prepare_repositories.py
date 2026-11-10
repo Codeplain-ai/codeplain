@@ -7,10 +7,12 @@ from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
+from render_machine.render_types import RenderError
 
 
 class PrepareRepositories(BaseAction):
     SUCCESSFUL_OUTCOME = "repositories_prepared"
+    REGENERATE_NOT_POSSIBLE_OUTCOME = "regenerate_not_possible"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         if render_context.is_regenerate:
@@ -89,34 +91,41 @@ class PrepareRepositories(BaseAction):
 
         return self.SUCCESSFUL_OUTCOME, None
 
+    def _regenerate_not_possible(self, render_context: RenderContext, error_message: str):
+        # The error goes back as the outcome, so the state machine runs ExitWithError, which logs it.
+        # Dispatching the error from inside this action would end the render before that step runs,
+        # and the user would see no reason.
+        render_context.last_error_message = error_message
+        return self.REGENERATE_NOT_POSSIBLE_OUTCOME, RenderError.encode(message=error_message).to_payload()
+
     def _prepare_regenerate(self, render_context: RenderContext):
         frid = render_context.render_range[0]
 
         if not git_utils.has_commit_for_frid(render_context.build_folder, frid, render_context.module_name):
-            render_context.dispatch_error(
+            return self._regenerate_not_possible(
+                render_context,
                 f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
                 f"Please render all functionalities first by running: "
-                f"codeplain {render_context.module_name}.plain"
+                f"codeplain {render_context.module_name}.plain",
             )
-            return "error", None
 
         render_context.starting_frid = frid
 
         module_metadata = render_context.plain_module.load_module_metadata()
         if not module_metadata or "functionalities" not in module_metadata:
-            render_context.dispatch_error(
-                "module_metadata.json is missing or incomplete. " "Please re-render the module from the beginning."
+            return self._regenerate_not_possible(
+                render_context,
+                "module_metadata.json is missing or incomplete. Please re-render the module from the beginning.",
             )
-            return "error", None
 
         stored_functionalities = module_metadata["functionalities"]
         old_functionality = next((stored for stored in stored_functionalities if stored["id"] == frid), None)
         if old_functionality is None:
-            render_context.dispatch_error(
+            return self._regenerate_not_possible(
+                render_context,
                 f"module_metadata.json holds no functionality {frid}. "
-                "Please re-render the module from the beginning."
+                "Please re-render the module from the beginning.",
             )
-            return "error", None
 
         render_context.old_frid_spec = old_functionality["markdown"]
         # The specs the code on disk currently implements (code-truth). Sent to the API so the
