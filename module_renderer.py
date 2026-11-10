@@ -87,6 +87,8 @@ class ModuleRenderer:
             render_range = self.render_choice.render_range
 
         if render_range is not None:
+            if self.is_regenerate:
+                plain_module.ensure_frid_can_be_regenerated(render_range[0])
             plain_module.ensure_previous_frid_commits_exist(render_range, self.args.render_conformance_tests)
 
         has_any_required_module_changed = False

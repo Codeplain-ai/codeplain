@@ -344,6 +344,12 @@ def render(  # noqa: C901
     is_regenerate = False
     if args.render_range or args.render_from or args.regenerate:
         if args.regenerate:
+            frids = list(plain_spec.get_frids(plain_module.plain_source))
+            if args.regenerate not in frids:
+                raise InvalidFridArgument(
+                    f"Cannot regenerate functionality {args.regenerate} because module {plain_module.module_name} "
+                    f"has no such functionality. Its functionalities are: {', '.join(frids)}."
+                )
             render_range = plain_spec.get_render_range(
                 args.regenerate + "," + args.regenerate, plain_module.plain_source
             )

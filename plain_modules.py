@@ -574,6 +574,21 @@ class PlainModule:
                     f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
                 )
 
+    def ensure_frid_can_be_regenerated(self, frid: str) -> None:
+        """Stop a regeneration of a functionality that was never fully rendered.
+
+        Only a rendered functionality can be generated again. This check runs before the required
+        modules are rendered, so a regeneration that cannot run uses no credits.
+        """
+        if not os.path.exists(self.module_build_folder) or not git_utils.has_commit_for_frid(
+            self.module_build_folder, frid, self.module_name
+        ):
+            raise MissingPreviousFunctionalitiesError(
+                f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
+                f"Please render all functionalities first by running:\n"
+                f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
+            )
+
     def ensure_previous_frid_commits_exist(self, render_range: list[str], render_conformance_tests: bool) -> None:
         """
         Ensure that all FRID commits before the render_range exist.
