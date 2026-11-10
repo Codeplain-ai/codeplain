@@ -33,19 +33,29 @@ def test_a_preparation_started_ahead_is_used_once_the_build_folder_is_unchanged(
 
 def test_a_preparation_started_ahead_is_redone_when_the_build_folder_changed(tmp_path):
     ctx = _context(tmp_path)
-    gate = threading.Event()
-
-    def slow(*_args, **_kwargs):
-        gate.wait(5)
-        return (0, "", "out")
-
-    with mock.patch.object(pte.render_utils, "execute_script", side_effect=slow) as run:
+    with mock.patch.object(pte.render_utils, "execute_script", return_value=(0, "", "out")) as run:
         pte.start_in_background(ctx)
+        ctx.background_preparation.done.wait(5)
         with open(os.path.join(ctx.build_folder, "b.txt"), "w") as f:
             f.write("b")
-        gate.set()
         pte.PrepareTestingEnvironment().execute(ctx, None)
     assert run.call_count == 2
+
+
+def test_what_the_preparation_script_writes_into_the_build_folder_is_no_change(tmp_path):
+    # e.g. npm install writing node_modules, mvn compile writing target/
+    ctx = _context(tmp_path)
+
+    def build(*_args, **_kwargs):
+        os.makedirs(os.path.join(ctx.build_folder, "target"))
+        with open(os.path.join(ctx.build_folder, "target", "app.jar"), "w") as f:
+            f.write("built")
+        return (0, "", "out")
+
+    with mock.patch.object(pte.render_utils, "execute_script", side_effect=build) as run:
+        pte.start_in_background(ctx)
+        outcome, _ = pte.PrepareTestingEnvironment().execute(ctx, None)
+    assert outcome == pte.PrepareTestingEnvironment.SUCCESSFUL_OUTCOME and run.call_count == 1
 
 
 def test_nothing_is_started_when_no_preparation_is_due(tmp_path):

@@ -27,7 +27,8 @@ def _build_folder_signature(build_folder: str) -> tuple:
 
 @dataclass
 class BackgroundPreparation:
-    """A run of the preparation script started ahead of time, and the build folder it was started for."""
+    """A run of the preparation script started ahead of time, and the build folder it prepared (as the script left
+    it once it finished)."""
 
     signature: tuple
     done: threading.Event = field(default_factory=threading.Event)
@@ -67,6 +68,9 @@ def start_in_background(render_context: RenderContext) -> None:
     def run() -> None:
         try:
             preparation.result = _run_script(render_context)
+            # The script may write into the build folder (node_modules, target/, ...): compare against the folder
+            # as it left it, or its own output would always look like a change and the script would run again.
+            preparation.signature = _build_folder_signature(render_context.build_folder)
         except BaseException as e:  # noqa: B036 - handed to the waiting action
             preparation.error = e
         finally:
