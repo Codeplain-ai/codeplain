@@ -326,6 +326,24 @@ def has_commit_for_frid(repo_path: Union[str, os.PathLike], frid: str, module_na
     return bool(_get_commit_with_frid(Repo(repo_path), frid, module_name))
 
 
+def get_frids_regenerated_after_frid(repo_path: Union[str, os.PathLike], frid: str, module_name: str) -> list[str]:
+    """The functionalities regenerated after the "fully implemented" commit of `frid`.
+
+    A reset to that commit removes these regenerations.
+    """
+    repo = Repo(repo_path)
+    commit = _get_commit_with_frid(repo, frid, module_name)
+    if not commit:
+        return []
+
+    escaped_module_message = MODULE_NAME_MESSAGE.format(module_name).replace("[", "\\[").replace("]", "\\]")
+    subjects = repo.git.log(f"{commit}..HEAD", "--grep", escaped_module_message, "--format=%s").splitlines()
+    regenerated_pattern = re.compile(
+        re.escape(FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE).replace(re.escape("{}"), "(.+)")
+    )
+    return [match.group(1) for subject in subjects if (match := regenerated_pattern.fullmatch(subject))]
+
+
 def _get_base_folder_commit(repo: Repo) -> str:
     """Finds commit related to copy of the base folder."""
     return _get_commit_with_message(repo, BASE_FOLDER_COMMIT_MESSAGE)

@@ -90,6 +90,9 @@ class ModuleRenderer:
             if self.is_regenerate:
                 plain_module.ensure_frid_can_be_regenerated(render_range[0])
             plain_module.ensure_previous_frid_commits_exist(render_range, self.args.render_conformance_tests)
+            # A regeneration does not reset the code, so only the other renders can remove one.
+            if not self.is_regenerate:
+                plain_module.ensure_render_from_keeps_regenerations(render_range[0])
 
         has_any_required_module_changed = False
         if not self.args.render_machine_graph and plain_module.required_modules and not is_render_choice_module:

@@ -1,4 +1,4 @@
-"""The checks that stop a regeneration that cannot run, and the messages they give.
+"""The checks that stop a regeneration that cannot run, or a render that would remove a regeneration.
 
 Both checks run before anything is rendered, and both name the regeneration. The checks for
 --render-from would otherwise answer first and talk about starting a render the user did not ask for.
@@ -12,7 +12,13 @@ from types import SimpleNamespace
 import pytest
 
 import plain2code
-from git_utils import FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE, add_all_files_and_commit, init_git_repo
+from git_utils import (
+    FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
+    FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE,
+    add_all_files_and_commit,
+    init_git_repo,
+)
+from partial_rendering import RenderChoice, _keep_regenerations
 from plain2code_exceptions import InvalidFridArgument, MissingPreviousFunctionalitiesError
 from plain_modules import PlainModule
 
@@ -74,3 +80,69 @@ def test_an_unknown_func_id_names_the_regeneration(solo_module):
         "Cannot regenerate functionality no-such-id because module pr_solo has no such functionality. "
         "Its functionalities are: solo-one, solo-two, solo-three."
     )
+
+
+def _commit_regenerated_frid(module: PlainModule, frid: str) -> None:
+    (Path(module.module_build_folder) / f"frid_{frid}.txt").write_text(f"frid {frid} again\n")
+    add_all_files_and_commit(
+        module.module_build_folder,
+        FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE.format(frid),
+        module_name=module.module_name,
+        frid=frid,
+    )
+
+
+def test_a_render_from_that_removes_an_earlier_regeneration_is_stopped(solo_module):
+    """The render from solo-three resets to the solo-two checkpoint, which is before the regeneration."""
+    _rendered_up_to(solo_module, "solo-one", "solo-two", "solo-three")
+    _commit_regenerated_frid(solo_module, "solo-one")
+
+    with pytest.raises(MissingPreviousFunctionalitiesError) as error:
+        solo_module.ensure_render_from_keeps_regenerations("solo-three")
+
+    assert str(error.value).startswith(
+        "Cannot render from functionality solo-three of module pr_solo. Functionality solo-one was regenerated"
+    )
+    assert "--render-from solo-one" in str(error.value)
+
+
+@pytest.mark.parametrize("regenerated, start", [("solo-two", "solo-two"), ("solo-three", "solo-two")])
+def test_a_render_from_that_renders_the_regenerated_functionality_again_can_run(solo_module, regenerated, start):
+    _rendered_up_to(solo_module, "solo-one", "solo-two", "solo-three")
+    _commit_regenerated_frid(solo_module, regenerated)
+
+    solo_module.ensure_render_from_keeps_regenerations(start)
+
+
+def test_a_render_from_without_a_regeneration_can_run(solo_module):
+    _rendered_up_to(solo_module, "solo-one", "solo-two", "solo-three")
+
+    solo_module.ensure_render_from_keeps_regenerations("solo-three")
+
+
+def test_the_earliest_removed_regeneration_is_named(solo_module):
+    _rendered_up_to(solo_module, "solo-one", "solo-two", "solo-three")
+    _commit_regenerated_frid(solo_module, "solo-two")
+    _commit_regenerated_frid(solo_module, "solo-one")
+
+    assert solo_module.get_regenerated_frid_removed_by_render_from("solo-three") == "solo-one"
+
+
+def test_a_continue_choice_that_removes_a_regeneration_starts_at_the_regenerated_functionality(solo_module):
+    """An interrupted render: solo-one and solo-two are rendered, then solo-one is regenerated."""
+    _rendered_up_to(solo_module, "solo-one", "solo-two")
+    _commit_regenerated_frid(solo_module, "solo-one")
+    choice = RenderChoice(module=solo_module, render_range=["solo-three"], choice_type="continue_from_frid")
+
+    moved = _keep_regenerations(choice)
+
+    assert moved.choice_type == "render_from_regenerated"
+    assert moved.render_range == ["solo-one", "solo-two", "solo-three"]
+    assert moved.is_destructive
+
+
+def test_a_choice_that_removes_no_regeneration_is_not_changed(solo_module):
+    _rendered_up_to(solo_module, "solo-one", "solo-two")
+    choice = RenderChoice(module=solo_module, render_range=["solo-three"], choice_type="continue_from_frid")
+
+    assert _keep_regenerations(choice) is choice

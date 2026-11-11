@@ -589,6 +589,37 @@ class PlainModule:
                 f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
             )
 
+    def get_regenerated_frid_removed_by_render_from(self, start_frid: str) -> str | None:
+        """The earliest functionality before `start_frid` whose regeneration a render from `start_frid` removes.
+
+        A render from `start_frid` resets the code to the "fully implemented" commit of the functionality
+        before it. A regeneration made after that commit is removed by the reset. The functionalities from
+        `start_frid` on render again, so only a regeneration of an earlier functionality is lost.
+        """
+        previous_frid = plain_spec.get_previous_frid(self.plain_source, start_frid)
+        if previous_frid is None or not os.path.exists(self.module_build_folder):
+            return None
+
+        regenerated_frids = git_utils.get_frids_regenerated_after_frid(
+            self.module_build_folder, previous_frid, self.module_name
+        )
+        for frid in plain_spec.get_frids_before(self.plain_source, start_frid):
+            if frid in regenerated_frids:
+                return frid
+        return None
+
+    def ensure_render_from_keeps_regenerations(self, start_frid: str) -> None:
+        """Stop a render from `start_frid` that would remove the regeneration of an earlier functionality."""
+        regenerated_frid = self.get_regenerated_frid_removed_by_render_from(start_frid)
+        if regenerated_frid is None:
+            return
+        raise MissingPreviousFunctionalitiesError(
+            f"Cannot render from functionality {start_frid} of module {self.module_name}. "
+            f"Functionality {regenerated_frid} was regenerated, and a render from functionality {start_frid} "
+            f"would remove that regeneration. Render from functionality {regenerated_frid} instead:\n"
+            f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {regenerated_frid}"
+        )
+
     def ensure_previous_frid_commits_exist(self, render_range: list[str], render_conformance_tests: bool) -> None:
         """
         Ensure that all FRID commits before the render_range exist.
