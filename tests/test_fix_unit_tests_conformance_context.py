@@ -2,6 +2,7 @@
 
 When the conformance tests fixer changes implementation code, the unit tests are re-run and fixed next.
 The unit tests fixer must know about that change so it adjusts the unit tests instead of reverting it.
+How the conformance tests fixer records those changes is tested in test_conformance_fix_conversation.py.
 """
 
 import os
@@ -12,7 +13,6 @@ import pytest
 
 import plain_spec
 from memory_management import MemoryManager
-from render_machine.actions.fix_conformance_test import FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
 from render_machine.render_context import RenderContext
@@ -20,15 +20,11 @@ from render_machine.render_types import ConformanceTestsRunningContext, ScriptEx
 
 
 class FakeCodeplainAPI:
-    """Conformance fixes return a scripted response; every agent session submits a fix on its first turn."""
+    """Every agent session submits a fix on its first turn."""
 
-    def __init__(self, conformance_fix_response=None):
-        self.conformance_fix_response = conformance_fix_response
+    def __init__(self):
         self.agent_calls = []
         self.sessions_started = 0
-
-    def fix_conformance_tests_issue(self, *args, **kwargs):
-        return self.conformance_fix_response
 
     def agent_start(self, task_type, task_params, frid, module_name, run_state):
         self.sessions_started += 1
@@ -53,6 +49,11 @@ class FakeRenderContext(SimpleNamespace):
 
     def testing_functionality_label(self):
         return self.conformance_tests_running_context.current_testing_frid
+
+    @property
+    def plain_module(self):
+        # The rendered modules folder is the build folder's parent, as in plain_modules/<module>.
+        return SimpleNamespace(build_folder=os.path.dirname(self.build_folder), all_required_modules=[])
 
 
 class FakeConformanceTests:
@@ -118,105 +119,6 @@ def make_render_context(api, build_folder, memory_folder, conformance_tests_runn
         unittests_script=None,
         script_execution_history=ScriptExecutionHistory(),
     )
-
-
-def run_conformance_fix(render_context):
-    return FixConformanceTest().execute(render_context, {"previous_conformance_tests_issue": "tests failed"})
-
-
-def test_conformance_fix_of_implementation_code_is_remembered(build_folder, memory_folder):
-    api = FakeCodeplainAPI(
-        conformance_fix_response=[
-            FixConformanceTest.ISSUE_REASON_CODE_IMPLEMENTATION_CODE,
-            {"app.py": "def add(a, b):\n    return a + b + 1\n"},
-            {"hypothesis": "off by one", "approach": "add one"},
-            "prepared issue",
-        ]
-    )
-    ctx = make_conformance_context()
-    render_context = make_render_context(api, build_folder, memory_folder, ctx)
-
-    outcome, _ = run_conformance_fix(render_context)
-
-    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_UPDATED
-    assert len(ctx.implementation_code_fixes) == 1
-    recorded_fix = ctx.implementation_code_fixes[0]
-    assert recorded_fix["hypothesis"] == "off by one"
-    assert recorded_fix["approach"] == "add one"
-    assert list(recorded_fix["code_diff"]) == ["app.py"]
-    assert "+    return a + b + 1" in recorded_fix["code_diff"]["app.py"]
-
-
-def test_consecutive_implementation_fixes_accumulate(build_folder, memory_folder):
-    ctx = make_conformance_context()
-    for attempt in range(2):
-        api = FakeCodeplainAPI(
-            conformance_fix_response=[
-                FixConformanceTest.ISSUE_REASON_CODE_IMPLEMENTATION_CODE,
-                {"app.py": f"def add(a, b):\n    return a + b + {attempt + 1}\n"},
-                {"hypothesis": f"hypothesis {attempt}", "approach": f"approach {attempt}"},
-                "prepared issue",
-            ]
-        )
-        render_context = make_render_context(api, build_folder, memory_folder, ctx)
-        run_conformance_fix(render_context)
-
-    assert [fix["hypothesis"] for fix in ctx.implementation_code_fixes] == ["hypothesis 0", "hypothesis 1"]
-
-
-def test_conformance_fix_without_summary_is_still_remembered(build_folder, memory_folder):
-    api = FakeCodeplainAPI(
-        conformance_fix_response=[
-            FixConformanceTest.ISSUE_REASON_CODE_IMPLEMENTATION_CODE,
-            {"app.py": "def add(a, b):\n    return a + b + 1\n"},
-            None,
-            "prepared issue",
-        ]
-    )
-    ctx = make_conformance_context()
-    render_context = make_render_context(api, build_folder, memory_folder, ctx)
-
-    run_conformance_fix(render_context)
-
-    assert ctx.implementation_code_fixes[0]["hypothesis"] is None
-    assert ctx.implementation_code_fixes[0]["approach"] is None
-    assert "app.py" in ctx.implementation_code_fixes[0]["code_diff"]
-
-
-def test_conformance_fix_of_conformance_tests_is_not_remembered(build_folder, memory_folder):
-    api = FakeCodeplainAPI(
-        conformance_fix_response=[
-            FixConformanceTest.ISSUE_REASON_CODE_CONFORMANCE_TESTS,
-            {"test_app.py": "def test_add(): pass\n"},
-            {"hypothesis": "wrong assertion", "approach": "fix test"},
-            "prepared issue",
-        ]
-    )
-    ctx = make_conformance_context()
-    render_context = make_render_context(api, build_folder, memory_folder, ctx)
-
-    outcome, _ = run_conformance_fix(render_context)
-
-    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED
-    assert ctx.implementation_code_fixes == []
-
-
-def test_implementation_fix_with_no_files_is_not_remembered(build_folder, memory_folder):
-    api = FakeCodeplainAPI(
-        conformance_fix_response=[
-            FixConformanceTest.ISSUE_REASON_CODE_IMPLEMENTATION_CODE,
-            {},
-            {"hypothesis": "nothing", "approach": "nothing"},
-            "prepared issue",
-        ]
-    )
-    ctx = make_conformance_context()
-    render_context = make_render_context(api, build_folder, memory_folder, ctx)
-
-    outcome, _ = run_conformance_fix(render_context)
-
-    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_NOT_UPDATED
-    assert ctx.implementation_code_fixes == []
 
 
 def run_unit_tests_fix(render_context, issue="1 failed"):

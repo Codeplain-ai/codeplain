@@ -13,6 +13,11 @@ from render_machine.render_types import UnitTestsRunningContext
 class FakeRenderContext(SimpleNamespace):
     unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
+    @property
+    def plain_module(self):
+        # The rendered modules folder is the build folder's parent, as in plain_modules/<module>.
+        return SimpleNamespace(build_folder=os.path.dirname(self.build_folder), all_required_modules=[])
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -133,6 +138,8 @@ def test_file_change_invalidates_verified_pass_and_read_cache(project):
     repeat = agent_tools.execute_calls([{"id": "2", "name": "read_file", "args": {"file_path": "app.py"}}], project.rc)
     assert first[0]["output"].startswith("1: def add")
     assert repeat[0]["output"].startswith("Same call as an earlier one")
+    # the earlier result is repeated in full: compaction may have removed it from the conversation
+    assert repeat[0]["output"] == agent_tools.REPEATED_CALL_NOTE + first[0]["output"]
 
     agent_tools.write_file({"file_path": "other.py", "content": "y = 1\n"}, project.rc)
     assert context.verified_passing is False
@@ -164,3 +171,176 @@ def test_bound_truncates_long_lines_and_large_output():
     bounded = agent_tools._bound("a" * (agent_tools.MAX_LINE_CHARS + 5) + "\n" + "b\n" * 40_000)
     assert "[line truncated]" in bounded and "[truncated" in bounded
     assert len(bounded) < agent_tools.MAX_OUTPUT_CHARS + 200
+
+
+def test_grep_takes_python_regex_syntax(project):
+    log = project.build / "conformance.script_output"
+    log.write_text("Master password: ***\nName: alice\nnoise\nFAILED test_add\nTests run: 12\n")
+    out = agent_tools.grep(
+        {"pattern": r"Master password|Name:|FAILED|run: \d+", "file_path": str(log)}, project.rc
+    ).splitlines()
+    assert out == [
+        "conformance.script_output:1:Master password: ***",
+        "conformance.script_output:2:Name: alice",
+        "conformance.script_output:4:FAILED test_add",
+        "conformance.script_output:5:Tests run: 12",
+    ]
+    assert agent_tools.grep({"pattern": "(?i)failed", "file_path": str(log)}, project.rc).endswith("FAILED test_add")
+    assert agent_tools.grep({"pattern": "foo(", "file_path": str(log)}, project.rc).startswith(
+        "Error: invalid regular expression"
+    )
+
+
+def test_grep_separates_context_groups_and_skips_binary_and_excluded_files(project):
+    (project.build / "long.py").write_text("\n".join(["hit"] + ["x"] * 10 + ["hit"]) + "\n")
+    (project.build / "blob.bin").write_bytes(b"hit\0\0")
+    (project.build / "node_modules").mkdir()
+    (project.build / "node_modules" / "dep.py").write_text("hit\n")
+    out = agent_tools.grep({"pattern": "^hit$", "context_lines": 1}, project.rc).splitlines()
+    assert out == ["long.py:1:hit", "long.py-2-x", "--", "long.py-11-x", "long.py:12:hit"]
+
+
+def test_edit_names_the_lines_it_removed(project):
+    pom = project.build / "pom.xml"
+    pom.write_text("<project>\n  <dependencies/>\n</project>\n")
+    out = agent_tools.edit_file(
+        {
+            "file_path": "pom.xml",
+            "search": "  <dependencies/>\n</project>\n",
+            "replace": "  <dependencies/>\n  <build/>\n",
+        },
+        project.rc,
+    )
+    assert "This edit removed these lines: `</project>`" in out
+    kept = agent_tools.edit_file(
+        {"file_path": "pom.xml", "search": "  <build/>\n", "replace": "  <build/>\n</project>\n"}, project.rc
+    )
+    assert "removed these lines" not in kept
+
+
+def test_unit_tests_agent_reads_and_greps_other_modules_but_writes_only_its_build_folder(project):
+    other = project.build.parent / "base" / "code" / "lib.py"
+    other.parent.mkdir(parents=True)
+    other.write_text("def helper():\n    return 1\n")
+    assert agent_tools.read_file({"file_path": str(other)}, project.rc).startswith("1: def helper")
+    hits = agent_tools.grep({"pattern": "def (helper|sub)", "file_path": str(project.build.parent)}, project.rc)
+    assert "base/code/lib.py:1:def helper():" in hits and "def sub(a, b):" in hits
+    denied = agent_tools.write_file({"file_path": str(other), "content": "x\n"}, project.rc)
+    assert denied.startswith("Error: write access denied") and other.read_text().startswith("def helper")
+
+
+def test_a_pattern_that_finds_nothing_says_where_to_look(project):
+    result = agent_tools.ls_files({"pattern": "**/tests/**/pom.xml"}, project.rc)
+    assert result.startswith("No files match")
+    assert "Relative paths resolve against" in result and "`tests`" in result
+
+
+def test_a_search_text_that_is_not_found_gets_the_closest_lines(project):
+    test_file = project.build / "ReaderTest.java"
+    test_file.write_text('class ReaderTest {\n    Path file = writeCsv("id\\\\n7\\\\n");\n}\n')
+    out = agent_tools.edit_file(
+        {"file_path": "ReaderTest.java", "search": 'Path file = writeCsv("id\\n7\\n");', "replace": "x"}, project.rc
+    )
+    assert "found 0 times" in out
+    assert '2:     Path file = writeCsv("id\\\\n7\\\\n");' in out
+    assert "class ReaderTest" not in out
+    unrelated = agent_tools.edit_file(
+        {"file_path": "ReaderTest.java", "search": "completely different text here", "replace": "x"}, project.rc
+    )
+    assert "No line of the file resembles it" in unrelated
+
+
+def _script(path, body):
+    path.write_text("#!/bin/bash\n" + body)
+    path.chmod(0o755)
+    return str(path)
+
+
+def test_the_conformance_fixer_runs_the_tests_and_prepares_only_after_a_change(project, tmp_path):
+    prepared = tmp_path / "prepared.txt"
+    tests_folder = tmp_path / "conformance" / "add"
+    tests_folder.mkdir(parents=True)
+    rc = SimpleNamespace(
+        build_folder=str(project.build),
+        prepare_environment_script=_script(tmp_path / "prepare.sh", f'echo x >> "{prepared}"\n'),
+        conformance_tests_script=_script(
+            tmp_path / "run.sh", 'grep -q "a + b" "$1/app.py" || { echo FAIL: test_add; exit 1; }\n'
+        ),
+        test_script_timeout=None,
+        stop_event=None,
+    )
+    workspace = agent_tools.AgentWorkspace(
+        build_folder=str(project.build),
+        writable_folders=[str(project.build)],
+        render_context=rc,
+        conformance_tests_folder=str(tests_folder),
+    )
+
+    failed = agent_tools.run_conformance_tests({}, workspace)
+    assert failed["output"].startswith("The conformance tests failed") and "FAIL: test_add" in failed["test_output"]
+    repeated = agent_tools.run_conformance_tests({}, workspace)
+    assert repeated["output"].startswith("Nothing changed") and "FAIL: test_add" in repeated["test_output"]
+    (tests_folder / "debug.txt").write_text("diagnostics\n")
+    agent_tools.run_conformance_tests({}, workspace)
+    assert prepared.read_text().count("x") == 1  # only the tests changed, so no second preparation
+
+    agent_tools.edit_file(
+        {
+            "file_path": "app.py",
+            "search": "def add(a, b):\n    return a - b",
+            "replace": "def add(a, b):\n    return a + b",
+        },
+        workspace,
+    )
+    assert agent_tools.run_conformance_tests({}, workspace) == {"output": "The conformance tests passed."}
+    assert prepared.read_text().count("x") == 2
+
+
+def test_files_the_scripts_write_themselves_are_no_change(project, tmp_path):
+    # Preparation scripts write build output into the build folder, and test runs write caches (__pycache__) into
+    # both folders; none of that is a change that needs another preparation or another run.
+    prepared = tmp_path / "prepared.txt"
+    tests_folder = tmp_path / "conformance" / "add"
+    tests_folder.mkdir(parents=True)
+    rc = SimpleNamespace(
+        build_folder=str(project.build),
+        prepare_environment_script=_script(
+            tmp_path / "prepare.sh", f'echo x >> "{prepared}"\nmkdir -p "$1/target"\necho built > "$1/target/app"\n'
+        ),
+        conformance_tests_script=_script(
+            tmp_path / "run.sh",
+            'mkdir -p "$2/__pycache__"\necho pyc > "$2/__pycache__/test_add.pyc"\necho log > "$1/.test-cache"\n'
+            "echo FAIL: test_add\nexit 1\n",
+        ),
+        test_script_timeout=None,
+        stop_event=None,
+    )
+    workspace = agent_tools.AgentWorkspace(
+        build_folder=str(project.build),
+        writable_folders=[str(project.build)],
+        render_context=rc,
+        conformance_tests_folder=str(tests_folder),
+    )
+
+    assert agent_tools.run_conformance_tests({}, workspace)["output"].startswith("The conformance tests failed")
+    assert agent_tools.run_conformance_tests({}, workspace)["output"].startswith("Nothing changed")
+    (tests_folder / "debug.txt").write_text("diagnostics\n")
+    assert agent_tools.run_conformance_tests({}, workspace)["output"].startswith("The conformance tests failed")
+    assert prepared.read_text().count("x") == 1
+
+
+def test_writing_under_a_spelling_that_differs_only_in_case_renames_the_existing_folder(project):
+    old_folder = project.build / "com" / "incodeSmile"
+    old_folder.mkdir(parents=True)
+    (old_folder / "Other.java").write_text("class Other {}\n")
+    case_insensitive = os.path.exists(str(project.build / "com" / "INCODESMILE"))
+
+    out = agent_tools.write_file({"file_path": "com/incodesmile/Dto.java", "content": "class Dto {}\n"}, project.rc)
+
+    entries = os.listdir(project.build / "com")
+    if case_insensitive:
+        assert entries == ["incodesmile"] and "was renamed to" in out
+        assert sorted(os.listdir(project.build / "com" / "incodesmile")) == ["Dto.java", "Other.java"]
+    else:
+        # On a case-sensitive file system the two spellings are two folders, and nothing is renamed.
+        assert sorted(entries) == ["incodeSmile", "incodesmile"] and "renamed" not in out

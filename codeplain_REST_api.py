@@ -13,6 +13,10 @@ from plain2code_state import RunState
 
 MAX_RETRIES = 4
 RETRY_DELAY = 3
+# Agent calls carry a whole session: losing one ends a long-running fix, so they retry longer (with the delay
+# capped), which rides out a provider or network outage of several minutes.
+AGENT_MAX_RETRIES = 8
+MAX_RETRY_DELAY = 60
 
 # A report the render does not consume must not be able to hold the process open
 # at exit, and requests waits indefinitely by default.
@@ -86,6 +90,18 @@ ERROR_CODE_EXCEPTIONS = {
 }
 
 
+# Client errors that a retry can fix: a timeout on the server's side and rate limiting.
+RETRYABLE_CLIENT_ERROR_STATUSES = {408, 429}
+
+
+def _is_permanent_client_error(error: Exception) -> bool:
+    """An HTTP 4xx answer other than RETRYABLE_CLIENT_ERROR_STATUSES: asking again gets the same answer."""
+    if not isinstance(error, requests.exceptions.HTTPError) or error.response is None:
+        return False
+    status = error.response.status_code
+    return 400 <= status < 500 and status not in RETRYABLE_CLIENT_ERROR_STATUSES
+
+
 class CodeplainAPI:
 
     def __init__(self, api_key, console):
@@ -135,7 +151,7 @@ class CodeplainAPI:
                 )
             time.sleep(retry_delay)
             # Exponential backoff
-            return retry_delay * 2
+            return min(retry_delay * 2, MAX_RETRY_DELAY)
         else:
             if not silent:
                 self.console.error(f"Max retries ({num_retries}) exceeded. Last error: {error}")
@@ -214,6 +230,10 @@ class CodeplainAPI:
                 if response_json is not None and "error_code" in response_json:
                     if response_json["error_code"] not in RETRY_ERROR_CODES:
                         raise e
+                if _is_permanent_client_error(e):
+                    # Asking again gets the same answer (e.g. an expired agent session is 404): the caller gets the
+                    # HTTPError itself, right away, to handle it.
+                    raise e
 
                 retry_delay = self._handle_retry_logic(attempt, retry_delay, num_retries, e, silent)
 
@@ -405,50 +425,6 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def fix_conformance_tests_issue(
-        self,
-        frid,
-        functional_requirement_id,
-        plain_source_tree,
-        linked_resources,
-        existing_files_content,
-        memory_files_content,
-        module_name: str,
-        conformance_tests_module_name: str,
-        required_modules,
-        code_diff,
-        conformance_tests_files,
-        conformance_tests_issue,
-        implementation_fix_count,
-        conformance_tests_folder_name,
-        conflicting_requirements_count: int,
-        fix_attempts_journal: list,
-        run_state: RunState,
-    ):
-        endpoint_url = f"{self.api_url}/fix_conformance_tests_issue"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "functional_requirement_id": functional_requirement_id,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "memory_files_content": memory_files_content,
-            "module_name": module_name,
-            "conformance_tests_module_name": conformance_tests_module_name,
-            "required_modules": required_modules,
-            "code_diff": code_diff,
-            "conformance_tests_files": conformance_tests_files,
-            "conformance_tests_issue": conformance_tests_issue,
-            "implementation_fix_count": implementation_fix_count,
-            "conformance_tests_folder_name": conformance_tests_folder_name,
-            "conflicting_requirements_count": conflicting_requirements_count,
-            "fix_attempts_journal": fix_attempts_journal,
-        }
-
-        return self.post_request(endpoint_url, headers, payload, run_state)
-
     def render_acceptance_tests(
         self,
         frid,
@@ -577,6 +553,34 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
+    def report_conflicting_requirements(
+        self,
+        frid: str,
+        functional_requirement_id: str,
+        plain_source_tree: dict,
+        module_name: str,
+        conformance_tests_module_name: str,
+        required_modules,
+        failing_reason: str,
+        conflict_reason: str,
+        run_state: RunState,
+    ):
+        """Report a conflict the conformance tests fixer and its reviewer agreed on after it had been declared
+        once. The server always answers with the ConflictingRequirements error, raised here, ending the render."""
+        endpoint_url = f"{self.api_url}/report_conflicting_requirements"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "frid": frid,
+            "functional_requirement_id": functional_requirement_id,
+            "plain_source_tree": plain_source_tree,
+            "module_name": module_name,
+            "conformance_tests_module_name": conformance_tests_module_name,
+            "required_modules": required_modules,
+            "failing_reason": failing_reason,
+            "conflict_reason": conflict_reason,
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
+
     def agent_start(self, task_type: str, task_params: dict, frid: str, module_name: str, run_state: RunState):
         """Start a server-side agent session; returns the first turn (tool calls or completion)."""
         endpoint_url = f"{self.api_url}/agent/start"
@@ -587,7 +591,7 @@ class CodeplainAPI:
             "frid": frid,
             "module_name": module_name,
         }
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, num_retries=AGENT_MAX_RETRIES)
 
     def agent_continue(
         self, session_id: str, tool_results: list[dict], frid: str, module_name: str, run_state: RunState
@@ -601,4 +605,4 @@ class CodeplainAPI:
             "frid": frid,
             "module_name": module_name,
         }
-        return self.post_request(endpoint_url, headers, payload, run_state)
+        return self.post_request(endpoint_url, headers, payload, run_state, num_retries=AGENT_MAX_RETRIES)

@@ -185,6 +185,7 @@ class FixUnitTests(BaseAction):
             "linked_resources": render_context.frid_context.linked_resources,
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
+            **agent_tools.modules_layout_params(render_context),
             "unittests_script_content": FixUnitTests._read_script(render_context.unittests_script),
             "unittests_issue": unittests_issue,
             "unittests_log_path": render_context.script_execution_history.latest_unit_test_output_path,

@@ -162,6 +162,20 @@ class TestMainReportsEveryEnding:
 
         assert api.render_finished.call_args.args[0] == "failed"
 
+    def test_an_error_after_a_module_completed_is_reported_as_a_failure(self):
+        """A required module that rendered fine leaves render_succeeded True; an error in a later module must
+        still make the render a failure, for the report and for the exit summary."""
+        summary = MagicMock()
+
+        def fail_after_a_module(run_state):
+            run_state.set_render_succeeded(True)
+            raise Exception("Max retries (4) exceeded")
+
+        api = run_main(fail_after_a_module, print_exit_summary=summary)
+
+        assert api.render_finished.call_args.args[0] == "failed"
+        assert summary.call_args.args[0].render_succeeded is False
+
     def test_an_expected_error_is_reported_as_a_failure(self):
         def fail(run_state):
             raise InvalidAPIKey("key went stale mid-render")

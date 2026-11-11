@@ -1,6 +1,6 @@
 import threading
 from copy import deepcopy
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import file_utils
 import git_utils
@@ -74,6 +74,8 @@ class RenderContext:
         self.stop_event = stop_event
         self.enter_pause_event = enter_pause_event
         self.script_execution_history = ScriptExecutionHistory()
+        # A preparation script run started while the conformance tests are generated (see PrepareTestingEnvironment).
+        self.background_preparation: Any = None
         self.starting_frid = None
         self.test_script_timeout = test_script_timeout
 
