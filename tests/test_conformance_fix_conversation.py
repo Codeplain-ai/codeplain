@@ -18,6 +18,12 @@ from render_machine.render_types import ConformanceTestsRunningContext, ScriptEx
 ISSUE = "FAILED test_app.py::test_add - assert 2 == 3"
 
 
+@pytest.fixture(autouse=True)
+def reviewer_enabled(monkeypatch):
+    """The tests below cover the review flow; this evaluation branch disables the reviewer by default."""
+    monkeypatch.setattr(conversation, "REVIEWER_DISABLED", False)
+
+
 def write(path, content):
     return {"name": "write_file", "args": {"file_path": path, "content": content}}
 
@@ -675,3 +681,15 @@ def test_a_test_run_before_any_change_repeats_the_failing_run_instead_of_running
     assert results[0]["output"].startswith("Nothing changed") and "failing run whose output you were given" in (
         results[0]["output"]
     )
+
+
+def test_disabled_reviewer_approves_every_fix_without_a_reviewer_session(project, monkeypatch):
+    monkeypatch.setattr(conversation, "REVIEWER_DISABLED", True)
+    api = ScriptedAgentAPI(fixer_turns=[[write("app.py", "def add(a, b):\n    return a + b + 1\n")], [submit_fix()]])
+    render_context = make_render_context(project, api)
+
+    outcome, _ = run_fix(render_context)
+
+    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_UPDATED
+    assert api.of("start", conversation.REVIEWER_TASK) == []
+    assert render_context.conformance_tests_running_context.conformance_fix_agents.approved_fix_tested

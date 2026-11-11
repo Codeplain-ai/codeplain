@@ -30,6 +30,8 @@ FIXER_TOOLS = frozenset(
     {"read_file", "grep", "ls_files", "edit_file", "write_file", "delete_file", "run_conformance_tests"}
 )
 REVIEWER_TOOLS = frozenset({"read_file", "grep", "ls_files"})
+# EVALUATION BRANCH: when set, every submitted fix is approved without a reviewer session (see _review).
+REVIEWER_DISABLED = True
 # Upper bounds on LLM turns per fix and per review; the server forces the submission earlier (40 and 15).
 MAX_FIXER_TURNS_PER_FIX = 50
 MAX_REVIEWER_TURNS_PER_REVIEW = 20
@@ -211,7 +213,12 @@ class ConformanceFixConversation:
     def _review(
         self, args: dict, changed_files: dict, issue: str, log_path: Optional[str]
     ) -> tuple[str, str, list[str]]:
-        """The reviewer's verdict on the submitted fix: ("approve" | "reject", comments, objected files)."""
+        """The reviewer's verdict on the submitted fix: ("approve" | "reject", comments, objected files).
+
+        EVALUATION BRANCH: the reviewer is disabled. Every submitted fix is approved without starting a reviewer
+        session, to measure what the reviewer contributes. The original review flow below is unreachable."""
+        if REVIEWER_DISABLED:
+            return "approve", "Reviewer disabled: fix auto-approved.", []
         agents = self.agents
         fix_submission = {
             "root_cause": args.get("root_cause", ""),
