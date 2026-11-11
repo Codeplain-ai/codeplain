@@ -60,9 +60,9 @@ class FixConformanceTest(BaseAction):
                 # anyway crashed the render). Stop with the reason instead.
                 error_msg = (
                     f"The conformance tests of functionality "
-                    f"'{qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)}' of an earlier "
+                    f"'{render_context.testing_functionality_label()}' of an earlier "
                     f"module fail after the changes made for functionality "
-                    f"'{qualified_frid(render_context.module_name, render_context.frid_context.frid)}', and the "
+                    f"'{render_context.functionality_label()}', and the "
                     f"attempts to fix them are used up. Please review both specifications. "
                     f"(Render ID: {render_context.run_state.render_id})"
                 )

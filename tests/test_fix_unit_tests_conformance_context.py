@@ -13,6 +13,7 @@ import pytest
 
 import plain_spec
 from memory_management import MemoryManager
+from plain2code_utils import qualified_frid
 from render_machine.actions.fix_conformance_test import MAX_CONFORMANCE_TEST_FIX_ATTEMPTS, FixConformanceTest
 from render_machine.actions.fix_unit_tests import FixUnitTests
 from render_machine.implementation_code_helpers import ImplementationCodeHelpers
@@ -48,8 +49,13 @@ class FakeCodeplainAPI:
 class FakeRenderContext(SimpleNamespace):
     unit_tests_agent_session = RenderContext.unit_tests_agent_session
 
+    # The real labels add the functionality's position ("module:func-id (3/12)"), which these tests don't set up.
     def testing_functionality_label(self):
-        return self.conformance_tests_running_context.current_testing_frid
+        ctx = self.conformance_tests_running_context
+        return qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid)
+
+    def functionality_label(self):
+        return qualified_frid(self.module_name, self.frid_context.frid)
 
     @property
     def plain_module(self):
