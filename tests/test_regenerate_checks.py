@@ -49,7 +49,7 @@ def _rendered_up_to(module: PlainModule, *frids: str) -> None:
 def test_a_rendered_functionality_can_be_regenerated(solo_module):
     _rendered_up_to(solo_module, "solo-one", "solo-two")
 
-    solo_module.ensure_frid_can_be_regenerated("solo-two")
+    solo_module.ensure_frid_can_be_regenerated("solo-two", render_conformance_tests=False)
 
 
 def test_a_functionality_after_the_rendered_ones_cannot_be_regenerated(solo_module):
@@ -57,7 +57,7 @@ def test_a_functionality_after_the_rendered_ones_cannot_be_regenerated(solo_modu
     _rendered_up_to(solo_module, "solo-one")
 
     with pytest.raises(MissingPreviousFunctionalitiesError) as error:
-        solo_module.ensure_frid_can_be_regenerated("solo-three")
+        solo_module.ensure_frid_can_be_regenerated("solo-three", render_conformance_tests=False)
 
     assert str(error.value).startswith("Cannot regenerate functionality solo-three because it has not been")
     assert "--render-from" not in str(error.value)
@@ -65,9 +65,34 @@ def test_a_functionality_after_the_rendered_ones_cannot_be_regenerated(solo_modu
 
 def test_a_module_that_was_never_rendered_cannot_be_regenerated(solo_module):
     with pytest.raises(MissingPreviousFunctionalitiesError) as error:
-        solo_module.ensure_frid_can_be_regenerated("solo-one")
+        solo_module.ensure_frid_can_be_regenerated("solo-one", render_conformance_tests=False)
 
     assert str(error.value).startswith("Cannot regenerate functionality solo-one because it has not been")
+
+
+def test_a_module_rendered_without_conformance_tests_cannot_be_regenerated_with_them(solo_module):
+    """The first functionality has no earlier one, so no other check looks at the tests folder."""
+    _rendered_up_to(solo_module, "solo-one", "solo-two")
+
+    with pytest.raises(MissingPreviousFunctionalitiesError) as error:
+        solo_module.ensure_frid_can_be_regenerated("solo-one", render_conformance_tests=True)
+
+    assert str(error.value).startswith(
+        "Cannot regenerate functionality solo-one because module pr_solo was rendered without conformance tests."
+    )
+
+
+def test_a_module_rendered_without_conformance_tests_can_be_regenerated_without_them(solo_module):
+    _rendered_up_to(solo_module, "solo-one", "solo-two")
+
+    solo_module.ensure_frid_can_be_regenerated("solo-two", render_conformance_tests=False)
+
+
+def test_a_module_rendered_with_conformance_tests_can_be_regenerated_with_them(solo_module):
+    _rendered_up_to(solo_module, "solo-one", "solo-two")
+    os.makedirs(solo_module.module_conformance_tests_folder)
+
+    solo_module.ensure_frid_can_be_regenerated("solo-two", render_conformance_tests=True)
 
 
 def test_an_unknown_func_id_names_the_regeneration(solo_module):

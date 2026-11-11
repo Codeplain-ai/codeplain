@@ -574,11 +574,15 @@ class PlainModule:
                     f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
                 )
 
-    def ensure_frid_can_be_regenerated(self, frid: str) -> None:
+    def ensure_frid_can_be_regenerated(self, frid: str, render_conformance_tests: bool) -> None:
         """Stop a regeneration of a functionality that was never fully rendered.
 
         Only a rendered functionality can be generated again. This check runs before the required
         modules are rendered, so a regeneration that cannot run uses no credits.
+
+        A module rendered without conformance tests has no conformance tests folder. A regeneration
+        with conformance tests would fail when it commits the new tests, and the earlier
+        functionalities would have no tests for the regression pass.
         """
         if not os.path.exists(self.module_build_folder) or not git_utils.has_commit_for_frid(
             self.module_build_folder, frid, self.module_name
@@ -586,6 +590,13 @@ class PlainModule:
             raise MissingPreviousFunctionalitiesError(
                 f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
                 f"Please render all functionalities first by running:\n"
+                f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
+            )
+
+        if render_conformance_tests and not os.path.exists(self.module_conformance_tests_folder):
+            raise MissingPreviousFunctionalitiesError(
+                f"Cannot regenerate functionality {frid} because module {self.module_name} was rendered "
+                f"without conformance tests. Render the module again with conformance tests:\n"
                 f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
             )
 

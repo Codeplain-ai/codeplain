@@ -88,7 +88,7 @@ class ModuleRenderer:
 
         if render_range is not None:
             if self.is_regenerate:
-                plain_module.ensure_frid_can_be_regenerated(render_range[0])
+                plain_module.ensure_frid_can_be_regenerated(render_range[0], self.args.render_conformance_tests)
             plain_module.ensure_previous_frid_commits_exist(render_range, self.args.render_conformance_tests)
             # A regeneration does not reset the code, so only the other renders can remove one.
             if not self.is_regenerate:
