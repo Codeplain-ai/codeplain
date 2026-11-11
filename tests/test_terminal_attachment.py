@@ -82,6 +82,7 @@ def make_args():
         build_folder="build",
         render_range=None,
         render_from=None,
+        regenerate=None,
         force_render=False,
         headless=False,
         exit_when_done=False,

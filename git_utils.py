@@ -17,6 +17,7 @@ CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE = (
 # Following messages are used as checkpoints in the git history
 # Changing them will break backwards compatibility so change them with care
 FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE = "[Codeplain] functionality ID (FRID):{} fully implemented"
+FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE = "[Codeplain] functionality ID (FRID):{} fully regenerated"
 INITIAL_COMMIT_MESSAGE = "[Codeplain] Initial module commit"
 BASE_FOLDER_COMMIT_MESSAGE = "[Codeplain] Initialize build with Base Folder content"
 
@@ -325,6 +326,24 @@ def has_commit_for_frid(repo_path: Union[str, os.PathLike], frid: str, module_na
     return bool(_get_commit_with_frid(Repo(repo_path), frid, module_name))
 
 
+def get_frids_regenerated_after_frid(repo_path: Union[str, os.PathLike], frid: str, module_name: str) -> list[str]:
+    """The functionalities regenerated after the "fully implemented" commit of `frid`.
+
+    A reset to that commit removes these regenerations.
+    """
+    repo = Repo(repo_path)
+    commit = _get_commit_with_frid(repo, frid, module_name)
+    if not commit:
+        return []
+
+    escaped_module_message = MODULE_NAME_MESSAGE.format(module_name).replace("[", "\\[").replace("]", "\\]")
+    subjects = repo.git.log(f"{commit}..HEAD", "--grep", escaped_module_message, "--format=%s").splitlines()
+    regenerated_pattern = re.compile(
+        re.escape(FUNCTIONAL_REQUIREMENT_REGENERATED_COMMIT_MESSAGE).replace(re.escape("{}"), "(.+)")
+    )
+    return [match.group(1) for subject in subjects if (match := regenerated_pattern.fullmatch(subject))]
+
+
 def _get_base_folder_commit(repo: Repo) -> str:
     """Finds commit related to copy of the base folder."""
     return _get_commit_with_message(repo, BASE_FOLDER_COMMIT_MESSAGE)
@@ -430,6 +449,10 @@ def get_last_rendered_functionality(repo_path: Union[str, os.PathLike]) -> tuple
         return None, None
 
     repo = Repo(repo_path)
+
+    # Only a "fully implemented" commit marks how far the module is rendered. A "fully regenerated"
+    # commit sits on top of that frontier, because a single functionality was rendered again in place.
+    # Treating it as the frontier would report the regenerated frid as the last rendered one.
     grep_pattern = FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(".*")
     grep_pattern = grep_pattern.replace("[", "\\[").replace("]", "\\]")
     commit_sha = repo.git.rev_list(repo.active_branch.name, "--grep", grep_pattern, "-n", "1")

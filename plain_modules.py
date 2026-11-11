@@ -361,6 +361,11 @@ class PlainModule:
             functionalities.append(functionality)
         metadata[MODULE_FUNCTIONALITIES] = functionalities
 
+        # source_hash claims the code implements the whole spec, so only stamp it when that is
+        # true. Regenerating one functionality leaves the other functionalities as they were.
+        if self._metadata_matches_spec(metadata):
+            metadata["source_hash"] = self.get_module_source_hash()
+
         metadata_utils.write_metadata(self.module_metadata_path(), metadata)
 
     def _unique_chain(self) -> list[tuple[str, dict]]:
@@ -379,6 +384,13 @@ class PlainModule:
             trees[module.module_name] = module.plain_source
             chain.append((module.module_name, module.plain_source))
         return chain
+
+    def _metadata_matches_spec(self, metadata: dict) -> bool:
+        """Whether the given metadata already describes the module's current spec."""
+        if metadata.get(MODULE_FUNCTIONALITIES) != self._get_module_functional_requirements():
+            return False
+
+        return metadata.get("non_functional_source_hash") == self.get_module_non_functional_source_hash()
 
     def get_module_source_hash(self) -> str:
         return plain_spec.get_hash_value([self.plain_source] + self.resources_list)
@@ -566,6 +578,63 @@ class PlainModule:
                     f"To fix this, please render the missing functionality ({self._frid_label(frid)}) first by running:\n"
                     f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {frid}"
                 )
+
+    def ensure_frid_can_be_regenerated(self, frid: str, render_conformance_tests: bool) -> None:
+        """Stop a regeneration of a functionality that was never fully rendered.
+
+        Only a rendered functionality can be generated again. This check runs before the required
+        modules are rendered, so a regeneration that cannot run uses no credits.
+
+        A module rendered without conformance tests has no conformance tests folder. A regeneration
+        with conformance tests would fail when it commits the new tests, and the earlier
+        functionalities would have no tests for the regression pass.
+        """
+        if not os.path.exists(self.module_build_folder) or not git_utils.has_commit_for_frid(
+            self.module_build_folder, frid, self.module_name
+        ):
+            raise MissingPreviousFunctionalitiesError(
+                f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
+                f"Please render all functionalities first by running:\n"
+                f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
+            )
+
+        if render_conformance_tests and not os.path.exists(self.module_conformance_tests_folder):
+            raise MissingPreviousFunctionalitiesError(
+                f"Cannot regenerate functionality {frid} because module {self.module_name} was rendered "
+                f"without conformance tests. Render the module again with conformance tests:\n"
+                f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION}"
+            )
+
+    def get_regenerated_frid_removed_by_render_from(self, start_frid: str) -> str | None:
+        """The earliest functionality before `start_frid` whose regeneration a render from `start_frid` removes.
+
+        A render from `start_frid` resets the code to the "fully implemented" commit of the functionality
+        before it. A regeneration made after that commit is removed by the reset. The functionalities from
+        `start_frid` on render again, so only a regeneration of an earlier functionality is lost.
+        """
+        previous_frid = plain_spec.get_previous_frid(self.plain_source, start_frid)
+        if previous_frid is None or not os.path.exists(self.module_build_folder):
+            return None
+
+        regenerated_frids = git_utils.get_frids_regenerated_after_frid(
+            self.module_build_folder, previous_frid, self.module_name
+        )
+        for frid in plain_spec.get_frids_before(self.plain_source, start_frid):
+            if frid in regenerated_frids:
+                return frid
+        return None
+
+    def ensure_render_from_keeps_regenerations(self, start_frid: str) -> None:
+        """Stop a render from `start_frid` that would remove the regeneration of an earlier functionality."""
+        regenerated_frid = self.get_regenerated_frid_removed_by_render_from(start_frid)
+        if regenerated_frid is None:
+            return
+        raise MissingPreviousFunctionalitiesError(
+            f"Cannot render from functionality {start_frid} of module {self.module_name}. "
+            f"Functionality {regenerated_frid} was regenerated, and a render from functionality {start_frid} "
+            f"would remove that regeneration. Render from functionality {regenerated_frid} instead:\n"
+            f"  codeplain {self.module_name}{plain_file.PLAIN_SOURCE_FILE_EXTENSION} --render-from {regenerated_frid}"
+        )
 
     def ensure_previous_frid_commits_exist(self, render_range: list[str], render_conformance_tests: bool) -> None:
         """

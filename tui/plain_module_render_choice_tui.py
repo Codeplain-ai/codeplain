@@ -58,6 +58,13 @@ class PlainModuleRenderChoiceTUI(App):
                 f" in module [#5593FF]{render_choice.module.module_name}[/]"
                 f": [#888]{quote}[/]"
             )
+        elif render_choice.choice_type == "render_from_regenerated":
+            assert render_choice.module is not None
+            assert render_choice.render_range is not None
+            return (
+                f"Render from regenerated functionality [#5593FF]{render_choice.render_range[0]}[/]"
+                f" in module [#5593FF]{render_choice.module.module_name}[/]"
+            )
         elif render_choice.choice_type == "rerender_affected" and self.plain_module_render_state.change is not None:
             all_affected_modules = get_all_affected_modules_from_change(
                 self.plain_module, self.plain_module_render_state

@@ -73,14 +73,18 @@ class RenderConformanceTests(BaseAction):
 
             console.debug(f"Storing conformance test files in subfolder {conformance_tests_folder_name}/")
 
-            render_context.conformance_tests_running_context.get_conformance_tests_json(
+            conformance_tests_json = render_context.conformance_tests_running_context.get_conformance_tests_json(
                 render_context.conformance_tests_running_context.current_testing_module_name
-            )[render_context.conformance_tests_running_context.current_testing_frid] = {
+            )
+            conformance_tests_json[render_context.conformance_tests_running_context.current_testing_frid] = {
                 "folder_name": conformance_tests_folder_name,
                 "functional_requirement": render_context.frid_context.specifications[
                     plain_spec.FUNCTIONAL_REQUIREMENTS
                 ][-1],
             }
+            RenderConformanceTests._keep_specification_order(
+                conformance_tests_json, list(plain_spec.get_frids(render_context.plain_source_tree))
+            )
         else:
             conformance_tests_folder_name = (
                 render_context.conformance_tests_running_context.get_current_conformance_test_folder_name()
@@ -123,6 +127,7 @@ class RenderConformanceTests(BaseAction):
                 render_context.conformance_tests_running_context.current_testing_module_name
             ),
             run_state=render_context.run_state,
+            is_regeneration=render_context.is_regenerate,
         )
 
         self._warn_about_untraced_scenarios(render_context, traceability)
@@ -137,6 +142,19 @@ class RenderConformanceTests(BaseAction):
         )
 
         return self.SUCCESSFUL_OUTCOME, None
+
+    @staticmethod
+    def _keep_specification_order(conformance_tests_json: dict, frids: list[str]) -> None:
+        """Put the entries back in the order of the functionalities in the specification.
+
+        A regeneration, or conformance tests written again, removes the entry and adds it at the end.
+        A module that requires this one runs these tests in the order of the entries.
+        """
+        ordered = sorted(
+            conformance_tests_json.items(), key=lambda item: frids.index(item[0]) if item[0] in frids else len(frids)
+        )
+        conformance_tests_json.clear()
+        conformance_tests_json.update(ordered)
 
     @staticmethod
     def _warn_about_untraced_scenarios(render_context: RenderContext, traceability: dict) -> None:

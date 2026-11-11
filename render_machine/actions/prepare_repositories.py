@@ -7,12 +7,17 @@ from memory_management import MemoryManager
 from plain2code_console import console
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
+from render_machine.render_types import RenderError
 
 
 class PrepareRepositories(BaseAction):
     SUCCESSFUL_OUTCOME = "repositories_prepared"
+    REGENERATE_NOT_POSSIBLE_OUTCOME = "regenerate_not_possible"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if render_context.is_regenerate:
+            return self._prepare_regenerate(render_context)
+
         if render_context.render_range is not None and render_context.render_range[0] != plain_spec.get_first_frid(
             render_context.plain_source_tree
         ):
@@ -84,6 +89,62 @@ class PrepareRepositories(BaseAction):
                     render_context.conformance_tests.get_module_conformance_tests_folder(render_context.module_name),
                     render_context.module_name,
                     render_context.run_state.render_id,
+                )
+
+        return self.SUCCESSFUL_OUTCOME, None
+
+    def _regenerate_not_possible(self, render_context: RenderContext, error_message: str):
+        # The error goes back as the outcome, so the state machine runs ExitWithError, which logs it.
+        # Dispatching the error from inside this action would end the render before that step runs,
+        # and the user would see no reason.
+        render_context.last_error_message = error_message
+        return self.REGENERATE_NOT_POSSIBLE_OUTCOME, RenderError.encode(message=error_message).to_payload()
+
+    def _prepare_regenerate(self, render_context: RenderContext):
+        frid = render_context.render_range[0]
+
+        if not git_utils.has_commit_for_frid(render_context.build_folder, frid, render_context.module_name):
+            return self._regenerate_not_possible(
+                render_context,
+                f"Cannot regenerate functionality {frid} because it has not been fully rendered yet. "
+                f"Please render all functionalities first by running: "
+                f"codeplain {render_context.module_name}.plain",
+            )
+
+        render_context.starting_frid = frid
+
+        module_metadata = render_context.plain_module.load_module_metadata()
+        if not module_metadata or "functionalities" not in module_metadata:
+            return self._regenerate_not_possible(
+                render_context,
+                "module_metadata.json is missing or incomplete. Please re-render the module from the beginning.",
+            )
+
+        stored_functionalities = module_metadata["functionalities"]
+        old_functionality = next((stored for stored in stored_functionalities if stored["id"] == frid), None)
+        if old_functionality is None:
+            return self._regenerate_not_possible(
+                render_context,
+                f"module_metadata.json holds no functionality {frid}. "
+                "Please re-render the module from the beginning.",
+            )
+
+        render_context.old_frid_spec = old_functionality["markdown"]
+        # The specs the code on disk currently implements (code-truth). Sent to the API so the
+        # regeneration prompt shows the old spec for any changed-but-not-yet-regenerated FR,
+        # keeping specs and code in sync.
+        render_context.code_functional_requirements = [stored["markdown"] for stored in stored_functionalities]
+
+        if render_context.render_conformance_tests:
+            conformance_tests_json = render_context.conformance_tests.get_conformance_tests_json(
+                render_context.module_name
+            )
+            if frid in conformance_tests_json:
+                old_folder = conformance_tests_json[frid]["folder_name"]
+                file_utils.delete_folder(old_folder)
+                del conformance_tests_json[frid]
+                render_context.conformance_tests.dump_conformance_tests_json(
+                    render_context.module_name, conformance_tests_json
                 )
 
         return self.SUCCESSFUL_OUTCOME, None

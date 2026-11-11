@@ -111,6 +111,7 @@ def make_render_context(api, build_folder, memory_folder, conformance_tests_runn
         unit_tests_running_context=UnitTestsRunningContext(fix_attempts=1),
         plain_source_tree={},
         module_name="mod",
+        is_regenerate=False,
         required_modules=None,
         frid_context=SimpleNamespace(frid="1", linked_resources={}, changed_files=set()),
         get_required_modules_functionalities=lambda: {},
