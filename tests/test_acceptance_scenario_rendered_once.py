@@ -64,7 +64,9 @@ def _render(render_context):
     the acceptance scenario it was asked for and the scenario IDs it had to trace."""
 
     def write(_self, _render_context, _tests_folder, params, scenario_ids):
-        render_context.codeplain_api.write_acceptance_test(params["acceptance_scenario"], scenario_ids)
+        render_context.codeplain_api.write_acceptance_test(
+            params["acceptance_scenario"], scenario_ids, params.get("earlier_acceptance_scenarios")
+        )
 
     with (
         patch.object(RenderConformanceTests, "_write", write),
@@ -113,6 +115,9 @@ def test_the_next_scenario_is_rendered_once_the_counter_moves(render_context):
     ]
     # Each write must leave a test for every acceptance scenario up to the one it renders.
     assert [call.args[1] for call in calls] == [[SCENARIOS[0]["id"]], [SCENARIOS[0]["id"], SCENARIOS[1]["id"]]]
+    # The writer is shown the earlier acceptance scenarios, whose tests it has to list with their IDs.
+    assert calls[0].args[2] is None
+    assert f"`{SCENARIOS[0]['id']}`" in calls[1].args[2]
     assert warnings == []
 
 

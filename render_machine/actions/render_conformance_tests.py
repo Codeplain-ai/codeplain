@@ -161,9 +161,13 @@ class RenderConformanceTests(BaseAction):
         params["acceptance_scenario"] = _stringify_scenarios([scenario])
         params["conformance_tests_files"] = _folder_files(tests_folder)
 
-        # Every conformance scenario and every acceptance scenario up to this one must have a test afterwards.
+        # Every conformance scenario and every acceptance scenario up to this one must have a test afterwards. The
+        # earlier acceptance scenarios already have one; the writer is shown them so it can list their tests.
         acceptance_ids = [s["id"] for s in acceptance_scenarios]
-        expected = [s["id"] for s in conformance_scenarios] + acceptance_ids[: acceptance_ids.index(scenario["id"]) + 1]
+        earlier = acceptance_scenarios[: acceptance_ids.index(scenario["id"])]
+        if earlier:
+            params["earlier_acceptance_scenarios"] = _stringify_scenarios(earlier)
+        expected = [s["id"] for s in conformance_scenarios] + [s["id"] for s in earlier] + [scenario["id"]]
         self._write(render_context, tests_folder, params, expected)
         ctx.rendered_acceptance_scenarios.append(scenario["id"])
 
