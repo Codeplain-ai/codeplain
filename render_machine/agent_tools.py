@@ -68,6 +68,9 @@ class AgentWorkspace:
     prepared_signature: Optional[tuple] = None
     # run_conformance_tests only: the files it last ran the tests on, and the result.
     last_test_run: Optional[tuple[tuple, dict]] = None
+    # run_unit_tests: whether its last run passed and no file changed since, and that run's log.
+    unit_tests_passed: bool = False
+    unit_tests_passed_log_path: Optional[str] = None
 
     def __post_init__(self):
         self.build_folder = _absolute(self.build_folder)
@@ -165,6 +168,7 @@ def _write_denied(full_path: str, workspace: AgentWorkspace) -> str:
 
 def _changed(full_path: str, workspace: AgentWorkspace) -> None:
     workspace.tool_result_cache.clear()
+    workspace.unit_tests_passed, workspace.unit_tests_passed_log_path = False, None
     workspace.after_change(full_path)
 
 
@@ -475,8 +479,11 @@ def run_unit_tests(_args: dict, scope: Target) -> dict:
     )
     context = render_context.unit_tests_running_context
     if exit_code == 0:
-        context.verified_passing, context.verified_passing_log_path = True, log_file_path
+        workspace.unit_tests_passed, workspace.unit_tests_passed_log_path = True, log_file_path
+        if context is not None:
+            context.verified_passing, context.verified_passing_log_path = True, log_file_path
         return {"output": "All unit tests passed."}
+    workspace.unit_tests_passed, workspace.unit_tests_passed_log_path = False, None
     if not log_file_path and output:
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".unittest_output") as f:
             f.write(output)
@@ -529,6 +536,7 @@ def _run_conformance_tests(render_context, tests_folder: str, workspace) -> dict
 
     if render_context.prepare_environment_script:
         signature = prepare_testing_environment._build_folder_signature(render_context.build_folder)
+        _adopt_background_preparation(render_context, workspace, signature)
         if signature != workspace.prepared_signature:
             exit_code, output, log_file_path = prepare_testing_environment._run_script(render_context)
             if exit_code != 0:
@@ -547,6 +555,19 @@ def _run_conformance_tests(render_context, tests_folder: str, workspace) -> dict
     if exit_code == 0:
         return {"output": "The conformance tests passed."}
     return _failed_run("The conformance tests failed", exit_code, output, log_file_path, workspace)
+
+
+def _adopt_background_preparation(render_context, workspace, signature: tuple) -> None:
+    """A preparation started in the background (while the conformance tests are written) must not run concurrently
+    with another one: wait for it, and when it prepared the build folder as it is now and succeeded, count the
+    environment as prepared."""
+    preparation = getattr(render_context, "background_preparation", None)
+    if preparation is None:
+        return
+    preparation.done.wait()
+    if preparation.error is None and preparation.result is not None and preparation.result[0] == 0:
+        if preparation.signature == signature:
+            workspace.prepared_signature = signature
 
 
 def _failed_run(header: str, exit_code: int, output: str, log_file_path: Optional[str], workspace) -> dict:

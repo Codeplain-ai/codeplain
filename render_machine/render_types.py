@@ -46,6 +46,10 @@ class FridContext:
     functional_requirement_render_attempts: int = 0
     changed_files: set[str] = field(default_factory=set)
     refactoring_iteration: int = 0
+    # Set when the implementing agent submitted right after a passing run_unit_tests (no file changed since): the
+    # unit-test loop that follows the implementation then accepts it without running the suite again.
+    implementation_unit_tests_passed: bool = False
+    implementation_unit_tests_log_path: Optional[str] = None
 
 
 @dataclass
@@ -184,6 +188,9 @@ class ConformanceTestsRunningContext:
         self.fix_attempts = fix_attempts
         self._conformance_tests_json = {current_testing_module_name: conformance_tests_json}
         self.conformance_tests_render_attempts = conformance_tests_render_attempts
+        # Set when the conformance tests writer's own run passed: (the files it ran on, its log). The harness's run
+        # that follows is skipped while the files are still the same (see RunConformanceTests).
+        self.verified_passing_run: Optional[tuple[tuple, Optional[str]]] = None
         self.current_testing_frid_specifications = current_testing_frid_specifications
         self.should_prepare_testing_environment = should_prepare_testing_environment
         self.conflicting_requirement_count = conflicting_requirement_count

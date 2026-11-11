@@ -37,7 +37,6 @@ def render_context(tmp_path):
     ctx.acceptance_tests_completed = 1
 
     api = MagicMock()
-    api.render_acceptance_tests.return_value = ({}, {"implemented": {}, "missing": [], "extra": []})
 
     conformance_tests = MagicMock()
     conformance_tests.fetch_existing_conformance_test_files.return_value = ({}, {})
@@ -61,14 +60,19 @@ def render_context(tmp_path):
 
 
 def _render(render_context):
+    """Render with the writing agent replaced by a recorder on the render context's API mock: each write records
+    the acceptance scenario it was asked for and the scenario IDs it had to trace."""
+
+    def write(_self, _render_context, _tests_folder, params, scenario_ids):
+        render_context.codeplain_api.write_acceptance_test(params["acceptance_scenario"], scenario_ids)
+
     with (
-        patch("render_machine.actions.render_conformance_tests.ImplementationCodeHelpers") as code_helpers,
-        patch("render_machine.actions.render_conformance_tests.MemoryManager") as memory,
+        patch.object(RenderConformanceTests, "_write", write),
+        patch.object(RenderConformanceTests, "_common_params", return_value={}),
         patch("render_machine.actions.render_conformance_tests.file_utils"),
+        patch("render_machine.actions.render_conformance_tests._folder_files", return_value={}),
         patch("render_machine.actions.render_conformance_tests.console") as console,
     ):
-        code_helpers.fetch_existing_files.return_value = ({}, {})
-        memory.fetch_memory_files.return_value = ({}, {})
         outcome, _ = RenderConformanceTests()._render_acceptance_test(render_context)
     return outcome, [call.args[0] for call in console.warning.call_args_list]
 
@@ -77,7 +81,7 @@ def test_the_scenario_is_rendered_and_recorded(render_context):
     outcome, warnings = _render(render_context)
 
     assert outcome == RenderConformanceTests.SUCCESSFUL_OUTCOME
-    assert render_context.codeplain_api.render_acceptance_tests.call_count == 1
+    assert render_context.codeplain_api.write_acceptance_test.call_count == 1
     assert render_context.conformance_tests_running_context.rendered_acceptance_scenarios == [SCENARIOS[0]["id"]]
     assert warnings == []
 
@@ -89,7 +93,7 @@ def test_a_second_entry_without_the_counter_moving_renders_nothing(render_contex
 
     assert outcome == RenderConformanceTests.SUCCESSFUL_OUTCOME
     # The call that would have written a second test for the scenario is not made.
-    assert render_context.codeplain_api.render_acceptance_tests.call_count == 1
+    assert render_context.codeplain_api.write_acceptance_test.call_count == 1
     assert len(warnings) == 1
     assert SCENARIOS[0]["id"] in warnings[0]
 
@@ -101,11 +105,14 @@ def test_the_next_scenario_is_rendered_once_the_counter_moves(render_context):
     outcome, warnings = _render(render_context)
 
     assert outcome == RenderConformanceTests.SUCCESSFUL_OUTCOME
-    assert render_context.codeplain_api.render_acceptance_tests.call_count == 2
-    assert [call.args[8] for call in render_context.codeplain_api.render_acceptance_tests.call_args_list] == [
-        SCENARIOS[0]["id"],
-        SCENARIOS[1]["id"],
+    assert render_context.codeplain_api.write_acceptance_test.call_count == 2
+    calls = render_context.codeplain_api.write_acceptance_test.call_args_list
+    assert [f"`{SCENARIOS[0]['id']}`" in calls[0].args[0], f"`{SCENARIOS[1]['id']}`" in calls[1].args[0]] == [
+        True,
+        True,
     ]
+    # Each write must leave a test for every acceptance scenario up to the one it renders.
+    assert [call.args[1] for call in calls] == [[SCENARIOS[0]["id"]], [SCENARIOS[0]["id"], SCENARIOS[1]["id"]]]
     assert warnings == []
 
 
@@ -115,7 +122,7 @@ def test_a_functionality_without_acceptance_scenarios_renders_nothing(render_con
     outcome, _ = _render(render_context)
 
     assert outcome == RenderConformanceTests.SUCCESSFUL_OUTCOME
-    assert render_context.codeplain_api.render_acceptance_tests.call_count == 0
+    assert render_context.codeplain_api.write_acceptance_test.call_count == 0
 
 
 class TestRegeneratedConformanceTests:

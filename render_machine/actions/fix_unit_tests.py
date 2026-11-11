@@ -8,7 +8,7 @@ import file_utils
 import plain_spec
 from plain2code_console import console
 from plain2code_exceptions import InternalClientError
-from render_machine import agent_tools
+from render_machine import agent_session, agent_tools
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
 
@@ -107,30 +107,19 @@ class FixUnitTests(BaseAction):
         session.conformance_fixes_handed_off = len(conformance_tests_fixes)
         context.agent_used_in_this_loop = True
 
-        submitted = False
-        turns = 0
-        while response.get("status") == "tool_calls" and turns < MAX_AGENT_TURNS_PER_ATTEMPT:
-            turns += 1
-            calls = response["calls"]
-            submit_call = next((call for call in calls if call["name"] == SUBMIT_FIX_TOOL), None)
-            tool_results = agent_tools.execute_calls(
-                [call for call in calls if call is not submit_call], render_context
-            )
-            if submit_call is not None:
-                session.pending_submit_call_id = submit_call["id"]
-                session.pending_tool_results = tool_results
-                submitted = True
-                console.info(f"Agent submitted a fix: {submit_call['args'].get('changes_made', '')}")
-                break
-            response = api.agent_continue(session.session_id, tool_results, frid, module_name, render_context.run_state)
-
-        if not submitted:
+        run = agent_session.run_until_submit(
+            render_context, session.session_id, response, SUBMIT_FIX_TOOL, render_context, MAX_AGENT_TURNS_PER_ATTEMPT
+        )
+        if run.submit_call is not None:
+            session.pending_submit_call_id = run.submit_call["id"]
+            session.pending_tool_results = run.tool_results
+            console.info(f"Agent submitted a fix: {run.submit_call['args'].get('changes_made', '')}")
+        else:
             # The session ended without a submission (finished in text, failed, or used up this
             # attempt's turn budget) — a fresh session is started if the tests still fail.
-            status = response.get("status")
-            if status == "failed":
-                console.warning(f"Agent session failed: {response.get('error', 'unknown error')}")
-            elif status == "tool_calls":
+            if run.status == "failed":
+                console.warning(f"Agent session failed: {run.response.get('error', 'unknown error')}")
+            elif run.status == "out_of_turns":
                 console.warning(f"Agent used {MAX_AGENT_TURNS_PER_ATTEMPT} turns without submitting a fix.")
             session.reset()
 

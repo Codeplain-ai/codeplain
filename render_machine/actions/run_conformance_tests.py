@@ -3,6 +3,7 @@ from typing import Any
 
 import render_machine.render_utils as render_utils
 from plain2code_console import console
+from render_machine import agent_tools
 from render_machine.actions.base_action import BaseAction
 from render_machine.render_context import RenderContext
 from render_machine.render_types import RenderError
@@ -40,16 +41,21 @@ class RunConformanceTests(BaseAction):
             + f"functionality {render_context.testing_functionality_label()}"
             + ")."
         )
-        exit_code, conformance_tests_issue, conformance_tests_temp_log_file_path = render_utils.execute_script(
-            conformance_tests_script,
-            [render_context.build_folder, conformance_tests_folder_name],
-            "Conformance Tests",
-            frid=render_context.conformance_tests_running_context.current_testing_frid,
-            module=render_context.conformance_tests_running_context.current_testing_module_name,
-            frid_position=position,
-            timeout=render_context.test_script_timeout,
-            stop_event=render_context.stop_event,
-        )
+        verified, verified_log_path = self._verified_passing_run(render_context, conformance_tests_folder_name)
+        if verified:
+            console.info("The conformance tests already passed in the agent's last run; not running them again.")
+            exit_code, conformance_tests_issue, conformance_tests_temp_log_file_path = 0, "", verified_log_path
+        else:
+            exit_code, conformance_tests_issue, conformance_tests_temp_log_file_path = render_utils.execute_script(
+                conformance_tests_script,
+                [render_context.build_folder, conformance_tests_folder_name],
+                "Conformance Tests",
+                frid=render_context.conformance_tests_running_context.current_testing_frid,
+                module=render_context.conformance_tests_running_context.current_testing_module_name,
+                frid_position=position,
+                timeout=render_context.test_script_timeout,
+                stop_event=render_context.stop_event,
+            )
         render_context.script_execution_history.latest_conformance_test_output_path = (
             conformance_tests_temp_log_file_path
         )
@@ -81,3 +87,17 @@ class RunConformanceTests(BaseAction):
             )
 
         return self.FAILED_OUTCOME, {"previous_conformance_tests_issue": conformance_tests_issue}
+
+    @staticmethod
+    def _verified_passing_run(render_context: RenderContext, tests_folder: str) -> tuple[bool, str | None]:
+        """Whether the conformance tests writer's own run passed on the files as they are now, and its log
+        (consumed once)."""
+        ctx = render_context.conformance_tests_running_context
+        verified = getattr(ctx, "verified_passing_run", None)
+        if verified is None:
+            return False, None
+        ctx.verified_passing_run = None
+        files, log_path = verified
+        if files != agent_tools.test_run_files(render_context, tests_folder):
+            return False, None
+        return True, log_path

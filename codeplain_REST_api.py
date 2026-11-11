@@ -275,60 +275,6 @@ class CodeplainAPI:
             endpoint_url, headers, payload, run_state, num_retries=0, silent=True, timeout=REPORT_TIMEOUT_SECONDS
         )
 
-    def render_functional_requirement(
-        self,
-        frid: str,
-        plain_source_tree: dict,
-        linked_resources: dict,
-        existing_files_content: dict,
-        memory_files_content: dict,
-        module_name: str,
-        required_modules: dict,
-        include_unittests: bool,
-        run_state: RunState,
-    ) -> dict[str, str]:
-        """
-        Renders the content of a functionality based on the provided ID,
-        corresponding sections from a Plain document, and existing files' content.
-
-        Args:
-            frid (str): The unique identifier for the functionality to be rendered.
-            plain_source_tree (dict): A dictionary containing the plain source tree.
-            linked_resources (dict): A dictionary where the keys represent filenames of linked
-                                        resources and the values are dictionaries containing
-                                        the content of the linked resources and the sections
-                                        they are linked to.
-            existing_files_content (dict): A dictionary where the keys represent filenames
-                                        and the values are the content of those files.
-            memory_files_content (dict): A dictionary where the keys represent memory filenames
-                                        and the values are the content of those files.
-            module_name (str): The name of the module to render the functionality for.
-            required_modules (dict): A dictionary where the keys represent module names
-                                     and the values are lists of functionalities implemented in those modules.
-            run_state (RunState): The current state of the rendering process.
-        Returns:
-            dict[str, str]: A dictionary where the keys are filenames and the values
-                            are the rendered code for those files.
-
-        Raises:
-            ValueError: If the frid is invalid or the necessary sections cannot be found.
-        """
-        endpoint_url = f"{self.api_url}/render_functional_requirement"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "memory_files_content": memory_files_content,
-            "module_name": module_name,
-            "required_modules": required_modules,
-            "include_unittests": include_unittests,
-        }
-
-        return self.post_request(endpoint_url, headers, payload, run_state)
-
     def distill_conformance_test_memory(
         self,
         frid,
@@ -372,39 +318,6 @@ class CodeplainAPI:
 
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def render_conformance_tests(
-        self,
-        frid,
-        functional_requirement_id,
-        plain_source_tree,
-        linked_resources,
-        existing_files_content,
-        memory_files_content,
-        module_name: str,
-        required_modules,
-        conformance_tests_folder_name,
-        conformance_tests_json,
-        run_state: RunState,
-    ):
-        endpoint_url = f"{self.api_url}/render_conformance_tests"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "functional_requirement_id": functional_requirement_id,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "memory_files_content": memory_files_content,
-            "module_name": module_name,
-            "required_modules": required_modules,
-            "conformance_tests_folder_name": conformance_tests_folder_name,
-            "conformance_tests_json": conformance_tests_json,
-        }
-
-        response = self.post_request(endpoint_url, headers, payload, run_state)
-        return response["patched_response_files"], response["traceability"]
-
     def generate_folder_name_from_functional_requirement(
         self,
         frid,
@@ -424,61 +337,6 @@ class CodeplainAPI:
         }
 
         return self.post_request(endpoint_url, headers, payload, run_state)
-
-    def render_acceptance_tests(
-        self,
-        frid,
-        plain_source_tree,
-        linked_resources,
-        existing_files_content,
-        memory_files_content,
-        conformance_tests_files,
-        module_name: str,
-        required_modules,
-        scenario_id,
-        run_state: RunState,
-    ):
-        """
-        Renders acceptance tests based on the provided parameters.
-
-        Args:
-            frid (str): The unique identifier for the functionality.
-            plain_source_tree (dict): A dictionary containing the plain source tree.
-            linked_resources (dict): A dictionary where the keys represent resource names
-                                    and the values are the content of those resources.
-            existing_files_content (dict): A dictionary where the keys represent code base
-                                        filenames and the values are the content of those files.
-            memory_files_content (dict): A dictionary where the keys represent memory filenames
-                                        and the values are the content of those files.
-            conformance_tests_files (dict): A dictionary containing conformance test files.
-            required_modules (dict): A dictionary where the keys represent module names
-                                     and the values are lists of functionalities implemented in those modules.
-            scenario_id (str): The scenario-id of the acceptance scenario to render.
-
-        Returns:
-            tuple: The rendered acceptance tests, and the traceability of every scenario of the
-                   functionality a test is due for.
-
-        Raises:
-            Exception: If the request fails or returns an error.
-        """
-        endpoint_url = f"{self.api_url}/render_acceptance_tests"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
-
-        payload = {
-            "frid": frid,
-            "plain_source_tree": plain_source_tree,
-            "linked_resources": linked_resources,
-            "existing_files_content": existing_files_content,
-            "memory_files_content": memory_files_content,
-            "conformance_tests_files": conformance_tests_files,
-            "module_name": module_name,
-            "required_modules": required_modules,
-            "scenario_id": scenario_id,
-        }
-
-        response = self.post_request(endpoint_url, headers, payload, run_state)
-        return response["patched_response_files"], response["traceability"]
 
     def analyze_rendering(
         self,
@@ -581,8 +439,18 @@ class CodeplainAPI:
         }
         return self.post_request(endpoint_url, headers, payload, run_state)
 
-    def agent_start(self, task_type: str, task_params: dict, frid: str, module_name: str, run_state: RunState):
-        """Start a server-side agent session; returns the first turn (tool calls or completion)."""
+    def agent_start(
+        self,
+        task_type: str,
+        task_params: dict,
+        frid: str,
+        module_name: str,
+        run_state: RunState,
+        plain_source_tree: dict | None = None,
+    ):
+        """Start a server-side agent session; returns the first turn (tool calls or completion). A task that starts
+        a functionality (implement_functionality) reserves its credit, and with `plain_source_tree` may be answered
+        from the server's render cache (status completed, with cached_files)."""
         endpoint_url = f"{self.api_url}/agent/start"
         headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
         payload = {
@@ -591,7 +459,33 @@ class CodeplainAPI:
             "frid": frid,
             "module_name": module_name,
         }
+        if plain_source_tree is not None:
+            payload["plain_source_tree"] = plain_source_tree
         return self.post_request(endpoint_url, headers, payload, run_state, num_retries=AGENT_MAX_RETRIES)
+
+    def check_functional_requirement_breakdown(
+        self,
+        frid: str,
+        plain_source_tree: dict,
+        linked_resources: dict,
+        existing_files_content: dict,
+        module_name: str,
+        required_modules: dict,
+        run_state: RunState,
+    ) -> dict:
+        """For a functionality the implementing agent judged too complex: raises FunctionalRequirementTooComplex
+        with a proposed breakdown when one is feasible; returns when not, and the implementation is accepted."""
+        endpoint_url = f"{self.api_url}/check_functional_requirement_breakdown"
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        payload = {
+            "frid": frid,
+            "plain_source_tree": plain_source_tree,
+            "linked_resources": linked_resources,
+            "existing_files_content": existing_files_content,
+            "module_name": module_name,
+            "required_modules": required_modules,
+        }
+        return self.post_request(endpoint_url, headers, payload, run_state)
 
     def agent_continue(
         self, session_id: str, tool_results: list[dict], frid: str, module_name: str, run_state: RunState

@@ -18,9 +18,9 @@ class RunUnitTests(BaseAction):
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
         context = render_context.unit_tests_running_context
         if context.verified_passing:
-            # The fixing agent's own run passed and no file changed since; running again is redundant.
+            # The agent's own run (implementing or fixing) passed and no file changed since; running again is redundant.
             context.verified_passing = False
-            console.info("Unit tests already passed in the fixing agent's last run; not running them again.")
+            console.info("Unit tests already passed in the agent's last run; not running them again.")
             render_context.script_execution_history.latest_unit_test_output_path = context.verified_passing_log_path
             render_context.script_execution_history.should_update_script_outputs = True
             return self.SUCCESSFUL_OUTCOME, None

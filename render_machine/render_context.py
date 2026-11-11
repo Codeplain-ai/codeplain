@@ -241,6 +241,14 @@ class RenderContext:
     def start_unittests_processing(self):
         self.unit_tests_running_context = UnitTestsRunningContext(fix_attempts=0)
         self.run_state.increment_unittest_batch_id()
+        if self.frid_context is not None and self.frid_context.implementation_unit_tests_passed:
+            # The implementing agent's last run passed and nothing changed since (consumed once: the loops after
+            # refactoring or conformance fixes run the tests).
+            self.frid_context.implementation_unit_tests_passed = False
+            self.unit_tests_running_context.verified_passing = True
+            self.unit_tests_running_context.verified_passing_log_path = (
+                self.frid_context.implementation_unit_tests_log_path
+            )
 
     def _get_first_frid_conformance_test_running_context(self, module: PlainModule | None):
         conformance_tests_running_context = self.conformance_tests_running_context
