@@ -134,14 +134,22 @@ class RenderContext:
     def testing_functionality_position(self) -> Optional[str]:
         """Where the functionality under conformance test stands among those of its module, as "3/12"."""
         ctx = self.conformance_tests_running_context
+        if ctx is None:
+            return None
         if ctx.current_testing_module_name == self.module_name:
             plain_source_tree = self.plain_source_tree
         else:
+            all_required = getattr(self.plain_module, "all_required_modules", self.required_modules)
             plain_source_tree = next(
-                module.plain_source
-                for module in self.required_modules
-                if module.module_name == ctx.current_testing_module_name
+                (
+                    module.plain_source
+                    for module in all_required
+                    if module.module_name == ctx.current_testing_module_name
+                ),
+                None,
             )
+        if plain_source_tree is None:
+            return None
         return functionality_position(list(plain_spec.get_frids(plain_source_tree)), ctx.current_testing_frid)
 
     def functionality_label(self, frid: Optional[str] = None) -> Optional[str]:
@@ -157,6 +165,8 @@ class RenderContext:
     def testing_functionality_label(self) -> Optional[str]:
         """The functionality under conformance test named for the logs, as "module:func-id (3/12)"."""
         ctx = self.conformance_tests_running_context
+        if ctx is None:
+            return None
         return with_position(
             qualified_frid(ctx.current_testing_module_name, ctx.current_testing_frid),
             self.testing_functionality_position(),
