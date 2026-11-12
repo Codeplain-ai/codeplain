@@ -219,6 +219,30 @@ def test_get_next_module_raises_when_module_not_found(root_module):
         root_module.get_next_module("unknown")
 
 
+def test_all_required_modules_diamond_dependency_deduplication(monkeypatch):
+    """In a diamond dependency (A requires B and C; B requires C), C appears only once in all_required_modules."""
+    # Construct mock modules representing A -> B, C; B -> C
+    mod_c = PlainModule.__new__(PlainModule)
+    mod_c.module_name = "mod_c"
+    mod_c.required_modules = []
+
+    mod_b = PlainModule.__new__(PlainModule)
+    mod_b.module_name = "mod_b"
+    mod_b.required_modules = [mod_c]
+
+    mod_a = PlainModule.__new__(PlainModule)
+    mod_a.module_name = "mod_a"
+    mod_a.required_modules = [mod_b, mod_c]
+
+    all_reqs = mod_a.all_required_modules
+    assert [m.module_name for m in all_reqs] == ["mod_c", "mod_b"]
+
+    # Verify get_next_module progresses cleanly through the diamond without cycling
+    assert mod_a.get_next_module("mod_c") == mod_b
+    assert mod_a.get_next_module("mod_b") == mod_a
+    assert mod_a.get_next_module("mod_a") is None
+
+
 # --------------------------------------------------------------------------
 # get_next_frid
 # --------------------------------------------------------------------------
