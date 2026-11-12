@@ -362,7 +362,7 @@ def get_implementation_code_diff(repo_path: Union[str, os.PathLike], frid: str, 
     return _get_diff_dict(diff_output)
 
 
-def get_fixed_implementation_code_diff(repo_path: Union[str, os.PathLike], frid: str) -> dict:
+def get_fixed_implementation_code_diff(repo_path: Union[str, os.PathLike], frid: str) -> Optional[dict]:
     repo = Repo(repo_path)
 
     implementation_commit = _get_commit_with_message(repo, REFACTORED_CODE_COMMIT_MESSAGE.format(frid))
@@ -370,9 +370,20 @@ def get_fixed_implementation_code_diff(repo_path: Union[str, os.PathLike], frid:
         implementation_commit = _get_commit_with_message(
             repo, FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format(frid)
         )
+    if not implementation_commit:
+        return None
 
-    conformance_tests_passed_commit = _get_commit_with_message(
-        repo, CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE.format(frid)
+    escaped_passed_message = CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE.replace("[", "\\[").replace("]", "\\]")
+    escaped_frid_message = RENDERED_FRID_MESSAGE.format(frid).replace("[", "\\[").replace("]", "\\]")
+    conformance_tests_passed_commit = repo.git.rev_list(
+        repo.active_branch.name,
+        "--grep",
+        escaped_passed_message,
+        "--grep",
+        escaped_frid_message,
+        "--all-match",
+        "-n",
+        "1",
     )
     if not conformance_tests_passed_commit:
         return None
