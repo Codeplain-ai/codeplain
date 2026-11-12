@@ -16,6 +16,7 @@ from render_machine.render_types import ConformanceTestsRunningContext
 RENDERED_FRID = "3"
 TESTED_FRID = "2"
 MODULE_NAME = "task-manager"
+TESTED_MODULE_NAME = "task-base"
 
 
 class StopAfterFolderNameCall(Exception):
@@ -44,7 +45,7 @@ def api():
 @pytest.fixture
 def render_context(api):
     conformance_tests_running_context = ConformanceTestsRunningContext(
-        current_testing_module_name=MODULE_NAME,
+        current_testing_module_name=TESTED_MODULE_NAME,
         current_testing_frid=TESTED_FRID,
         fix_attempts=0,
         conformance_tests_json={RENDERED_FRID: {"folder_name": "add_new_task_ui_verification"}},
