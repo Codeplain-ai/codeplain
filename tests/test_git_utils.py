@@ -8,10 +8,13 @@ from git import Repo
 
 from git_utils import (
     BASE_FOLDER_COMMIT_MESSAGE,
+    CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
     FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE,
+    FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE,
     REFACTORED_CODE_COMMIT_MESSAGE,
     add_all_files_and_commit,
     diff,
+    get_fixed_implementation_code_diff,
     get_last_rendered_functionality,
     init_git_repo,
     revert_changes,
@@ -508,3 +511,56 @@ def test_get_last_finished_frid_without_module_name(empty_repo):
 
     with pytest.raises(InvalidGitRepositoryError, match="Could not find module name in finished commit"):
         get_last_rendered_functionality(empty_repo)
+
+
+def test_get_fixed_implementation_code_diff_filters_by_specific_frid(empty_repo):
+    """get_fixed_implementation_code_diff must return diff for the specific FRID,
+    and return None when an FRID has no conformance fix even if another FRID does."""
+    file_path = Path(empty_repo) / "code.py"
+
+    # FRID 1: implemented, then fixed during conformance tests
+    file_path.write_text("def f(): return 1\n")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format("frid-1"),
+        module_name="mod",
+        frid="frid-1",
+    )
+    file_path.write_text("def f(): return 10\n")
+    add_all_files_and_commit(
+        empty_repo,
+        CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
+        module_name="mod",
+        frid="frid-1",
+    )
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("frid-1"),
+        module_name="mod",
+        frid="frid-1",
+    )
+
+    # FRID 2: implemented and finished without any conformance fixes
+    file_path.write_text("def f(): return 10\ndef g(): return 2\n")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format("frid-2"),
+        module_name="mod",
+        frid="frid-2",
+    )
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("frid-2"),
+        module_name="mod",
+        frid="frid-2",
+    )
+
+    # FRID 2 has NO conformance fixes, so it must return None (not FRID 1's commit!)
+    assert get_fixed_implementation_code_diff(empty_repo, "frid-2") is None
+
+    # FRID 1 DOES have conformance fixes, so it must return FRID 1's diff
+    diff_frid_1 = get_fixed_implementation_code_diff(empty_repo, "frid-1")
+    assert diff_frid_1 is not None
+    assert "code.py" in diff_frid_1
+    assert "-def f(): return 1" in diff_frid_1["code.py"]
+    assert "+def f(): return 10" in diff_frid_1["code.py"]
