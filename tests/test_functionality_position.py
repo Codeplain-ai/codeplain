@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import file_utils  # noqa: F401  # imported before plain_modules, which it imports back from
+import plain_spec
 from plain2code_events import RenderContextSnapshot
 from plain2code_utils import functionality_position
 from render_machine.actions.render_functional_requirement import RenderFunctionalRequirement
@@ -88,3 +89,65 @@ def test_the_log_heading_keeps_the_attempt_after_the_position():
 
 def test_the_log_heading_without_a_position_reads_as_before():
     assert "Rendering functionality add-login-button:" in _log_heading([], "add-login-button")
+
+
+def test_testing_functionality_position_when_context_is_none():
+    from render_machine.render_context import RenderContext
+
+    ctx = SimpleNamespace(
+        conformance_tests_running_context=None,
+        module_name="app",
+    )
+    ctx.testing_functionality_position = lambda: RenderContext.testing_functionality_position(ctx)  # type: ignore[arg-type]
+    ctx.testing_functionality_label = lambda: RenderContext.testing_functionality_label(ctx)  # type: ignore[arg-type]
+    assert ctx.testing_functionality_position() is None
+    assert ctx.testing_functionality_label() is None
+
+
+def test_testing_functionality_position_for_transitive_required_module():
+    from render_machine.render_context import RenderContext
+
+    # Setup module hierarchy: app -> db -> core
+    core_module = SimpleNamespace(
+        module_name="core",
+        plain_source={plain_spec.FUNCTIONAL_REQUIREMENTS: [{"id": "init-core"}, {"id": "cleanup-core"}]},
+    )
+    db_module = SimpleNamespace(
+        module_name="db",
+        plain_source={plain_spec.FUNCTIONAL_REQUIREMENTS: [{"id": "connect-db"}]},
+    )
+    app_module = SimpleNamespace(
+        module_name="app",
+        plain_source={plain_spec.FUNCTIONAL_REQUIREMENTS: [{"id": "start-app"}]},
+        required_modules=[db_module],
+        all_required_modules=[core_module, db_module],
+    )
+
+    ctx = SimpleNamespace(
+        plain_module=app_module,
+        required_modules=app_module.required_modules,
+        plain_source_tree=app_module.plain_source,
+        module_name="app",
+        conformance_tests_running_context=SimpleNamespace(
+            current_testing_module_name="core",
+            current_testing_frid="cleanup-core",
+        ),
+    )
+    ctx.testing_functionality_position = lambda: RenderContext.testing_functionality_position(ctx)  # type: ignore[arg-type]
+    ctx.testing_functionality_label = lambda: RenderContext.testing_functionality_label(ctx)  # type: ignore[arg-type]
+
+    # Transitive required module position and label resolution
+    assert ctx.testing_functionality_position() == "2/2"
+    assert ctx.testing_functionality_label() == "core:cleanup-core (2/2)"
+
+    # Direct required module
+    ctx.conformance_tests_running_context.current_testing_module_name = "db"
+    ctx.conformance_tests_running_context.current_testing_frid = "connect-db"
+    assert ctx.testing_functionality_position() == "1/1"
+    assert ctx.testing_functionality_label() == "db:connect-db (1/1)"
+
+    # Current module
+    ctx.conformance_tests_running_context.current_testing_module_name = "app"
+    ctx.conformance_tests_running_context.current_testing_frid = "start-app"
+    assert ctx.testing_functionality_position() == "1/1"
+    assert ctx.testing_functionality_label() == "app:start-app (1/1)"
