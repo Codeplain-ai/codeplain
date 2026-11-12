@@ -202,14 +202,20 @@ class PlainModule:
 
     @cached_property
     def all_required_modules(self) -> list[PlainModule]:
-        all_required_modules = []
+        result: list[PlainModule] = []
+        seen: set[str] = set()
+
         for required_module in self.required_modules:
-            if len(required_module.required_modules) > 0:
-                all_required_modules.extend(required_module.all_required_modules)
+            for mod in required_module.all_required_modules:
+                if mod.module_name not in seen:
+                    seen.add(mod.module_name)
+                    result.append(mod)
 
-            all_required_modules.append(required_module)
+            if required_module.module_name not in seen:
+                seen.add(required_module.module_name)
+                result.append(required_module)
 
-        return all_required_modules
+        return result
 
     @property
     def _default_module_folder(self) -> str:
