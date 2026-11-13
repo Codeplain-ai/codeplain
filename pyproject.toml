@@ -29,7 +29,7 @@ dependencies = [
     "transitions==0.9.3",
     "textual>=7.5.0",
     "rich==15.0.0",
-    "sentry-sdk==2.73.0",
+    "sentry-sdk==2.74.0",
 ]
 
 [project.optional-dependencies]
