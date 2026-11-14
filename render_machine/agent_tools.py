@@ -208,6 +208,21 @@ def _linked_resource(file_path: str, workspace: AgentWorkspace) -> Optional[str]
     return None
 
 
+def _linked_resources_under(file_path: str, workspace: AgentWorkspace) -> list[tuple[str, str]]:
+    """The linked resources a grep path names by their link path: the resource itself, or the resources under a
+    folder of link paths (e.g. `../../src/main/java`)."""
+    if not file_path or not workspace.linked_resources:
+        return []
+    wanted = os.path.normpath(file_path)
+    if wanted == ".":
+        return []
+    return sorted(
+        (path, content)
+        for path, content in workspace.linked_resources.items()
+        if os.path.normpath(path) == wanted or os.path.normpath(path).startswith(wanted + os.sep)
+    )
+
+
 def read_file(args: dict, scope: Target) -> str:
     workspace = _workspace(scope)
     resource = _linked_resource(args.get("file_path", ""), workspace)
@@ -250,12 +265,20 @@ def grep(args: dict, scope: Target) -> str:
             f"Error: invalid regular expression '{pattern}': {e}. The pattern uses Python regex syntax; "
             "escape special characters such as ( [ . * + ? with a backslash to match them literally."
         )
+    context_lines = min(max(int(args.get("context_lines") or 0), 0), MAX_GREP_CONTEXT_LINES)
+    resources = _linked_resources_under(args.get("file_path") or "", workspace)
+    if resources:
+        include = args.get("include") or ""
+        output = []
+        for path, content in resources:
+            if not include or fnmatch.fnmatch(os.path.basename(path), include):
+                output.extend(_grep_lines(content.splitlines(), path, regex, context_lines, bool(output)))
+        return _bound("\n".join(output)) if output else f"No matches for '{pattern}' in '{args.get('file_path')}'."
     target = _resolve(args.get("file_path") or ".", workspace)
     if not _readable(target, workspace):
         return f"Error: read access denied for '{target}'." + _where_to_look(workspace)
     if not os.path.exists(target):
         return f"Error: path not found: '{target}'." + _where_to_look(workspace)
-    context_lines = min(max(int(args.get("context_lines") or 0), 0), MAX_GREP_CONTEXT_LINES)
     # Paths inside the build folder come back build-relative, the form the other tools accept; a test log
     # outside it keeps its absolute path.
     build_folder = _build_folder(workspace)
@@ -291,7 +314,14 @@ def _grep_file(path: str, display: str, regex: re.Pattern, context_lines: int, o
         return []
     if b"\0" in data[:8192]:
         return []  # binary
-    lines = data.decode("utf-8", errors="replace").splitlines()
+    return _grep_lines(
+        data.decode("utf-8", errors="replace").splitlines(), display, regex, context_lines, output_has_groups
+    )
+
+
+def _grep_lines(
+    lines: list[str], display: str, regex: re.Pattern, context_lines: int, output_has_groups: bool
+) -> list[str]:
     matches = [i for i, line in enumerate(lines) if regex.search(line)]
     if not matches:
         return []

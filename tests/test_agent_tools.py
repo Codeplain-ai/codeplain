@@ -372,3 +372,25 @@ def test_the_unit_tests_workspace_carries_the_functionalitys_linked_resources(pr
     project.rc.frid_context = SimpleNamespace(linked_resources={"../r.md": "resource"})
     workspace = agent_tools.unit_tests_workspace(project.rc)
     assert agent_tools.read_file({"file_path": "../r.md"}, workspace) == "1: resource"
+
+
+def test_grep_searches_a_linked_resource_or_the_resources_under_a_link_folder(tmp_path):
+    build = tmp_path / "build"
+    build.mkdir()
+    workspace = agent_tools.AgentWorkspace(
+        build_folder=str(build),
+        writable_folders=[str(build)],
+        linked_resources={
+            "../../pom.xml": "<dependency>\n  <artifactId>spring-web</artifactId>\n</dependency>",
+            "../../src/main/java/com/x/ItemStore.java": "class ItemStore {\n  int get();\n}",
+        },
+    )
+
+    assert agent_tools.grep({"pattern": "spring-web", "file_path": "../../pom.xml"}, workspace) == (
+        "../../pom.xml:2:  <artifactId>spring-web</artifactId>"
+    )
+    assert agent_tools.grep({"pattern": "get", "file_path": "../../src/main/java"}, workspace) == (
+        "../../src/main/java/com/x/ItemStore.java:2:  int get();"
+    )
+    assert agent_tools.grep({"pattern": "absent", "file_path": "../../pom.xml"}, workspace).startswith("No matches")
+    assert "read access denied" in agent_tools.grep({"pattern": "x", "file_path": "../../docs"}, workspace)
