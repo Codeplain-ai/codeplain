@@ -183,6 +183,8 @@ class FixUnitTests(BaseAction):
             "non_functional_requirements": "\n".join(specifications.get(plain_spec.NON_FUNCTIONAL_REQUIREMENTS, [])),
             "functional_requirements": FixUnitTests._functional_requirements_section(render_context, specifications),
             "linked_resources": render_context.frid_context.linked_resources,
+            # read_file serves the linked resources, so the prompts may leave out those the context never names.
+            "linked_resources_readable": True,
             "build_folder": render_context.build_folder,
             "module_name": render_context.module_name,
             **agent_tools.modules_layout_params(render_context),

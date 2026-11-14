@@ -59,6 +59,9 @@ class AgentWorkspace:
     # Called with the absolute path of a file right before and right after a tool changes it.
     before_change: Callable[[str], None] = _noop
     after_change: Callable[[str], None] = _noop
+    # The functionality's linked resources (files of the project the code is built into), by their link path:
+    # read_file serves them by that path. The prompts show only the resources the context names.
+    linked_resources: dict[str, str] = field(default_factory=dict)
     # The tools the agent may call; None allows every tool in TOOLS.
     allowed_tools: Optional[frozenset[str]] = None
     # Needed by run_unit_tests and run_conformance_tests only.
@@ -106,12 +109,18 @@ def unit_tests_workspace(render_context: RenderContext) -> AgentWorkspace:
         readable_folders=[rendered_modules_folder(render_context)],
         readable_log_paths=render_context.unit_tests_agent_session.readable_log_paths,
         tool_result_cache=context.tool_result_cache,
+        linked_resources=linked_resources_of(render_context),
         after_change=lambda full_path: _track_change(full_path, render_context),
         render_context=render_context,
     )
 
 
 Target = Union[AgentWorkspace, RenderContext]
+
+
+def linked_resources_of(render_context: RenderContext) -> dict[str, str]:
+    frid_context = getattr(render_context, "frid_context", None)
+    return dict(getattr(frid_context, "linked_resources", None) or {})
 
 
 def _workspace(target: Target) -> AgentWorkspace:
@@ -188,15 +197,30 @@ def _track_change(full_path: str, render_context: RenderContext) -> None:
     context.tool_result_cache.clear()
 
 
+def _linked_resource(file_path: str, workspace: AgentWorkspace) -> Optional[str]:
+    """The content of the linked resource `file_path` names by its link path (as the prompt lists it), if any."""
+    if file_path in workspace.linked_resources:
+        return workspace.linked_resources[file_path]
+    wanted = os.path.normpath(file_path)
+    for path, content in workspace.linked_resources.items():
+        if os.path.normpath(path) == wanted:
+            return content
+    return None
+
+
 def read_file(args: dict, scope: Target) -> str:
     workspace = _workspace(scope)
-    full_path = _resolve(args.get("file_path", ""), workspace)
-    if not _readable(full_path, workspace):
-        return f"Error: read access denied for '{full_path}' (readable: the project folders and test logs)."
-    if not os.path.isfile(full_path):
-        return f"Error: file not found: '{full_path}'."
-    with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-        lines = f.read().split("\n")
+    resource = _linked_resource(args.get("file_path", ""), workspace)
+    if resource is not None:
+        lines = resource.split("\n")
+    else:
+        full_path = _resolve(args.get("file_path", ""), workspace)
+        if not _readable(full_path, workspace):
+            return f"Error: read access denied for '{full_path}' (readable: the project folders and test logs)."
+        if not os.path.isfile(full_path):
+            return f"Error: file not found: '{full_path}'."
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().split("\n")
     offset = max(int(args.get("offset") or 1), 1)
     limit = int(args.get("limit") or DEFAULT_READ_LIMIT)
     selected = lines[offset - 1 : offset - 1 + limit]

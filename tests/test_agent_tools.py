@@ -344,3 +344,31 @@ def test_writing_under_a_spelling_that_differs_only_in_case_renames_the_existing
     else:
         # On a case-sensitive file system the two spellings are two folders, and nothing is renamed.
         assert sorted(entries) == ["incodeSmile", "incodesmile"] and "renamed" not in out
+
+
+def test_read_file_serves_a_linked_resource_by_its_link_path(tmp_path):
+    build = tmp_path / "build"
+    build.mkdir()
+    resource = "../../src/main/java/com/x/ItemStore.java"
+    workspace = agent_tools.AgentWorkspace(
+        build_folder=str(build),
+        writable_folders=[str(build)],
+        linked_resources={resource: "class ItemStore {\n  int get();\n}"},
+    )
+
+    assert agent_tools.read_file({"file_path": resource}, workspace) == "1: class ItemStore {\n2:   int get();\n3: }"
+    assert "2:   int get();" in agent_tools.read_file(
+        {"file_path": "../../src/main/java/com/x/./ItemStore.java"}, workspace
+    )
+    assert agent_tools.read_file({"file_path": resource, "offset": 2, "limit": 1}, workspace).startswith(
+        "2:   int get();"
+    )
+    assert "read access denied" in agent_tools.read_file(
+        {"file_path": "../../src/main/java/com/x/Other.java"}, workspace
+    )
+
+
+def test_the_unit_tests_workspace_carries_the_functionalitys_linked_resources(project):
+    project.rc.frid_context = SimpleNamespace(linked_resources={"../r.md": "resource"})
+    workspace = agent_tools.unit_tests_workspace(project.rc)
+    assert agent_tools.read_file({"file_path": "../r.md"}, workspace) == "1: resource"

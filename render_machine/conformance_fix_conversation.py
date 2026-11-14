@@ -110,6 +110,7 @@ class ConformanceFixConversation:
             before_change=self._before_change,
             after_change=lambda _path: agents.reviewer_tool_result_cache.clear(),
             allowed_tools=FIXER_TOOLS,
+            linked_resources=agent_tools.linked_resources_of(render_context),
             render_context=render_context,
             conformance_tests_folder=agents.conformance_tests_folder,
             prepared_signature=self._prepared_signature(render_context),
@@ -125,6 +126,7 @@ class ConformanceFixConversation:
             readable_log_paths=agents.readable_log_paths,
             tool_result_cache=agents.reviewer_tool_result_cache,
             allowed_tools=REVIEWER_TOOLS,
+            linked_resources=agent_tools.linked_resources_of(render_context),
         )
 
     @staticmethod
