@@ -59,8 +59,9 @@ class RunConformanceTests(BaseAction):
             ctx = render_context.conformance_tests_running_context
             agents = ctx.conformance_fix_agents
             if agents is not None and agents.tested == (ctx.current_testing_module_name, str(ctx.current_testing_frid)):
-                # The fix is approved and the tests pass: the fixer and the reviewer are done.
-                ctx.conformance_fix_agents = None
+                # The fix is approved and the tests pass. The agents are kept for the next failure of the same
+                # tests (the next acceptance test's conformance test is added after this run).
+                agents.tests_passed = True
             render_context.memory_manager.journal.record_result(
                 render_context.conformance_tests_running_context.current_testing_module_name,
                 render_context.conformance_tests_running_context.current_testing_frid,

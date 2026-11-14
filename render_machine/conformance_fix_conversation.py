@@ -5,8 +5,9 @@ codeplain-api) whose tool calls are executed here. The fixer edits the build fol
 tests folder and calls submit_fix; the reviewer reads the code and the diff of the fix and calls
 submit_review. A rejection goes back to the fixer as the result of its submit_fix and it revises the fix;
 an approval ends the conversation for now and the harness runs the tests. When they still fail, the same
-two sessions continue with the new failure output. The sessions live as long as the conformance tests of
-one functionality are being fixed (see ConformanceFixAgents).
+two sessions continue with the new failure output, also when the tests passed in between and fail again
+(e.g. after a test was added for the next acceptance test). The sessions live as long as the conformance tests
+of one functionality are being fixed (see ConformanceFixAgents).
 """
 
 import difflib
@@ -60,6 +61,16 @@ EMPTY_FIX_MESSAGE = (
 REVIEW_AFTER_TESTS_MESSAGE = (
     "The fix you approved was applied, but the conformance tests still fail (output below). The fixer has "
     "submitted a new fix; review it."
+)
+TESTS_FAIL_AFTER_PASSING_MESSAGE = (
+    "The conformance tests passed after your last fix. Since then the tests were extended (e.g. a test was added "
+    "for the next acceptance test) or run again, and they now fail (output below). Files may have changed since "
+    "you last read them."
+)
+REVIEW_AFTER_PASSING_MESSAGE = (
+    "The fix you approved last made the conformance tests pass. Since then the tests were extended (e.g. a test "
+    "was added for the next acceptance test) or run again, and they now fail (output below). The fixer has "
+    "submitted a fix for the new failure; review it."
 )
 REVIEW_REVISION_MESSAGE = "The fixer revised the fix you rejected; review the revision."
 NO_VERDICT_COMMENTS = (
@@ -155,12 +166,18 @@ class ConformanceFixConversation:
             },
         )
 
-        if agents.approved_fix_tested:
+        if agents.tests_passed:
+            # A new failure after a pass is not a failed run of the approach.
+            agents.failed_runs = 0
+        elif agents.approved_fix_tested:
             agents.failed_runs += 1
         response = None
         if agents.fixer.session_id is not None:
             console.info(f"Continuing the conformance tests fixer session {agents.fixer.session_id}.")
-            output = TESTS_STILL_FAIL_MESSAGE + agent_tools.full_log_pointer(log_path)
+            if agents.tests_passed:
+                output = TESTS_FAIL_AFTER_PASSING_MESSAGE + agent_tools.full_log_pointer(log_path)
+            else:
+                output = TESTS_STILL_FAIL_MESSAGE + agent_tools.full_log_pointer(log_path)
             if agents.failed_runs >= NOT_CONVERGING_AFTER_FAILED_RUNS:
                 output += NOT_CONVERGING_MESSAGE.format(failed_runs=agents.failed_runs)
             response = self._answer(agents.fixer, {"output": output, "test_output": issue})
@@ -227,7 +244,8 @@ class ConformanceFixConversation:
             if agents.reviewer.session_id is not None:
                 result: dict = {"fix_submission": fix_submission}
                 if agents.approved_fix_tested:
-                    result["output"] = REVIEW_AFTER_TESTS_MESSAGE + agent_tools.full_log_pointer(log_path)
+                    message = REVIEW_AFTER_PASSING_MESSAGE if agents.tests_passed else REVIEW_AFTER_TESTS_MESSAGE
+                    result["output"] = message + agent_tools.full_log_pointer(log_path)
                     result["test_output"] = issue
                 else:
                     result["output"] = REVIEW_REVISION_MESSAGE
@@ -237,6 +255,7 @@ class ConformanceFixConversation:
                 params["fix_submission"] = fix_submission
                 response = self._start(agents.reviewer, REVIEWER_TASK, params)
             agents.approved_fix_tested = False
+            agents.tests_passed = False
 
             submission = self._drive(
                 agents.reviewer, response, self.reviewer_workspace, SUBMIT_REVIEW, MAX_REVIEWER_TURNS_PER_REVIEW

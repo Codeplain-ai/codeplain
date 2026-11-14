@@ -102,7 +102,8 @@ class AgentSessionState:
 @dataclass
 class ConformanceFixAgents:
     """The fixer and the reviewer fixing the conformance tests of one functionality. The reviewer lives alongside
-    the fixer: both are started, reset and dropped together. Dropped when that functionality's tests pass."""
+    the fixer: both are started, reset and dropped together. Kept when that functionality's tests pass (see
+    tests_passed); dropped when another functionality's tests fail or the fix attempts run out."""
 
     # (module name, functionality ID) of the conformance tests being fixed.
     tested: tuple[str, str]
@@ -131,6 +132,10 @@ class ConformanceFixAgents:
     rejections: int = 0
     # Whether the reviewer's pending verdict was an approval whose fix was tested (it is told the outcome).
     approved_fix_tested: bool = False
+    # Whether the tests passed since the agents' last fix. The agents are kept: when the tests of the same
+    # functionality fail again (e.g. a new conformance test was added for the next acceptance test), both sessions
+    # continue instead of starting over, which keeps what they learned and lets their prompt be read from the cache.
+    tests_passed: bool = False
     # Full test logs the agents were pointed to.
     readable_log_paths: set[str] = field(default_factory=set)
     # Each agent's read-only tool results (an agent is pointed to its own earlier results); cleared on any change.

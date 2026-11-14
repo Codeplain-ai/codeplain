@@ -33,8 +33,9 @@ class FixConformanceTest(BaseAction):
     """Fix failing conformance tests through a conversation between a fixer agent and a reviewer agent (see
     ConformanceFixConversation). The action returns once the reviewer approved a fix; the state machine then
     runs the tests again (after the unit tests, when the implementation code changed). The two agents live as
-    long as the conformance tests of the same functionality keep failing, so each next execution continues
-    them with the new failure output."""
+    long as the conformance tests of the same functionality are being fixed, also across a pass after which the
+    tests fail again (a test added for the next acceptance test), so each next execution continues them with the
+    new failure output."""
 
     IMPLEMENTATION_CODE_NOT_UPDATED = "implementation_code_not_updated"
     IMPLEMENTATION_CODE_UPDATED = "implementation_code_updated"

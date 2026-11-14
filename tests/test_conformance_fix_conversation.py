@@ -391,7 +391,7 @@ def test_fixer_is_told_when_runs_after_approved_fixes_keep_failing(project, monk
     assert "failed 2 times in a row" in still_failing[1] and "not converging" in still_failing[1]
 
 
-def test_passing_tests_end_both_agents(project, monkeypatch):
+def test_passing_tests_keep_both_agents_for_the_next_failure_of_the_same_tests(project, monkeypatch):
     api = ScriptedAgentAPI(
         fixer_turns=[[write("app.py", "v1\n")], [submit_fix()]], reviewer_turns=[[review("approve")]]
     )
@@ -405,7 +405,33 @@ def test_passing_tests_end_both_agents(project, monkeypatch):
     outcome, _ = RunConformanceTests().execute(render_context, None)
 
     assert outcome == RunConformanceTests.SUCCESSFUL_OUTCOME
-    assert render_context.conformance_tests_running_context.conformance_fix_agents is None
+    agents = render_context.conformance_tests_running_context.conformance_fix_agents
+    assert agents is not None and agents.tests_passed
+
+
+def test_tests_failing_again_after_passing_continue_both_sessions(project, monkeypatch):
+    monkeypatch.setattr(conversation, "NOT_CONVERGING_AFTER_FAILED_RUNS", 1)
+    api = ScriptedAgentAPI(
+        fixer_turns=[[write("app.py", "v1\n")], [submit_fix()], [write("app.py", "v2\n")], [submit_fix()]],
+        reviewer_turns=[[review("approve")], [review("approve")]],
+    )
+    render_context = make_render_context(project, api)
+    run_fix(render_context)
+    agents = render_context.conformance_tests_running_context.conformance_fix_agents
+    agents.tests_passed = True  # as RunConformanceTests leaves them after a pass
+
+    outcome, _ = run_fix(render_context, issue="NEW TEST FAILS")
+
+    assert outcome == FixConformanceTest.IMPLEMENTATION_CODE_UPDATED
+    assert len(api.of("start", conversation.FIXER_TASK)) == 1 and len(api.of("start", conversation.REVIEWER_TASK)) == 1
+    fixer_answer = api.of("continue", conversation.FIXER_TASK)[1][3][-1]
+    assert fixer_answer["output"].startswith(conversation.TESTS_FAIL_AFTER_PASSING_MESSAGE)
+    assert "not converging" not in fixer_answer["output"]
+    assert fixer_answer["test_output"] == "NEW TEST FAILS"
+    [(_, _, _, reviewer_results)] = api.of("continue", conversation.REVIEWER_TASK)
+    assert reviewer_results[-1]["output"].startswith(conversation.REVIEW_AFTER_PASSING_MESSAGE)
+    assert reviewer_results[-1]["test_output"] == "NEW TEST FAILS"
+    assert not agents.tests_passed and agents.failed_runs == 0
 
 
 def test_failing_tests_of_another_functionality_get_new_agents(project):
