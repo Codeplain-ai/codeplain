@@ -285,6 +285,13 @@ def _get_commit(repo: Repo, frid: Optional[str]) -> str:
     return initial_commit
 
 
+def _escape_exact_grep_line(line: str) -> str:
+    """Return a POSIX BRE pattern matching an entire commit-message line literally."""
+    for ch in ("\\", ".", "[", "]", "*", "^", "$"):
+        line = line.replace(ch, f"\\{ch}")
+    return f"^{line}$"
+
+
 def _get_commit_with_frid(repo: Repo, frid: str, module_name: Optional[str] = None) -> str:
     """
     Finds commit with given frid mentioned in the commit message.
@@ -305,9 +312,9 @@ def _get_commit_with_frid(repo: Repo, frid: str, module_name: Optional[str] = No
         return _get_commit_with_message(repo, commit_message_pattern)
 
     # Use multiple grep patterns with --all-match for AND condition
-    escaped_frid_message = commit_message_pattern.replace("[", "\\[").replace("]", "\\]")
+    escaped_frid_message = _escape_exact_grep_line(commit_message_pattern)
     module_name_pattern = MODULE_NAME_MESSAGE.format(module_name)
-    escaped_module_message = module_name_pattern.replace("[", "\\[").replace("]", "\\]")
+    escaped_module_message = _escape_exact_grep_line(module_name_pattern)
 
     return repo.git.rev_list(
         repo.active_branch.name,
@@ -337,7 +344,7 @@ def _get_initial_commit(repo: Repo) -> str:
 
 def _get_commit_with_message(repo: Repo, message: str) -> str:
     """Finds commit with given message."""
-    escaped_message = message.replace("[", "\\[").replace("]", "\\]")
+    escaped_message = _escape_exact_grep_line(message)
 
     return repo.git.rev_list(repo.active_branch.name, "--grep", escaped_message, "-n", "1")
 
@@ -373,8 +380,8 @@ def get_fixed_implementation_code_diff(repo_path: Union[str, os.PathLike], frid:
     if not implementation_commit:
         return None
 
-    escaped_passed_message = CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE.replace("[", "\\[").replace("]", "\\]")
-    escaped_frid_message = RENDERED_FRID_MESSAGE.format(frid).replace("[", "\\[").replace("]", "\\]")
+    escaped_passed_message = _escape_exact_grep_line(CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE)
+    escaped_frid_message = _escape_exact_grep_line(RENDERED_FRID_MESSAGE.format(frid))
     conformance_tests_passed_commit = repo.git.rev_list(
         repo.active_branch.name,
         "--grep",
