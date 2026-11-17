@@ -564,3 +564,54 @@ def test_get_fixed_implementation_code_diff_filters_by_specific_frid(empty_repo)
     assert "code.py" in diff_frid_1
     assert "-def f(): return 1" in diff_frid_1["code.py"]
     assert "+def f(): return 10" in diff_frid_1["code.py"]
+
+
+def test_get_fixed_implementation_code_diff_does_not_match_prefix_frids(empty_repo):
+    """Exact line matching prevents FRID '1' (or 'add-item') from matching '10' (or 'add-item-v2')."""
+    file_path = Path(empty_repo) / "code.py"
+
+    # FRID "1": implemented and finished without conformance fixes
+    file_path.write_text("v = 1\n")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format("1"),
+        module_name="mod",
+        frid="1",
+    )
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("1"),
+        module_name="mod",
+        frid="1",
+    )
+
+    # FRID "10": implemented AND fixed during conformance testing
+    file_path.write_text("v = 10\n")
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_IMPLEMENTED_COMMIT_MESSAGE.format("10"),
+        module_name="mod",
+        frid="10",
+    )
+    file_path.write_text("v = 100\n")
+    add_all_files_and_commit(
+        empty_repo,
+        CONFORMANCE_TESTS_PASSED_COMMIT_MESSAGE,
+        module_name="mod",
+        frid="10",
+    )
+    add_all_files_and_commit(
+        empty_repo,
+        FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format("10"),
+        module_name="mod",
+        frid="10",
+    )
+
+    # FRID "1" must not match FRID "10"'s conformance fix commit
+    assert get_fixed_implementation_code_diff(empty_repo, "1") is None
+
+    # FRID "10" returns its own conformance fix diff
+    diff_10 = get_fixed_implementation_code_diff(empty_repo, "10")
+    assert diff_10 is not None
+    assert "-v = 10" in diff_10["code.py"]
+    assert "+v = 100" in diff_10["code.py"]
