@@ -73,6 +73,9 @@ class ModuleRenderer:
         Returns:
             tuple[bool, bool]: (Whether the module was rendered and whether the rendering failed)
         """
+        if any(module.module_name == plain_module.module_name for module in self.loaded_modules):
+            return True, False
+
         is_render_choice_module = (
             self.render_choice is not None
             and self.render_choice.module is not None
@@ -99,10 +102,7 @@ class ModuleRenderer:
                     return False, True
 
         if (
-            (
-                (not force_render)
-                or any(module.module_name == plain_module.module_name for module in self.loaded_modules)
-            )
+            (not force_render)
             and plain_module.get_repo() is not None
             and not has_any_required_module_changed
             and not plain_module.has_plain_spec_changed()

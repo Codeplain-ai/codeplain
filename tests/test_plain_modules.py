@@ -219,9 +219,8 @@ def test_get_next_module_raises_when_module_not_found(root_module):
         root_module.get_next_module("unknown")
 
 
-def test_all_required_modules_diamond_dependency_deduplication(monkeypatch):
+def test_all_required_modules_diamond_dependency_deduplication():
     """In a diamond dependency (A requires B and C; B requires C), C appears only once in all_required_modules."""
-    # Construct mock modules representing A -> B, C; B -> C
     mod_c = PlainModule.__new__(PlainModule)
     mod_c.module_name = "mod_c"
     mod_c.required_modules = []
@@ -237,10 +236,135 @@ def test_all_required_modules_diamond_dependency_deduplication(monkeypatch):
     all_reqs = mod_a.all_required_modules
     assert [m.module_name for m in all_reqs] == ["mod_c", "mod_b"]
 
-    # Verify get_next_module progresses cleanly through the diamond without cycling
     assert mod_a.get_next_module("mod_c") == mod_b
     assert mod_a.get_next_module("mod_b") == mod_a
     assert mod_a.get_next_module("mod_a") is None
+
+
+def test_diamond_dependency_shares_instances_preserves_scenarios_and_avoids_double_render(monkeypatch):
+    """Real diamond project (A -> [C, B], B -> [C]) with conformance scenarios:
+    1. All references to C share the same PlainModule instance and bound scenarios.
+    2. A subsequent run with no spec changes does not flag C as changed or re-render it.
+    3. Deleting A and B resumes at B (not C) and never renders C twice.
+    4. Even when render_choice targets C, ModuleRenderer renders C only once.
+    """
+    from argparse import Namespace
+    from unittest.mock import MagicMock
+
+    import file_utils
+    import plain_spec
+    from event_bus import EventBus
+    from module_renderer import ModuleRenderer
+    from partial_rendering import RenderChoice, get_plain_module_render_state, get_render_choices
+    from plain2code_state import RunState
+    from render_machine.states import States
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        specs_dir = os.path.join(tmp_dir, "specs")
+        tests_dir = os.path.join(specs_dir, "tests")
+        build_dir = os.path.join(tmp_dir, "build")
+        for mod_name in ("mod_c", "mod_b", "mod_a"):
+            os.makedirs(os.path.join(tests_dir, mod_name), exist_ok=True)
+
+        (Path(specs_dir) / "mod_c.plain").write_text(
+            "***implementation reqs***\n\n- C req.\n\n***functional specs***\n\n# func-c\nC func.\n"
+        )
+        (Path(specs_dir) / "mod_b.plain").write_text(
+            "---\nrequires:\n  - mod_c\n---\n\n***implementation reqs***\n\n- B req.\n\n***functional specs***\n\n# func-b\nB func.\n"
+        )
+        (Path(specs_dir) / "mod_a.plain").write_text(
+            "---\nrequires:\n  - mod_c\n  - mod_b\n---\n\n***implementation reqs***\n\n- A req.\n\n***functional specs***\n\n# func-a\nA func.\n"
+        )
+        for mod_name, frid in (("mod_c", "func-c"), ("mod_b", "func-b"), ("mod_a", "func-a")):
+            (Path(tests_dir) / mod_name / f"{frid}.plain").write_text(
+                f"---\nmodule: {mod_name}\nfunc_id: {frid}\n---\n\n***conformance tests***\n\n# sc-1\nTest {frid}.\n\n***acceptance tests***\n"
+            )
+
+        mod_a = PlainModule("mod_a.plain", build_dir, [specs_dir], [tests_dir], conformance_tests_enabled=True)
+        mod_c_from_a = mod_a.required_modules[0]
+        mod_b = mod_a.required_modules[1]
+        mod_c_from_b = mod_b.required_modules[0]
+
+        assert mod_c_from_a is mod_c_from_b
+        assert [m.module_name for m in mod_a.all_required_modules] == ["mod_c", "mod_b"]
+        assert mod_c_from_b.plain_source[plain_spec.FUNCTIONAL_REQUIREMENTS][0][plain_spec.CONFORMANCE_TESTS]
+        assert mod_a.get_next_module("mod_c") is mod_b
+
+        rendered_modules: list[str] = []
+
+        class FakeCodeRenderer:
+            def __init__(self, render_context):
+                self.render_context = render_context
+
+            def run(self):
+                m = self.render_context.plain_module
+                rendered_modules.append(m.module_name)
+                init_git_repo(m.module_build_folder, m.module_name, "r1")
+                (Path(m.module_build_folder) / f"{m.module_name}.txt").write_text(m.module_name)
+                frid = list(plain_spec.get_frids(m.plain_source))[-1]
+                add_all_files_and_commit(
+                    m.module_build_folder,
+                    FUNCTIONAL_REQUIREMENT_FINISHED_COMMIT_MESSAGE.format(frid),
+                    module_name=m.module_name,
+                    frid=frid,
+                )
+                self.render_context.state = States.RENDER_COMPLETED.value
+
+        monkeypatch.setattr("module_renderer.CodeRenderer", FakeCodeRenderer)
+
+        args = Namespace(
+            build_dest=os.path.join(tmp_dir, "dist"),
+            conformance_tests_dest=os.path.join(tmp_dir, "dist_tests"),
+            unittests_script=None,
+            conformance_tests_script=None,
+            prepare_environment_script=None,
+            copy_build=False,
+            copy_conformance_tests=False,
+            render_conformance_tests=False,
+            base_folder=None,
+            test_script_timeout=None,
+            render_machine_graph=False,
+            force_render=False,
+        )
+
+        # 1. Initial full render: each module renders once in topological order
+        ModuleRenderer(MagicMock(), mod_a, None, None, args, RunState("mod_a.plain"), EventBus()).render_module()
+        assert rendered_modules == ["mod_c", "mod_b", "mod_a"]
+
+        # 2. Re-parse with no spec changes: C must not report spec changes on either path
+        rendered_modules.clear()
+        mod_a2 = PlainModule("mod_a.plain", build_dir, [specs_dir], [tests_dir], conformance_tests_enabled=True)
+        assert not mod_a2.required_modules[0].has_plain_spec_changed()
+        assert not mod_a2.required_modules[1].required_modules[0].has_plain_spec_changed()
+        state2 = get_plain_module_render_state(mod_a2)
+        assert state2 is not None and state2.change is None
+        # Even if ModuleRenderer checks required modules, mod_c and mod_b are skipped
+        ModuleRenderer(MagicMock(), mod_a2, None, None, args, RunState("mod_a.plain"), EventBus()).render_module()
+        assert "mod_c" not in rendered_modules
+        assert "mod_b" not in rendered_modules
+
+        # 3. Delete A and B after full render: resume choice starts at B (not C) and never renders C twice
+        rendered_modules.clear()
+        file_utils.delete_folder(os.path.join(build_dir, "mod_a"))
+        file_utils.delete_folder(os.path.join(build_dir, "mod_b"))
+        mod_a3 = PlainModule("mod_a.plain", build_dir, [specs_dir], [tests_dir], conformance_tests_enabled=True)
+        state3 = get_plain_module_render_state(mod_a3)
+        assert state3 is not None and state3.last_render_module.module_name == "mod_c"
+        choices3 = get_render_choices(mod_a3, state3)
+        assert choices3["1"].module.module_name == "mod_b"
+        ModuleRenderer(
+            MagicMock(), mod_a3, choices3["1"], None, args, RunState("mod_a.plain"), EventBus()
+        ).render_module()
+        assert rendered_modules == ["mod_b", "mod_a"]
+
+        # 4. When render_choice explicitly targets mod_c, mod_c still renders only once
+        rendered_modules.clear()
+        choice_c = RenderChoice(module=mod_a3.required_modules[0], render_range=None, choice_type="rerender_affected")
+        ModuleRenderer(MagicMock(), mod_a3, choice_c, None, args, RunState("mod_a.plain"), EventBus()).render_module()
+        assert rendered_modules == ["mod_c", "mod_b", "mod_a"]
+    finally:
+        file_utils.delete_folder(tmp_dir)
 
 
 # --------------------------------------------------------------------------

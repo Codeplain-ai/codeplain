@@ -156,6 +156,7 @@ class PlainModule:
         template_dirs: list[str],
         tests_folders: list[str] | None = None,
         conformance_tests_enabled: bool = False,
+        _modules_cache: dict[str, PlainModule] | None = None,
     ):
         self.filename = filename
         self.build_folder = build_folder
@@ -174,16 +175,22 @@ class PlainModule:
         plain_spec.collect_linked_resources(plain_source, resources_list, None, True)
         self.resources_list = resources_list
         self.functionalities_without_scenarios: list[tuple[str, str]] = []
+        if _modules_cache is None:
+            _modules_cache = {}
+        _modules_cache[self.module_name] = self
         self.required_modules = []
-        if len(required_modules_names) > 0:
-            self.required_modules = [
-                PlainModule(
-                    plain_file.get_filename_from_module_name(module_name),
-                    self.build_folder,
-                    self.template_dirs,
+        for req_name in required_modules_names:
+            if req_name in _modules_cache:
+                self.required_modules.append(_modules_cache[req_name])
+            else:
+                self.required_modules.append(
+                    PlainModule(
+                        plain_file.get_filename_from_module_name(req_name),
+                        self.build_folder,
+                        self.template_dirs,
+                        _modules_cache=_modules_cache,
+                    )
                 )
-                for module_name in required_modules_names
-            ]
         if tests_folders is not None:
             self._bind_test_scenarios(tests_folders, conformance_tests_enabled)
 
