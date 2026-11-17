@@ -9,6 +9,9 @@ class SummarizeConformanceTests(BaseAction):
     SUCCESSFUL_OUTCOME = "conformance_tests_summarized"
 
     def execute(self, render_context: RenderContext, _previous_action_payload: Any | None):
+        if not render_context.conformance_tests_running_context.current_conformance_tests_exist():
+            return self.SUCCESSFUL_OUTCOME, None
+
         functionality = render_context.functionality_label()
         console.info(f"Summarizing conformance tests for functionality {functionality}.")
 
