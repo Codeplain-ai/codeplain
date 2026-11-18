@@ -276,11 +276,14 @@ class RenderContext:
 
         return conformance_tests_running_context
 
+    def _next_required_module_with_tests(self, start_index: int) -> Optional[PlainModule]:
+        for module in (self.required_modules or [])[start_index:]:
+            if self.conformance_tests.get_conformance_tests_json(module.module_name):
+                return module
+        return None
+
     def get_first_conformance_tests_running_context(self):
-        if self.required_modules is None or len(self.required_modules) == 0:
-            return self._get_first_frid_conformance_test_running_context(None)
-        else:
-            return self._get_first_frid_conformance_test_running_context(self.required_modules[0])
+        return self._get_first_frid_conformance_test_running_context(self._next_required_module_with_tests(0))
 
     def get_next_conformance_tests_running_context(self):
         conformance_tests_running_context = self.conformance_tests_running_context
@@ -299,18 +302,15 @@ class RenderContext:
             if current_index + 1 < len(all_frids):
                 conformance_tests_running_context.current_testing_frid = all_frids[current_index + 1]
             else:
-                next_module_index = -1
-                for i, required_module in enumerate(self.required_modules):
+                next_module_index = len(self.required_modules or [])
+                for i, required_module in enumerate(self.required_modules or []):
                     if required_module.module_name == conformance_tests_running_context.current_testing_module_name:
                         next_module_index = i + 1
                         break
 
-                if next_module_index < len(self.required_modules):
-                    conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(
-                        self.required_modules[next_module_index]
-                    )
-                else:
-                    conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(None)
+                conformance_tests_running_context = self._get_first_frid_conformance_test_running_context(
+                    self._next_required_module_with_tests(next_module_index)
+                )
 
         return conformance_tests_running_context
 
@@ -381,6 +381,7 @@ class RenderContext:
         # No scenario was written for this functionality, so no conformance test is rendered or run
         # for it. The tests of the previous functionalities still run, so a regression it causes is
         # still caught.
+        self.conformance_tests_running_context.acceptance_test_phase = AcceptanceTestPhase.NOT_APPLICABLE
         functionality = self.functionality_label()
         if self._has_conformance_tests_to_run_in_regression():
             console.info(
@@ -568,29 +569,33 @@ class RenderContext:
     def _handle_regression_testing(self):
         """Handle regression testing of all earlier FRIDs."""
 
-        # Get next test to run
+        # Get next test to run, skipping earlier functionalities in the current module that have no scenarios
         self.conformance_tests_running_context = self._get_next_test_to_run()
-
-        # Get reference to the updated context
         ctx = self.conformance_tests_running_context
+        while (
+            ctx.current_testing_module_name == self.module_name
+            and ctx.current_testing_frid is not None
+            and not ctx.current_conformance_tests_exist()
+            and not self._has_reached_implementation_frid()
+        ):
+            self.conformance_tests_running_context = self._get_next_test_to_run()
+            ctx = self.conformance_tests_running_context
 
         # Set up specs and run test
         self._setup_test_specifications()
 
-        if ctx.current_conformance_tests_exist():
-            # Check if this is the implementation FRID (last test to run)
-            if self._has_reached_implementation_frid():
-                # Reached implementation FRID - only re-run it if code changed during regression
-                if ctx.code_changed_during_regression:
-                    # Code changed - run the implementation FRID again to verify no regression
-                    # After it passes, mark as completed on next iteration
-                    ctx.execution_phase = TestExecutionPhase.COMPLETED
-                else:
-                    # No code changes - skip re-running implementation FRID, mark as completed immediately
-                    ctx.execution_phase = TestExecutionPhase.COMPLETED
-                    self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
-                    return
+        if self._has_reached_implementation_frid():
+            # Reached implementation FRID - only re-run it if it has tests and code changed during regression
+            if not ctx.current_conformance_tests_exist() or not ctx.code_changed_during_regression:
+                ctx.execution_phase = TestExecutionPhase.COMPLETED
+                self.machine.dispatch(triggers.MARK_ALL_CONFORMANCE_TESTS_PASSED)
+                return
 
+            ctx.execution_phase = TestExecutionPhase.COMPLETED
+            self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
+            return
+
+        if ctx.current_conformance_tests_exist():
             self.machine.dispatch(triggers.MARK_CONFORMANCE_TESTS_READY)
 
     # ========== Main Conformance Test Orchestration ==========
