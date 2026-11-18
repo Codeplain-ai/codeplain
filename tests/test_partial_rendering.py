@@ -648,3 +648,82 @@ def test_change_is_only_future_work_false_when_no_partial_start():
     root, _, _ = _build_choices_tree()
     pr = PlainModuleRenderState(last_render_module=root, last_render_frid="fr-e")
     assert change_is_only_future_work(root, pr, None) is False
+
+
+def _make_leaf_trailing_removal_chain(
+    *, root_last_frid: str, root_fully_rendered: bool, root_current_frs: list[dict[str, str]]
+) -> tuple[FakeModule, FakeModule]:
+    leaf = FakeModule("leaf", frids=("req-a",))
+    leaf._metadata = {
+        "source_hash": "stale-leaf",
+        "non_functional_source_hash": "match",
+        "functionalities": [
+            {"id": "req-a", "markdown": "The req-a functionality."},
+            {"id": "req-b", "markdown": "The req-b functionality."},
+        ],
+    }
+    leaf._get_module_functional_requirements = lambda: [{"id": "req-a", "markdown": "The req-a functionality."}]
+    leaf.get_module_non_functional_source_hash = lambda: "match"
+
+    root = FakeModule(
+        "root",
+        required_modules=[leaf],
+        last_rendered=("root", root_last_frid),
+        fully_rendered=root_fully_rendered,
+        frids=("top-a", "top-b"),
+    )
+    root._metadata = {
+        "source_hash": "stale-root",
+        "non_functional_source_hash": "match",
+        "required_modules_code_hash": leaf.get_module_code_hash(),
+        "functionalities": [{"id": "top-a", "markdown": "The top-a functionality."}],
+    }
+    root._get_module_functional_requirements = lambda: root_current_frs
+    root.get_module_non_functional_source_hash = lambda: "match"
+    return root, leaf
+
+
+def test_render_choices_trailing_removal_in_required_with_top_edit_offers_rerender_affected():
+    """Removing a trailing functionality from a required module while editing the top module must
+    re-render from the required module instead of offering a partial render on the top module."""
+    root, leaf = _make_leaf_trailing_removal_chain(
+        root_last_frid="top-b",
+        root_fully_rendered=True,
+        root_current_frs=[
+            {"id": "top-a", "markdown": "The top-a functionality."},
+            {"id": "top-b", "markdown": "Updated top-b."},
+        ],
+    )
+    root._metadata["functionalities"].append({"id": "top-b", "markdown": "The top-b functionality."})
+
+    pr = get_plain_module_render_state(root)
+    assert pr is not None
+    assert pr.change is leaf
+    assert pr.change_type == "spec_change"
+
+    choices = get_render_choices(root, pr)
+    assert _choice_types(choices) == ["rerender_affected", "quit"]
+    assert choices["1"].module is leaf
+    assert choices["1"].render_range is None
+
+
+def test_render_choices_trailing_removal_in_required_with_unrendered_top_does_not_auto_continue():
+    """When a required module has a trailing removal and the top module has unrendered trailing
+    functionalities, get_render_choices must not treat the change as future-only continuation."""
+    root, leaf = _make_leaf_trailing_removal_chain(
+        root_last_frid="top-a",
+        root_fully_rendered=False,
+        root_current_frs=[
+            {"id": "top-a", "markdown": "The top-a functionality."},
+            {"id": "top-b", "markdown": "The top-b functionality."},
+        ],
+    )
+
+    pr = get_plain_module_render_state(root)
+    assert pr is not None
+    assert pr.change is leaf
+
+    choices = get_render_choices(root, pr)
+    assert "continue_from_frid" not in _choice_types(choices)
+    assert _choice_types(choices) == ["rerender_affected", "quit"]
+    assert choices["1"].module is leaf
