@@ -211,6 +211,9 @@ class ConformanceTestsRunningContext:
         self.unit_tests_agent_session = UnitTestsAgentSession()
         # The fixer and reviewer of the conformance tests currently failing; None when no fix is in progress.
         self.conformance_fix_agents: Optional[ConformanceFixAgents] = None
+        # Baseline journal entry count per (module_name, frid) before this conformance phase opened
+        # attempts, so restarting the functionality from scratch can discard only aborted entries.
+        self.journal_rollback_counts: dict[tuple[str, str], int] = {}
 
     def get_conformance_tests_json(self, module_name: str) -> dict:
         return self._conformance_tests_json[module_name]

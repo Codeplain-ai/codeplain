@@ -68,6 +68,9 @@ class FixConformanceTest(BaseAction):
         issue = previous_action_payload["previous_conformance_tests_issue"]
 
         journal = render_context.memory_manager.journal
+        journal_key = (ctx.current_testing_module_name, str(ctx.current_testing_frid))
+        if journal_key not in ctx.journal_rollback_counts:
+            ctx.journal_rollback_counts[journal_key] = journal.entry_count(*journal_key)
         journal.record_result(ctx.current_testing_module_name, ctx.current_testing_frid, passed=False)
         journal.open_attempt(ctx.current_testing_module_name, ctx.current_testing_frid, ctx.fix_attempts, issue)
 
