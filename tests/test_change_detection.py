@@ -403,3 +403,21 @@ def test_partial_render_start_non_fr_change_in_required_module_blocks():
     top_module.required_modules = [req_module]
 
     assert determine_partial_render_start(top_module) is None
+
+
+def test_partial_render_start_trailing_removal_in_required_module_blocks_downstream_partial():
+    """Trailing removals in a required module require full re-render from that module, not partial
+    rendering (or auto-continuing) from a downstream module while deleted functionalities stay behind."""
+    req_module = FakeModule("req", _frs("req-a"), stored_frs=_frs("req-a", "req-b"))
+    top_module = FakeModule("top", _frs("top-a", ("top-b", "new b")), stored_frs=_frs("top-a", "top-b"))
+    top_module.required_modules = [req_module]
+
+    assert determine_partial_render_start(top_module) is None
+
+
+def test_partial_render_start_trailing_removal_in_required_module_blocks_appended_top():
+    req_module = FakeModule("req", _frs("req-a"), stored_frs=_frs("req-a", "req-b"))
+    top_module = FakeModule("top", _frs("top-a", "top-b"), stored_frs=_frs("top-a"))
+    top_module.required_modules = [req_module]
+
+    assert determine_partial_render_start(top_module) is None

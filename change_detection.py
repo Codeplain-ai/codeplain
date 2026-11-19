@@ -44,7 +44,10 @@ def determine_partial_render_start(plain_module: "PlainModule") -> PartialRender
 
         earliest_frid = _get_earliest_affected_frid(changes, _stored_frids(module), _current_frids(module))
         if earliest_frid is None:
-            continue
+            # Only trailing functionalities were removed: this module cannot be partially rendered from
+            # an earlier func-id, and continuing onto a downstream module would leave the removed
+            # functionalities in place. Only a full re-render starting from this module is safe.
+            return None
         return PartialRenderStart(module=module, frid=earliest_frid)
 
     return None
