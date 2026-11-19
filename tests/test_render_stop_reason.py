@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import git_utils
 import plain2code_logger
 from event_bus import EventBus
 from memory_management import MemoryManager
@@ -53,7 +54,7 @@ def workspace():
         yield build_folder, unittests_script
 
 
-def make_render_context(api, build_folder, unittests_script, fixtures_dir):
+def make_render_context(api, build_folder, unittests_script, fixtures_dir, render_range=None, is_regenerate=False):
     plain_module = PlainModule("pr_solo.plain", build_folder, [fixtures_dir])
     os.makedirs(plain_module.module_build_folder, exist_ok=True)
     return RenderContext(
@@ -68,12 +69,13 @@ def make_render_context(api, build_folder, unittests_script, fixtures_dir):
         prepare_environment_script=None,
         copy_build=False,
         copy_conformance_tests=False,
-        render_range=None,
+        render_range=render_range,
         render_conformance_tests=False,
         base_folder=fixtures_dir,
         run_state=RunState(spec_filename="pr_solo.plain"),
         event_bus=EventBus(),
         enter_pause_event=threading.Event(),
+        is_regenerate=is_regenerate,
     )
 
 
@@ -208,3 +210,26 @@ class TestExitWithErrorMessage:
         assert len(messages) == 1
         assert "None" not in messages[0]
         assert render_context.last_error_message == messages[0]
+
+
+def test_regenerating_a_functionality_that_was_not_rendered_names_the_cause(workspace, fixtures_dir, caplog):
+    build_folder, unittests_script = workspace
+    api = FakeCodeplainAPI()
+    render_context = make_render_context(
+        api, build_folder, unittests_script, fixtures_dir, render_range=["solo-two"], is_regenerate=True
+    )
+    # A module repository with no functionality rendered yet.
+    git_utils.init_git_repo(render_context.build_folder, "pr_solo")
+    code_renderer = CodeRenderer(render_context)
+
+    with caplog.at_level(logging.DEBUG, logger=plain2code_logger.LOGGER_NAME):
+        code_renderer.run()
+
+    expected_message = (
+        "Cannot regenerate functionality solo-two because it has not been fully rendered yet. "
+        "Please render all functionalities first by running: codeplain pr_solo.plain"
+    )
+    assert render_context.state == States.RENDER_FAILED.value
+    assert error_log_messages(caplog) == [expected_message]
+    # The TUI shows the same stop reason as the log.
+    assert render_context.last_error_message == expected_message

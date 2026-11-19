@@ -137,6 +137,7 @@ def make_render_context(project, api, testing_frid="1", frid="1", testing_module
         conformance_tests_running_context=ctx,
         plain_source_tree={},
         module_name="mod",
+        is_regenerate=False,
         required_modules=[],
         frid_context=SimpleNamespace(frid=frid, linked_resources={}, changed_files={"app.py"}),
         get_required_modules_functionalities=lambda: {},
