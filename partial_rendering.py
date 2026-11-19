@@ -234,6 +234,26 @@ def change_is_only_future_work(
     return frids.index(partial_start.frid) > frids.index(plain_module_render_state.last_render_frid)
 
 
+def _keep_regenerations(choice: RenderChoice) -> RenderChoice:
+    """Start the choice at an earlier regenerated functionality when its render would remove that regeneration.
+
+    The render resets the code to the functionality before its start. That reset removes a regeneration
+    made after it, so the render must start at the regenerated functionality. This renders again the
+    functionalities after it, so the user must confirm the choice.
+    """
+    assert choice.module is not None and choice.render_range is not None
+    regenerated_frid = choice.module.get_regenerated_frid_removed_by_render_from(choice.render_range[0])
+    if regenerated_frid is None:
+        return choice
+    return RenderChoice(
+        module=choice.module,
+        render_range=plain_spec.get_render_range_from(regenerated_frid, choice.module.plain_source),
+        choice_type="render_from_regenerated",
+        wipe_later_modules=choice.wipe_later_modules,
+        is_destructive=True,
+    )
+
+
 def _resume_render_choice(
     plain_module: PlainModule,
     plain_module_render_state: PlainModuleRenderState,
@@ -258,10 +278,12 @@ def _resume_render_choice(
 
         next_frid, next_module = plain_module.get_next_frid(pr.last_render_frid, pr.last_render_module.module_name)
         render_range = plain_spec.get_render_range_from(next_frid, next_module.plain_source)
-        return RenderChoice(
-            module=next_module,
-            render_range=render_range,
-            choice_type="continue_from_frid",
+        return _keep_regenerations(
+            RenderChoice(
+                module=next_module,
+                render_range=render_range,
+                choice_type="continue_from_frid",
+            )
         )
 
     next_module = plain_module.get_next_module(pr.last_render_module.module_name) or pr.last_render_module
@@ -323,12 +345,14 @@ def get_render_choices(
             # module's earlier (unchanged) functionalities.
             render_range = plain_spec.get_render_range_from(partial_start.frid, partial_start.module.plain_source)
             render_choices.append(
-                RenderChoice(
-                    module=partial_start.module,
-                    render_range=render_range,
-                    choice_type="render_from_change",
-                    wipe_later_modules=len(all_affected_modules) > 1,
-                    is_destructive=True,
+                _keep_regenerations(
+                    RenderChoice(
+                        module=partial_start.module,
+                        render_range=render_range,
+                        choice_type="render_from_change",
+                        wipe_later_modules=len(all_affected_modules) > 1,
+                        is_destructive=True,
+                    )
                 )
             )
 

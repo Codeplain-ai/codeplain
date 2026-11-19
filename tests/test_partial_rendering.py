@@ -59,6 +59,9 @@ class FakeModule:
         self._next_frid = next_frid
         self.plain_source = _tree(*frids)
 
+    def get_regenerated_frid_removed_by_render_from(self, start_frid):
+        return None
+
     @property
     def all_required_modules(self):
         result = []

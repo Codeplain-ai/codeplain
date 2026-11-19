@@ -18,13 +18,14 @@ class ExitWithError(BaseAction):
         render_context.last_error_message = error_message
         console.error(error_message)
 
-        render_context.codeplain_api.fail_functional_requirement(
-            render_context.frid_context.frid,
-            module_name=render_context.module_name,
-            run_state=render_context.run_state,
-        )
-
+        # A render can fail before any functionality is started, for example when a regeneration is
+        # not possible. There is then no functionality to report as failed.
         if render_context.frid_context is not None:
+            render_context.codeplain_api.fail_functional_requirement(
+                render_context.frid_context.frid,
+                module_name=render_context.module_name,
+                run_state=render_context.run_state,
+            )
             console.info(
                 f"To continue rendering from the last successfully rendered functionality, "
                 f"provide the --render-from {render_context.frid_context.frid} flag."
