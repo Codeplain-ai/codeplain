@@ -201,6 +201,22 @@ class FixAttemptJournal:
 
         return journals
 
+    def entry_count(self, module_name: str, frid: str) -> int:
+        """Returns the number of recorded entries for `(module_name, frid)`."""
+        return len(self._read_entries(module_name, frid))
+
+    def truncate_entries(self, module_name: str, frid: str, keep_count: int) -> None:
+        """Trims recorded entries back to `keep_count`, removing the file if none remain."""
+        if keep_count <= 0:
+            journal_path = self._journal_path(module_name, frid)
+            if os.path.exists(journal_path):
+                os.remove(journal_path)
+            return
+
+        entries = self._read_entries(module_name, frid)
+        if len(entries) > keep_count:
+            self._write_entries(module_name, frid, entries[:keep_count])
+
     def clear_all(self):
         """Deletes every journal. Called after the journals have been distilled into memories."""
         if os.path.exists(self.journal_folder):

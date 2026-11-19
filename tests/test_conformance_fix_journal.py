@@ -257,3 +257,23 @@ class TestCollectAndClear:
 
         entries = journal._read_entries("mod", "add-task")
         assert [entry["attempt"] for entry in entries] == [1, 2]
+
+    def test_entry_count_and_truncate_entries_keep_prefix(self, journal):
+        assert journal.entry_count("mod", "add-task") == 0
+
+        record_full_attempt(journal, attempt=1)
+        record_full_attempt(journal, attempt=2)
+        assert journal.entry_count("mod", "add-task") == 2
+
+        journal.truncate_entries("mod", "add-task", 1)
+        assert journal.entry_count("mod", "add-task") == 1
+        assert [entry["attempt"] for entry in journal.build_digest("mod", "add-task")] == [1]
+
+    def test_truncate_entries_to_zero_removes_journal_file(self, journal):
+        record_full_attempt(journal, attempt=1)
+        journal_path = journal._journal_path("mod", "add-task")
+        assert os.path.exists(journal_path)
+
+        journal.truncate_entries("mod", "add-task", 0)
+        assert not os.path.exists(journal_path)
+        assert journal.collect_all() == []

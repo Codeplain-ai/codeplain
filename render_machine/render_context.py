@@ -1,3 +1,4 @@
+import os
 import threading
 from copy import deepcopy
 from typing import Any, Callable, Optional
@@ -334,7 +335,28 @@ class RenderContext:
         if self.unit_tests_running_context.fix_attempts > MAX_UNITTEST_FIX_ATTEMPTS:
             on_limit_exceeded()
 
+    def _reset_frid_for_restart(self) -> None:
+        """Reset per-attempt state before restarting rendering the current FRID from scratch."""
+        if self.frid_context is not None:
+            self.frid_context.refactoring_iteration = 0
+            self.frid_context.changed_files.clear()
+        self.last_error_message = None
+
+    def _revert_conformance_phase_artifacts(self) -> None:
+        """Revert conformance test repo changes and discard journals from an aborted conformance phase."""
+        if self.render_conformance_tests and self.frid_context is not None:
+            tests_folder = self.conformance_tests.get_module_conformance_tests_folder(self.module_name)
+            if os.path.isdir(os.path.join(tests_folder, ".git")):
+                previous_frid = plain_spec.get_previous_frid(self.plain_source_tree, self.frid_context.frid)
+                git_utils.revert_to_commit_with_frid(tests_folder, previous_frid)
+
+        ctx = self.conformance_tests_running_context
+        if ctx is not None:
+            for (module_name, frid), keep_count in ctx.journal_rollback_counts.items():
+                self.memory_manager.journal.truncate_entries(module_name, frid, keep_count)
+
     def _on_unit_test_limit_exceeded_in_implementation(self):
+        self._reset_frid_for_restart()
         self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
 
     def _on_unit_test_limit_exceeded_in_conformance_tests(self):
@@ -354,6 +376,8 @@ class RenderContext:
                 f"Restarting rendering the functionality {functionality} from scratch.",
                 color=RETRY_COLOR,
             )
+            self._reset_frid_for_restart()
+            self._revert_conformance_phase_artifacts()
             self.machine.dispatch(triggers.RESTART_FRID_PROCESSING)
 
     def _on_unit_test_limit_exceeded_in_refactoring(self):
