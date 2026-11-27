@@ -8,7 +8,7 @@ python-liquid2==0.4.0
 requests==2.34.2
 rich==15.0.0
 tiktoken==0.14.0
-PyYAML==6.0.3
+PyYAML==6.0.4
 gitpython==3.2.1
 pytest==9.2.0
 textual>=7.5.0
