@@ -29,7 +29,7 @@ jobs:
         id: slack-start
         if: ${{ vars.SLACK_CHANNEL_ID != '' }}
         continue-on-error: true
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
         with:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -108,7 +108,7 @@ jobs:
     steps:
       - name: Notify Slack (build failure)
         if: ${{ needs.build.result == 'failure' }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
         with:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -123,7 +123,7 @@ jobs:
 
       - name: Notify Slack (failure)
         if: ${{ needs.publish-to-pypi.result == 'failure' }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
         with:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -150,7 +150,7 @@ jobs:
       # that actually works.
       - name: Notify Slack (pre-release published)
         if: ${{ needs.publish-to-pypi.result == 'success' && github.event.release.prerelease }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
         with:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -167,7 +167,7 @@ jobs:
         env:
           # Empty while the release step only logs, or when it failed.
           RELEASE_URL: ${{ needs.linear-release.outputs.release-url }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
         with:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -185,7 +185,7 @@ jobs:
       - name: Notify Slack (✅ on the start notice)
         if: ${{ needs.publish-to-pypi.result == 'success' && env.THREAD_TS != 'null' }}
         continue-on-error: true
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
         with:
           method: reactions.add
           token: ${{ secrets.SLACK_BOT_TOKEN }}
